@@ -25,10 +25,12 @@ class ValidateTokenWithCentral
 
         try {
             // Validar token con el sistema central
+            Log::info("Token:" . $token);
             $response = Http::withToken($token)
                 ->post(env('SISTEMA_CENTRAL_API') . '/validar-token', [
-                    'modulo_id' => env('MODULO_ID', 2),
+                    'modulo_id' => env('MODULO_ID', 1),
                 ]);
+            Log::info("Respuesta:" . $response->successful());
 
             if ($response->successful() && $response->json('valid')) {
                 // Agregar datos del usuario al request

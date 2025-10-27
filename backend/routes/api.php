@@ -14,8 +14,27 @@ Route::get('/ping', function () {
 
 // Rutas protegidas
 Route::middleware(['validate.token'])->group(function () {
-    
+
+    //Rutas de registros de prueba de produccion
     Route::get('/registros', [RegistroProduccionController::class, 'index']);
     Route::post('/registros', [RegistroProduccionController::class, 'store']);
-    
+
+    // ========================================
+    // CARGAR RUTAS DE SUB-MÓDULOS
+    // ========================================
+
+    // Sub-módulo: Ingeniería
+    Route::prefix('ingenieria')->group(function () {
+        require __DIR__ . '/api/ingenieria.php';
+    });
+
+    // Sub-módulo: Dispatch
+    Route::prefix('dispatch')->group(function () {
+        require __DIR__ . '/api/dispatch.php';
+    });
+
+    // Sub-módulo: Laboratorio
+    Route::prefix('laboratorio')->group(function () {
+        require __DIR__ . '/api/laboratorio.php';
+    });
 });

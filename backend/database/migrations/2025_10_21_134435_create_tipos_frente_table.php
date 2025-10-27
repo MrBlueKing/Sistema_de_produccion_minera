@@ -13,6 +13,8 @@ return new class extends Migration
     {
         Schema::create('tipos_frente', function (Blueprint $table) {
             $table->id();
+            $table->string('nombre', 100)->unique();
+            $table->string('abreviatura', 10);
             $table->timestamps();
         });
     }

@@ -1,192 +1,147 @@
-import { useState, useEffect } from 'react';
-import { useAuth } from '../context/AuthContext';
-import api from '../services/api';
+// src/pages/Dashboard.jsx (OPCIONAL - No se usa por defecto)
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../core/context/AuthContext';
+import { getRoutesByModule } from '../routes/routesConfig';
+import Header from '../shared/components/organisms/Header';
 
+/**
+ * Dashboard - Página opcional que muestra módulos disponibles
+ * 
+ * NOTA: Este dashboard es OPCIONAL. Por defecto, los usuarios vienen
+ * directamente desde el SAC a URLs específicas como:
+ * /ingenieria/frentes-trabajo
+ * 
+ * Este dashboard solo se usaría si decides agregarlo como ruta en routesConfig.
+ */
 export default function Dashboard() {
-  const { user, roles, logout } = useAuth();
-  const [registros, setRegistros] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [showForm, setShowForm] = useState(false);
+  const navigate = useNavigate();
+  const { user, permisos, roles, getUserInfo } = useAuth();
+  const userInfo = getUserInfo();
 
-  // Formulario
-  const [formData, setFormData] = useState({
-    descripcion: '',
-    cantidad: '',
-    fecha: new Date().toISOString().split('T')[0],
-  });
+  // Obtener rutas agrupadas por módulo según permisos del usuario
+  const routesByModule = getRoutesByModule(permisos, roles);
 
-  useEffect(() => {
-    loadRegistros();
-  }, []);
-
-  const loadRegistros = async () => {
-    try {
-      const response = await api.get('/registros');
-      setRegistros(response.data.registros);
-    } catch (error) {
-      console.error('Error cargando registros:', error);
-    }
+  const moduleColors = {
+    ingenieria: 'blue',
+    dispatch: 'green',
+    laboratorio: 'purple',
+    general: 'gray'
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
-
-    try {
-      await api.post('/registros', formData);
-      
-      // Limpiar formulario
-      setFormData({
-        descripcion: '',
-        cantidad: '',
-        fecha: new Date().toISOString().split('T')[0],
-      });
-      
-      setShowForm(false);
-      loadRegistros();
-      
-      alert('✅ Registro creado exitosamente');
-    } catch (error) {
-      console.error('Error:', error);
-      alert('❌ Error al crear registro');
-    } finally {
-      setLoading(false);
-    }
+  const getColorClasses = (module) => {
+    const color = moduleColors[module] || 'gray';
+    return {
+      bg: `bg-${color}-50`,
+      border: `border-${color}-200`,
+      text: `text-${color}-700`,
+      hover: `hover:border-${color}-400`,
+    };
   };
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow">
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-gray-900">
-                📦 Sistema de Producción
-              </h1>
-              <p className="text-sm text-gray-600">
-                Bienvenido, {user.nombre} {user.apellido}
-              </p>
-              <p className="text-xs text-gray-500">
-                Roles: {roles.join(', ')}
-              </p>
-            </div>
-            <button
-              onClick={logout}
-              className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition"
-            >
-              Cerrar Sesión
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
+      <Header />
+      
       <main className="max-w-7xl mx-auto px-4 py-8">
-        
-        {/* Botón Crear */}
-        <div className="mb-6">
-          <button
-            onClick={() => setShowForm(!showForm)}
-            className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition font-semibold"
-          >
-            {showForm ? '❌ Cancelar' : '➕ Crear Registro'}
-          </button>
+        {/* Información del usuario */}
+        <div className="bg-white rounded-lg shadow-sm p-6 mb-8">
+          <h2 className="text-2xl font-bold text-gray-900 mb-2">
+            Bienvenido, {userInfo.nombreCompleto}
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+            <div>
+              <p className="text-sm text-gray-500">RUT</p>
+              <p className="font-medium text-gray-900">{userInfo.rut}</p>
+            </div>
+            <div>
+              <p className="text-sm text-gray-500">Email</p>
+              <p className="font-medium text-gray-900">{userInfo.email}</p>
+            </div>
+            <div>
+              <p className="text-sm text-gray-500">Faena</p>
+              <p className="font-medium text-gray-900">{userInfo.faena}</p>
+            </div>
+          </div>
         </div>
 
-        {/* Formulario */}
-        {showForm && (
-          <div className="bg-white rounded-lg shadow-md p-6 mb-8">
-            <h2 className="text-xl font-bold mb-4">Nuevo Registro de Producción</h2>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Descripción
-                </label>
-                <input
-                  type="text"
-                  value={formData.descripcion}
-                  onChange={(e) => setFormData({...formData, descripcion: e.target.value})}
-                  required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Ej: Producción turno mañana"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Cantidad
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={formData.cantidad}
-                  onChange={(e) => setFormData({...formData, cantidad: e.target.value})}
-                  required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Ej: 1500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Fecha
-                </label>
-                <input
-                  type="date"
-                  value={formData.fecha}
-                  onChange={(e) => setFormData({...formData, fecha: e.target.value})}
-                  required
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 transition font-semibold"
-              >
-                {loading ? 'Guardando...' : '💾 Guardar Registro'}
-              </button>
-            </form>
+        {/* Módulos disponibles */}
+        {Object.keys(routesByModule).length === 0 ? (
+          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-6 text-center">
+            <p className="text-yellow-800">
+              No tienes acceso a ningún módulo en este sistema.
+            </p>
+            <p className="text-yellow-700 text-sm mt-2">
+              Contacta al administrador si crees que esto es un error.
+            </p>
           </div>
+        ) : (
+          Object.entries(routesByModule).map(([moduleName, routes]) => (
+            <div key={moduleName} className="mb-8">
+              <h3 className="text-xl font-bold text-gray-900 mb-4 capitalize">
+                {moduleName.replace('_', ' ')}
+              </h3>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {routes.map((route) => {
+                  const colors = getColorClasses(route.module);
+                  
+                  return (
+                    <div
+                      key={route.path}
+                      onClick={() => navigate(route.path)}
+                      className={`${colors.bg} border-2 ${colors.border} ${colors.hover} rounded-lg p-6 cursor-pointer transition-all hover:shadow-md`}
+                    >
+                      <h4 className={`font-semibold ${colors.text} text-lg mb-2`}>
+                        {route.label}
+                      </h4>
+                      
+                      <p className="text-sm text-gray-600 mb-4">
+                        {route.path}
+                      </p>
+
+                      {/* Permisos requeridos */}
+                      {route.requiredPermission && (
+                        <div className="mt-3">
+                          <p className="text-xs text-gray-500 mb-1">Requiere:</p>
+                          <div className="flex flex-wrap gap-1">
+                            {(Array.isArray(route.requiredPermission) 
+                              ? route.requiredPermission 
+                              : [route.requiredPermission]
+                            ).map((perm, idx) => (
+                              <span
+                                key={idx}
+                                className={`px-2 py-0.5 ${colors.bg} ${colors.text} text-xs rounded border ${colors.border}`}
+                              >
+                                {perm}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="mt-4 pt-4 border-t border-gray-200">
+                        <p className={`text-center text-sm font-medium ${colors.text}`}>
+                          Acceder →
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))
         )}
 
-        {/* Lista de Registros */}
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-xl font-bold mb-4">Registros de Producción</h2>
-          
-          {registros.length === 0 ? (
-            <p className="text-gray-500 text-center py-8">No hay registros aún</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b">
-                    <th className="text-left py-3 px-4">ID</th>
-                    <th className="text-left py-3 px-4">Descripción</th>
-                    <th className="text-left py-3 px-4">Cantidad</th>
-                    <th className="text-left py-3 px-4">Fecha</th>
-                    <th className="text-left py-3 px-4">Usuario</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {registros.map((registro) => (
-                    <tr key={registro.id} className="border-b hover:bg-gray-50">
-                      <td className="py-3 px-4">{registro.id}</td>
-                      <td className="py-3 px-4">{registro.descripcion}</td>
-                      <td className="py-3 px-4">{registro.cantidad}</td>
-                      <td className="py-3 px-4">{registro.fecha}</td>
-                      <td className="py-3 px-4 text-sm text-gray-600">
-                        ID: {registro.user_id}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+        {/* Debug info (solo en desarrollo) */}
+        {process.env.NODE_ENV === 'development' && (
+          <div className="mt-8 bg-gray-100 rounded-lg p-4">
+            <p className="text-xs text-gray-600 font-mono">
+              <strong>Debug Info:</strong><br />
+              Roles: {roles.join(', ')}<br />
+              Permisos: {permisos.join(', ')}
+            </p>
+          </div>
+        )}
       </main>
     </div>
   );

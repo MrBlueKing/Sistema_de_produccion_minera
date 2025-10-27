@@ -13,6 +13,10 @@ return new class extends Migration
     {
         Schema::create('frentes_trabajo', function (Blueprint $table) {
             $table->id();
+            $table->string('nombre', 100);
+            $table->foreignId('id_tipo_frente')
+                  ->constrained('tipos_frente')
+                  ->onDelete('cascade');
             $table->timestamps();
         });
     }

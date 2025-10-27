@@ -1,13 +1,14 @@
-import { AuthProvider } from './context/AuthContext';
-import Dashboard from './pages/Dashboard';
-import './App.css';
+import { BrowserRouter } from 'react-router-dom';
+import { AuthProvider } from './core/context/AuthContext';
+import AppRoutes from './routes/AppRoutes';
+import './app.css';
 
-function App() {
+export default function App() {
   return (
-    <AuthProvider>
-      <Dashboard />
-    </AuthProvider>
+    <BrowserRouter>
+      <AuthProvider>
+        <AppRoutes />
+      </AuthProvider>
+    </BrowserRouter>
   );
 }
-
-export default App;
