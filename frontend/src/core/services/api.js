@@ -10,9 +10,16 @@ const api = axios.create({
 
 api.interceptors.request.use((config) => {
   const token = authService.getToken();
+  const moduloId = authService.getModuloId();
+
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+
+  if (moduloId) {
+    config.headers['X-Modulo-ID'] = moduloId;
+  }
+
   return config;
 });
 

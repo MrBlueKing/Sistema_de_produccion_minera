@@ -1,6 +1,5 @@
 // src/services/auth.js
 const AUTH_API = 'http://127.0.0.1:8001/api';
-const MODULO_ID = 1;
 
 /**
  * AuthService - Servicio de autenticación para el Sistema de Producción
@@ -12,10 +11,35 @@ const MODULO_ID = 1;
  * - Logout y limpieza de sesión
  */
 class AuthService {
+
+  // ✅ NUEVO: Método que lee TODO de la URL de una vez
+  initializeFromUrl() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const tokenFromUrl = urlParams.get('token');
+    const moduloFromUrl = urlParams.get('modulo_id');
+
+    let hasParams = false;
+
+    if (tokenFromUrl) {
+      sessionStorage.setItem('auth_token', tokenFromUrl);
+      hasParams = true;
+    }
+
+    if (moduloFromUrl) {
+      sessionStorage.setItem('modulo_id', moduloFromUrl);
+      hasParams = true;
+    }
+
+    // Limpiar URL solo UNA VEZ después de guardar TODO
+    if (hasParams) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }
+
   /**
    * Valida el token con el Sistema de Autenticación Central (SAC)
    */
-  async validateToken(token) {
+  async validateToken(token, moduloId) {
     try {
       const response = await fetch(`${AUTH_API}/validar-token`, {
         method: 'POST',
@@ -23,17 +47,12 @@ class AuthService {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ modulo_id: MODULO_ID })
+        body: JSON.stringify({ modulo_id: moduloId })
       });
 
-      if (!response.ok) {
-        console.error('❌ Error al validar token:', response.status);
-        throw new Error('Token inválido');
-      }
+      if (!response.ok) throw new Error('Token inválido');
 
       const data = await response.json();
-      
-      console.log('✅ Token validado exitosamente');
       return {
         valid: true,
         user: data.user,
@@ -41,7 +60,7 @@ class AuthService {
         permisos: data.permisos
       };
     } catch (error) {
-      console.error('❌ Error validando token:', error.message);
+      console.error('Error validando token:', error);
       return { valid: false };
     }
   }
@@ -51,42 +70,20 @@ class AuthService {
    * Prioridad: URL query param → localStorage
    */
   getToken() {
-    // 1. Intentar obtener de URL (cuando viene desde SAC)
-    const urlParams = new URLSearchParams(window.location.search);
-    const tokenFromUrl = urlParams.get('token');
-    
-    if (tokenFromUrl) {
-      console.log('🔑 Token obtenido de URL');
-      // Guardar en localStorage para futuras requests
-      localStorage.setItem('auth_token', tokenFromUrl);
-      
-      // Limpiar URL (quitar token visible)
-      window.history.replaceState({}, document.title, window.location.pathname);
-      
-      return tokenFromUrl;
-    }
+    return sessionStorage.getItem('auth_token');
+  }
 
-    // 2. Obtener de localStorage
-    const tokenFromStorage = localStorage.getItem('auth_token');
-    if (tokenFromStorage) {
-      console.log('🔑 Token obtenido de localStorage');
-    }
-    
-    return tokenFromStorage;
+  getModuloId() {
+    return sessionStorage.getItem('modulo_id');
   }
 
   /**
    * Guarda los datos del usuario en localStorage
    */
   setUserData(user, roles, permisos) {
-    try {
-      localStorage.setItem('user', JSON.stringify(user));
-      localStorage.setItem('roles', JSON.stringify(roles));
-      localStorage.setItem('permisos', JSON.stringify(permisos));
-      console.log('💾 Datos de usuario guardados en localStorage');
-    } catch (error) {
-      console.error('❌ Error guardando datos de usuario:', error);
-    }
+    sessionStorage.setItem('user', JSON.stringify(user));
+    sessionStorage.setItem('roles', JSON.stringify(roles));
+    sessionStorage.setItem('permisos', JSON.stringify(permisos));
   }
 
   /**
@@ -133,10 +130,10 @@ class AuthService {
    */
   logout() {
     console.log('👋 Ejecutando logout...');
-    
+
     // Limpiar todo el localStorage
     localStorage.clear();
-    
+
     // Redirigir al login del Sistema de Autenticación Central
     window.location.href = 'http://localhost:5173/login';
   }

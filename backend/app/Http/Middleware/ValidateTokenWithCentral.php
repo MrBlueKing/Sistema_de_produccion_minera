@@ -10,7 +10,7 @@ use Symfony\Component\HttpFoundation\Response;
 
 class ValidateTokenWithCentral
 {
- /**
+    /**
      * Handle an incoming request.
      */
     public function handle(Request $request, Closure $next): Response
@@ -18,22 +18,23 @@ class ValidateTokenWithCentral
         $token = $request->bearerToken();
 
         if (!$token) {
-            return response()->json([
-                'message' => 'Token no proporcionado'
-            ], 401);
+            return response()->json(['message' => 'Token no proporcionado'], 401);
+        }
+
+        // Leer modulo_id del header
+        $moduloId = $request->header('X-Modulo-ID');
+
+        if (!$moduloId) {
+            return response()->json(['message' => 'Módulo no especificado'], 400);
         }
 
         try {
-            // Validar token con el sistema central
-            Log::info("Token:" . $token);
             $response = Http::withToken($token)
                 ->post(env('SISTEMA_CENTRAL_API') . '/validar-token', [
-                    'modulo_id' => env('MODULO_ID', 1),
+                    'modulo_id' => $moduloId,
                 ]);
-            Log::info("Respuesta:" . $response->successful());
 
             if ($response->successful() && $response->json('valid')) {
-                // Agregar datos del usuario al request
                 $request->merge([
                     'auth_user' => $response->json('user'),
                     'auth_roles' => $response->json('roles'),
@@ -46,13 +47,9 @@ class ValidateTokenWithCentral
             return response()->json([
                 'message' => 'Token inválido o acceso denegado'
             ], 403);
-
         } catch (\Exception $e) {
             Log::error('Error validando token: ' . $e->getMessage());
-            
-            return response()->json([
-                'message' => 'Error al validar token'
-            ], 500);
+            return response()->json(['message' => 'Error al validar token'], 500);
         }
     }
 }

@@ -28,38 +28,29 @@ export const AuthProvider = ({ children }) => {
      * Valida la sesión con el SAC
      */
     const validateSession = async () => {
-        const token = authService.getToken();
+        // ✅ PRIMERO: Leer y guardar todos los parámetros de la URL
+        authService.initializeFromUrl();
 
-        // Sin token, no hacer nada (AppRoutes manejará la redirección)
-        if (!token) {
-            console.warn('⚠️ No hay token disponible');
-            setLoading(false);
-            setAuthenticated(false);
+        // ✅ SEGUNDO: Obtener de sessionStorage
+        const token = authService.getToken();
+        const moduloId = authService.getModuloId();
+
+        if (!token || !moduloId) {
+            console.log("Token o Modulo ID no encontrado, redirigiendo a SAC...");
+            window.location.href = 'http://localhost:5173/login';
             return;
         }
 
-        // Validar token con SAC
-        const result = await authService.validateToken(token);
+        const result = await authService.validateToken(token, moduloId);
 
         if (result.valid) {
-            console.log('✅ Token válido - Sesión establecida');
-            console.log('👤 Usuario:', result.user.nombre, result.user.apellido);
-            console.log('🎭 Roles:', result.roles);
-            console.log('🔑 Permisos:', result.permisos);
-
             setUser(result.user);
             setRoles(result.roles);
             setPermisos(result.permisos);
             setAuthenticated(true);
             authService.setUserData(result.user, result.roles, result.permisos);
         } else {
-            console.error('❌ Token inválido - Limpiando sesión');
-            // Limpiar datos pero NO redirigir (lo hace AppRoutes)
-            setUser(null);
-            setRoles([]);
-            setPermisos([]);
-            setAuthenticated(false);
-            authService.clearUserData();
+            authService.logout();
         }
 
         setLoading(false);

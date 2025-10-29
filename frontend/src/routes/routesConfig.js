@@ -40,13 +40,13 @@ export const routesConfig = [
   // ========================================
   // MÓDULO: DISPATCH
   // ========================================
-  // {
-  //   path: '/dispatch/dumpadas',
-  //   component: Dumpadas,
-  //   requiredPermission: 'ingreso_dumpadas',
-  //   label: 'Dumpadas',
-  //   module: 'dispatch',
-  // },
+   {
+     path: '/dispatch/dumpadas',
+     component: FrentesTrabajo,
+     requiredPermission: 'ingreso_dumpadas',
+     label: 'Dumpadas',
+     module: 'dispatch',
+  },
   // {
   //   path: '/dispatch/vehiculos',
   //   component: Vehiculos,
