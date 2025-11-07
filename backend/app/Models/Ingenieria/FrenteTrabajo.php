@@ -4,9 +4,12 @@ namespace App\Models\Ingenieria;
 
 use App\Models\Dispatch\Dumpada;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class FrenteTrabajo extends Model
 {
+    use SoftDeletes;
+
     /**
      * Nombre de la tabla
      */
@@ -16,8 +19,21 @@ class FrenteTrabajo extends Model
      * Atributos asignables en masa
      */
     protected $fillable = [
-        'nombre',
+        'manto',
+        'calle',
+        'hebra',
+        'numero_frente',
+        'codigo_completo',
         'id_tipo_frente',
+        'deleted_by',
+        'deletion_reason',
+    ];
+
+    /**
+     * Atributos que deben ser casteados a tipos nativos
+     */
+    protected $casts = [
+        'deleted_at' => 'datetime',
     ];
 
     /**
@@ -31,5 +47,13 @@ class FrenteTrabajo extends Model
     public function dumpadas()
     {
         return $this->hasMany(Dumpada::class, 'id_frente_trabajo');
+    }
+
+    /**
+     * Relación: Un frente tiene muchas auditorías
+     */
+    public function auditorias()
+    {
+        return $this->hasMany(AuditoriaFrenteTrabajo::class, 'id_frente_trabajo')->orderBy('created_at', 'desc');
     }
 }

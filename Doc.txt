@@ -1,0 +1,426 @@
+# Sistema de Autenticación Mejorado
+
+## Resumen de Mejoras
+
+Se ha implementado un sistema de autenticación más seguro y profesional para el Sistema de Producción.
+
+### Mejoras Implementadas
+
+#### 1. **SecureStorage** - Gestión Segura de Datos
+- ✅ Almacenamiento en `sessionStorage` (se limpia al cerrar pestaña)
+- ✅ Expiración automática de tokens (8 horas por defecto)
+- ✅ Validación de integridad de datos
+- ✅ Limpieza automática de datos expirados
+- ✅ Minimización de datos guardados
+- ✅ Prefijo en keys para evitar conflictos (`sisprod_`)
+
+#### 2. **AuthService Refactorizado**
+- ✅ Validación de token antes de guardar
+- ✅ Manejo robusto de errores
+- ✅ Métodos útiles: `hasRole()`, `hasPermission()`, `getSessionTimeLeft()`
+- ✅ Auto-renovación de sesión (`refreshSession()`)
+- ✅ Limpieza completa en logout
+
+#### 3. **API Interceptor Mejorado**
+- ✅ Auto-inyección de token y módulo ID
+- ✅ Renovación automática de sesión en cada request (keep-alive)
+- ✅ Validación de sesión antes de enviar requests
+- ✅ Manejo mejorado de errores (401, 403, 404, 422, 5xx)
+- ✅ Timeout de 30 segundos
+
+#### 4. **AuthContext Optimizado**
+- ✅ Ya no duplica datos en state
+- ✅ Obtiene datos directamente de SecureStorage
+- ✅ Mejor pantalla de loading
+- ✅ Manejo robusto de errores
+
+---
+
+## Arquitectura
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     FRONTEND                                 │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  ┌────────────┐      ┌─────────────┐      ┌──────────────┐ │
+│  │  URL con   │─────▶│ AuthService │◀────▶│SecureStorage │ │
+│  │   token    │      └─────────────┘      └──────────────┘ │
+│  └────────────┘              │                     │        │
+│                              │                     │        │
+│                       ┌──────▼──────┐             │        │
+│                       │AuthContext  │             │        │
+│                       │  (React)    │             │        │
+│                       └──────┬──────┘             │        │
+│                              │                     │        │
+│                       ┌──────▼──────┐             │        │
+│                       │     API     │◀────────────┘        │
+│                       │ Interceptor │                      │
+│                       └──────┬──────┘                      │
+│                              │                              │
+└──────────────────────────────┼──────────────────────────────┘
+                               │
+                               │ HTTP + Headers
+                               │
+┌──────────────────────────────▼──────────────────────────────┐
+│                     BACKEND (Laravel)                        │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│            ┌──────────────────────────┐                     │
+│            │  ValidateTokenMiddleware │                     │
+│            │  Valida:                 │                     │
+│            │  - Bearer Token          │                     │
+│            │  - X-Modulo-ID           │                     │
+│            └───────────┬──────────────┘                     │
+│                        │                                     │
+│                        ▼                                     │
+│            ┌──────────────────────────┐                     │
+│            │   Sistema Central (SAC)  │                     │
+│            │   Validar Token          │                     │
+│            └──────────────────────────┘                     │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Flujo de Autenticación
+
+### 1. **Inicialización de Sesión**
+
+```javascript
+// 1. Usuario accede desde Sistema Central con URL:
+// http://localhost:5174/?token=abc123&modulo_id=1
+
+// 2. AuthContext.initializeSession() se ejecuta
+await authService.initializeFromUrl();
+
+// 3. AuthService valida el token con el Sistema Central
+const validation = await authService.validateToken(token, moduloId);
+
+// 4. Si es válido, guarda en SecureStorage con expiración
+secureStorage.setAuthData(token, moduloId, 480); // 8 horas
+secureStorage.setSessionData(user); // Datos mínimos
+
+// 5. Limpia URL para seguridad
+window.history.replaceState({}, '', '/');
+```
+
+### 2. **Request a API**
+
+```javascript
+// 1. Usuario hace request (ej: getFrentesTrabajo())
+const response = await api.get('/ingenieria/frentes-trabajo');
+
+// 2. API Interceptor valida sesión
+if (!authService.hasValidSession()) {
+  authService.logout(); // Redirige si expiró
+}
+
+// 3. Inyecta headers automáticamente
+headers: {
+  'Authorization': 'Bearer abc123',
+  'X-Modulo-ID': '1'
+}
+
+// 4. Renueva expiración (keep-alive)
+authService.refreshSession();
+
+// 5. Envía request al backend
+```
+
+### 3. **Backend Valida**
+
+```php
+// ValidateTokenWithCentral Middleware
+
+// 1. Lee headers
+$token = $request->bearerToken();
+$moduloId = $request->header('X-Modulo-ID');
+
+// 2. Valida con Sistema Central
+$response = Http::withToken($token)
+    ->post('http://127.0.0.1:8001/api/validar-token', [
+        'modulo_id' => $moduloId,
+    ]);
+
+// 3. Si válido, adjunta datos al request
+$request->merge([
+    'auth_user' => $response->json('user'),
+    'auth_roles' => $response->json('roles'),
+    'auth_permisos' => $response->json('permisos'),
+]);
+```
+
+---
+
+## Uso en Componentes
+
+### Obtener datos del usuario
+
+```javascript
+import { useAuth } from '../core/context/AuthContext';
+
+function MiComponente() {
+  const { getUser, getUserInfo } = useAuth();
+
+  const user = getUser(); // { id, nombre, email, roles: [1,2], permisos: [5,8] }
+  const userInfo = getUserInfo(); // { nombreCompleto, email, rut }
+
+  return <div>Bienvenido {userInfo.nombreCompleto}</div>;
+}
+```
+
+### Verificar permisos/roles
+
+```javascript
+function AccionesSensibles() {
+  const { hasPermission, hasRole } = useAuth();
+
+  if (!hasPermission(5)) {
+    return <p>No tienes permiso</p>;
+  }
+
+  if (!hasRole(1)) {
+    return <p>Solo para administradores</p>;
+  }
+
+  return <button>Acción Sensible</button>;
+}
+```
+
+### Verificar tiempo de sesión
+
+```javascript
+function SessionTimer() {
+  const { getSessionInfo } = useAuth();
+
+  const info = getSessionInfo();
+  // { hasSession, user, timeLeft, expiringSoon }
+
+  if (info.expiringSoon) {
+    return <div className="alert">⚠️ Tu sesión expira en {info.timeLeft} minutos</div>;
+  }
+
+  return null;
+}
+```
+
+### Cerrar sesión
+
+```javascript
+function LogoutButton() {
+  const { logout } = useAuth();
+
+  return (
+    <button onClick={logout}>
+      Cerrar Sesión
+    </button>
+  );
+}
+```
+
+---
+
+## Datos Almacenados en sessionStorage
+
+### Antes (Inseguro)
+```javascript
+// Múltiples keys, datos duplicados, sin expiración
+sessionStorage.auth_token
+sessionStorage.modulo_id
+sessionStorage.user
+sessionStorage.roles
+sessionStorage.permisos
+localStorage.user  // ¡También en localStorage!
+localStorage.roles
+localStorage.permisos
+```
+
+### Ahora (Seguro)
+```javascript
+// Solo 2 keys con prefijo, datos mínimos, con expiración
+sessionStorage.sisprod_auth = {
+  token: "abc123",
+  moduloId: "1",
+  expiresAt: 1736957890000,  // Timestamp de expiración
+  createdAt: 1736929090000
+}
+
+sessionStorage.sisprod_session = {
+  id: 5,
+  nombre: "Juan",
+  email: "juan@empresa.com",
+  roles: [1, 2],      // Solo IDs, no objetos completos
+  permisos: [5, 8, 12]
+}
+```
+
+---
+
+## Seguridad
+
+### Protecciones Implementadas
+
+1. **Expiración automática**: Token expira en 8 horas (configurable)
+2. **Validación de integridad**: Verifica estructura de datos antes de usar
+3. **Limpieza automática**: Elimina datos expirados al iniciar
+4. **sessionStorage**: Datos se borran al cerrar pestaña (mejor que localStorage)
+5. **Prefijo en keys**: Evita conflictos con otras aplicaciones
+6. **Datos mínimos**: Solo guarda lo esencial
+7. **Auto-logout**: Logout automático en 401/403
+8. **Keep-alive**: Renueva sesión en cada request
+
+### Configuración de Expiración
+
+```javascript
+// Por defecto: 8 horas (480 minutos)
+secureStorage.setAuthData(token, moduloId, 480);
+
+// Personalizado: 2 horas
+secureStorage.setAuthData(token, moduloId, 120);
+
+// Renovar manualmente
+authService.refreshSession(); // Renueva por 8 horas más
+```
+
+---
+
+## Debugging
+
+### Ver estado de sesión en consola
+
+```javascript
+import authService from './core/services/auth';
+
+// Ver info completa
+console.log(authService.getSessionInfo());
+// {
+//   hasSession: true,
+//   user: { ... },
+//   timeLeft: 450,  // minutos
+//   expiringSoon: false
+// }
+
+// Ver tiempo restante
+console.log(authService.getSessionTimeLeft()); // 450 minutos
+```
+
+### Ver datos en sessionStorage
+
+```javascript
+// En consola del navegador
+Object.keys(sessionStorage)
+  .filter(k => k.startsWith('sisprod_'))
+  .forEach(key => {
+    console.log(key, JSON.parse(sessionStorage[key]));
+  });
+```
+
+---
+
+## Testing en Postman
+
+### Headers requeridos
+
+```
+Content-Type: application/json
+Authorization: Bearer TU_TOKEN_AQUI
+X-Modulo-ID: 1
+```
+
+### Ejemplo GET
+
+```
+GET http://127.0.0.1:8000/api/dispatch/dumpadas
+Headers:
+  Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGc...
+  X-Modulo-ID: 1
+```
+
+### Ejemplo POST
+
+```
+POST http://127.0.0.1:8000/api/dispatch/dumpadas
+Headers:
+  Content-Type: application/json
+  Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGc...
+  X-Modulo-ID: 1
+Body (raw JSON):
+{
+  "id_frente_trabajo": 1,
+  "fecha": "2025-01-15",
+  "ton": 150.50
+}
+```
+
+---
+
+## Migración desde Sistema Antiguo
+
+Si tienes código que usa el sistema viejo:
+
+### ❌ Antes
+```javascript
+import authService from './services/auth';
+
+// Estos métodos ya no existen
+authService.setUserData(user, roles, permisos);
+authService.getUserData();
+authService.clearUserData();
+```
+
+### ✅ Ahora
+```javascript
+import { useAuth } from './context/AuthContext';
+
+function MiComponente() {
+  const { getUser, getUserInfo, hasRole, hasPermission } = useAuth();
+
+  const user = getUser();
+  const info = getUserInfo();
+  const puedeEditar = hasPermission(8);
+}
+```
+
+---
+
+## Archivos Modificados
+
+- ✅ `frontend/src/core/services/secureStorage.js` (NUEVO)
+- ✅ `frontend/src/core/services/auth.js` (Refactorizado)
+- ✅ `frontend/src/core/services/api.js` (Mejorado)
+- ✅ `frontend/src/core/context/AuthContext.jsx` (Optimizado)
+
+---
+
+## Preguntas Frecuentes
+
+### ¿Por qué sessionStorage y no localStorage?
+sessionStorage se limpia automáticamente al cerrar la pestaña, lo que es más seguro para tokens de autenticación.
+
+### ¿Qué pasa si el token expira?
+El sistema detecta tokens expirados automáticamente y hace logout, redirigiendo al Sistema Central.
+
+### ¿Cómo cambiar el tiempo de expiración?
+En `authService.js` línea 50, cambiar el valor de `480` (minutos) al deseado.
+
+### ¿Los datos están encriptados?
+Los datos en sessionStorage no están encriptados (JavaScript no puede encriptar de forma 100% segura). La seguridad viene de:
+- sessionStorage (se borra al cerrar)
+- Expiración automática
+- Validación con backend en cada request
+- Solo guardar datos mínimos
+
+---
+
+## Soporte
+
+Para dudas o problemas, revisar los logs en la consola del navegador. Todos los mensajes están prefijados con emojis para fácil identificación:
+
+- 🔐 Inicialización
+- ✅ Éxito
+- ❌ Errores
+- ⚠️ Advertencias
+- 🧹 Limpieza
+- 🔄 Renovación

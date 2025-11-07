@@ -32,6 +32,33 @@ class IngenieriaService {
     const response = await api.delete(`/ingenieria/frentes-trabajo/${id}`);
     return response.data;
   }
+
+  // Historial de Frentes Eliminados
+  async getTrashedFrentesTrabajo() {
+    const response = await api.get('/ingenieria/frentes-trabajo/trashed');
+    return response.data;
+  }
+
+  async restoreFrenteTrabajo(id) {
+    const response = await api.post(`/ingenieria/frentes-trabajo/${id}/restore`);
+    return response.data;
+  }
+
+  async forceDeleteFrenteTrabajo(id) {
+    const response = await api.delete(`/ingenieria/frentes-trabajo/${id}/force`);
+    return response.data;
+  }
+
+  // Historial de Cambios
+  async getHistorialFrenteTrabajo(id) {
+    const response = await api.get(`/ingenieria/frentes-trabajo/${id}/historial`);
+    return response.data;
+  }
+
+  async revertirFrenteTrabajo(id, auditoriaId) {
+    const response = await api.post(`/ingenieria/frentes-trabajo/${id}/revertir/${auditoriaId}`);
+    return response.data;
+  }
 }
 
 export default new IngenieriaService();

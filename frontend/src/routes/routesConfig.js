@@ -14,7 +14,8 @@
 
 // Importaciones de páginas
 import FrentesTrabajo from '../modules/ingenieria/pages/FrentesTrabajo';
-// import Dumpadas from '../modules/dispatch/pages/Dumpadas';
+import FrentesTrabajoHistorial from '../modules/ingenieria/pages/FrentesTrabajoHistorial';
+import Dumpadas from '../modules/dispatch/pages/Dispatch';
 // import Muestras from '../modules/laboratorio/pages/Muestras';
 
 export const routesConfig = [
@@ -26,6 +27,13 @@ export const routesConfig = [
     component: FrentesTrabajo,
     requiredPermission: 'ingreso_frentes', // Debe coincidir con BD
     label: 'Frentes de Trabajo',
+    module: 'ingenieria',
+  },
+  {
+    path: '/ingenieria/frentes-trabajo/historial',
+    component: FrentesTrabajoHistorial,
+    requiredPermission: 'ingreso_frentes', // Mismo permiso que frentes de trabajo
+    label: 'Historial de Frentes',
     module: 'ingenieria',
   },
   // Agregar más rutas de ingeniería aquí:
@@ -42,8 +50,8 @@ export const routesConfig = [
   // ========================================
    {
      path: '/dispatch/dumpadas',
-     component: FrentesTrabajo,
-     requiredPermission: 'ingreso_dumpadas',
+     component: Dumpadas,
+     requiredPermission: 'ingreso_dumpadas', // Debe coincidir con el código del SAC
      label: 'Dumpadas',
      module: 'dispatch',
   },

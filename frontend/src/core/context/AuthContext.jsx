@@ -1,4 +1,3 @@
-// src/context/AuthContext.jsx
 import { createContext, useContext, useState, useEffect } from 'react';
 import authService from '../services/auth';
 
@@ -6,122 +5,139 @@ const AuthContext = createContext(null);
 
 /**
  * AuthProvider - Contexto de autenticación del Sistema de Producción
- * 
- * Características:
- * - Valida token con SAC al cargar
- * - Almacena user, roles y permisos
- * - Provee helpers: hasPermission, hasRole
- * - NO hace redirecciones (eso lo maneja AppRoutes)
+ *
+ * Mejoras implementadas:
+ * - Usa SecureStorage para datos sensibles
+ * - Minimiza datos en state (solo lo necesario para UI)
+ * - Auto-renovación de sesión
+ * - Validación mejorada de sesión
+ * - Mejor manejo de errores
  */
 export const AuthProvider = ({ children }) => {
-    const [user, setUser] = useState(null);
-    const [roles, setRoles] = useState([]);
-    const [permisos, setPermisos] = useState([]);
     const [loading, setLoading] = useState(true);
     const [authenticated, setAuthenticated] = useState(false);
 
     useEffect(() => {
-        validateSession();
+        initializeSession();
     }, []);
 
     /**
-     * Valida la sesión con el SAC
+     * Inicializa y valida la sesión
      */
-    const validateSession = async () => {
-        // ✅ PRIMERO: Leer y guardar todos los parámetros de la URL
-        authService.initializeFromUrl();
+    const initializeSession = async () => {
+        try {
+            console.log('🔐 Inicializando sesión...');
 
-        // ✅ SEGUNDO: Obtener de sessionStorage
-        const token = authService.getToken();
-        const moduloId = authService.getModuloId();
+            // Inicializar desde URL si hay parámetros
+            await authService.initializeFromUrl();
 
-        if (!token || !moduloId) {
-            console.log("Token o Modulo ID no encontrado, redirigiendo a SAC...");
-            window.location.href = 'http://localhost:5173/login';
-            return;
-        }
+            // Verificar si hay sesión válida
+            if (!authService.hasValidSession()) {
+                console.warn('⚠️ No hay sesión válida');
+                setAuthenticated(false);
+                setLoading(false);
+                authService.logout();
+                return;
+            }
 
-        const result = await authService.validateToken(token, moduloId);
-
-        if (result.valid) {
-            setUser(result.user);
-            setRoles(result.roles);
-            setPermisos(result.permisos);
+            // Sesión válida encontrada
+            console.log('✅ Sesión válida encontrada');
             setAuthenticated(true);
-            authService.setUserData(result.user, result.roles, result.permisos);
-        } else {
-            authService.logout();
-        }
 
-        setLoading(false);
+        } catch (error) {
+            console.error('❌ Error inicializando sesión:', error);
+            setAuthenticated(false);
+            authService.logout();
+        } finally {
+            setLoading(false);
+        }
     };
 
     /**
-     * Verifica si el usuario tiene un permiso específico
+     * Obtiene el usuario actual desde SecureStorage
      */
-    const hasPermission = (permiso) => {
-        const has = permisos.includes(permiso);
-        if (!has) {
-            console.warn(`⚠️ Permiso "${permiso}" no encontrado. Permisos disponibles:`, permisos);
-        }
-        return has;
+    const getUser = () => {
+        return authService.getUser();
+    };
+
+    /**
+     * Obtiene información resumida del usuario
+     */
+    const getUserInfo = () => {
+        const user = getUser();
+        return {
+            nombre: user?.nombre || '',
+            apellido: user?.apellido || '',
+            nombreCompleto: `${user?.nombre || ''} ${user?.apellido || ''}`.trim(),
+            email: user?.email || '',
+            rut: user?.rut || '',
+            id: user?.id || null,
+        };
     };
 
     /**
      * Verifica si el usuario tiene un rol específico
      */
-    const hasRole = (rol) => {
-        const has = roles.includes(rol);
+    const hasRole = (roleId) => {
+        const has = authService.hasRole(roleId);
         if (!has) {
-            console.warn(`⚠️ Rol "${rol}" no encontrado. Roles disponibles:`, roles);
+            const user = getUser();
+            console.warn(`⚠️ Rol "${roleId}" no encontrado. Roles disponibles:`, user?.roles);
         }
         return has;
+    };
+
+    /**
+     * Verifica si el usuario tiene un permiso específico
+     */
+    const hasPermission = (permissionId) => {
+        const has = authService.hasPermission(permissionId);
+        if (!has) {
+            const user = getUser();
+            console.warn(`⚠️ Permiso "${permissionId}" no encontrado. Permisos disponibles:`, user?.permisos);
+        }
+        return has;
+    };
+
+    /**
+     * Obtiene información del estado de la sesión
+     */
+    const getSessionInfo = () => {
+        return authService.getSessionInfo();
     };
 
     /**
      * Cierra la sesión del usuario
      */
     const logout = () => {
-        console.log('👋 Cerrando sesión...');
+        console.log('👋 Cerrando sesión desde contexto...');
         authService.logout();
     };
-
-    /**
-     * Obtener información resumida del usuario
-     */
-    const getUserInfo = () => ({
-        nombre: user?.nombre || '',
-        apellido: user?.apellido || '',
-        nombreCompleto: `${user?.nombre || ''} ${user?.apellido || ''}`.trim(),
-        email: user?.email || '',
-        rut: user?.rut || '',
-        faena: user?.faena?.ubicacion || 'No asignada',
-    });
 
     // Mostrar loading mientras valida
     if (loading) {
         return (
-            <div className="min-h-screen flex items-center justify-center bg-gray-50">
+            <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-blue-100">
                 <div className="text-center">
-                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-                    <p className="text-gray-600">Validando sesión...</p>
+                    <div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-200 border-t-blue-600 mx-auto mb-4"></div>
+                    <p className="text-blue-900 font-semibold text-lg">Validando sesión...</p>
+                    <p className="text-blue-600 text-sm mt-2">Sistema de Producción</p>
                 </div>
             </div>
         );
     }
 
-    // Proveer contexto
+    // Proveer contexto con funciones mejoradas
     return (
         <AuthContext.Provider value={{
-            user,
-            roles,
-            permisos,
             authenticated,
             loading,
-            hasPermission,
-            hasRole,
-            logout,
+            getUser,
             getUserInfo,
+            hasRole,
+            hasPermission,
+            getSessionInfo,
+            logout,
         }}>
             {children}
         </AuthContext.Provider>
