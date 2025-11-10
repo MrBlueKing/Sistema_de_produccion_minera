@@ -35,10 +35,39 @@ class ValidateTokenWithCentral
                 ]);
 
             if ($response->successful() && $response->json('valid')) {
+                $userData = $response->json('user');
+
+                // Log para depuración - ver qué datos vienen del usuario
+                Log::info('Datos del usuario desde sistema central:', [
+                    'user_data' => $userData,
+                    'tiene_faena' => isset($userData['faena']),
+                ]);
+
+                // Extraer faena como string (puede ser un array u objeto)
+                $faena = null;
+                if (isset($userData['faena'])) {
+                    if (is_array($userData['faena'])) {
+                        // Si es array, intentar obtener ubicacion, nombre o ID
+                        $faena = $userData['faena']['ubicacion'] ?? $userData['faena']['nombre'] ?? $userData['faena']['id'] ?? null;
+                    } else {
+                        // Si ya es un valor simple (string/número), usarlo directamente
+                        $faena = $userData['faena'];
+                    }
+                }
+
+                // Log adicional para depuración - ver qué valor se extrae de faena
+                Log::info('Valor de faena extraído:', [
+                    'faena_original' => $userData['faena'] ?? 'NO EXISTE',
+                    'faena_procesada' => $faena,
+                    'es_array' => isset($userData['faena']) ? is_array($userData['faena']) : 'N/A',
+                ]);
+
                 $request->merge([
-                    'auth_user' => $response->json('user'),
+                    'auth_user' => $userData,
                     'auth_roles' => $response->json('roles'),
                     'auth_permisos' => $response->json('permisos'),
+                    'auth_user_id' => $userData['id'] ?? null,
+                    'auth_faena' => $faena,
                 ]);
 
                 return $next($request);

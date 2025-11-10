@@ -104,6 +104,25 @@ export default function Dispatch() {
     }
   };
 
+  const formatearFecha = (fecha) => {
+    if (!fecha) return '-';
+
+    // Si la fecha viene en formato DD-MM-YYYY, retornarla tal cual
+    if (typeof fecha === 'string' && /^\d{2}-\d{2}-\d{4}$/.test(fecha)) {
+      return fecha;
+    }
+
+    // Si es otro formato, convertirla a DD-MM-YYYY
+    const date = new Date(fecha);
+    if (isNaN(date.getTime())) return '-';
+
+    const dia = String(date.getDate()).padStart(2, '0');
+    const mes = String(date.getMonth() + 1).padStart(2, '0');
+    const anio = date.getFullYear();
+
+    return `${dia}-${mes}-${anio}`;
+  };
+
   const resetFormIngreso = () => {
     setFormsIngresoMasivo([
       {
@@ -484,15 +503,11 @@ export default function Dispatch() {
                     <div className="space-y-2">
                       <div className="flex items-center gap-2">
                         <span className="bg-yellow-500 text-white px-2 py-1 rounded text-xs font-bold">Ingresado</span>
-                        <span className="text-xs">Sin análisis</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="bg-blue-500 text-white px-2 py-1 rounded text-xs font-bold">En Análisis</span>
-                        <span className="text-xs">Parcialmente completado</span>
+                        <span className="text-xs">Muestra enviada al laboratorio</span>
                       </div>
                       <div className="flex items-center gap-2">
                         <span className="bg-green-600 text-white px-2 py-1 rounded text-xs font-bold">Completado</span>
-                        <span className="text-xs">Con todos los datos</span>
+                        <span className="text-xs">Resultados recibidos del laboratorio</span>
                       </div>
                     </div>
                   </div>
@@ -718,17 +733,22 @@ export default function Dispatch() {
                 </div>
               ) : (
                 <div className="overflow-x-auto">
-                  <table className="w-full">
+                  <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b-2 border-yellow-200 bg-gradient-to-r from-yellow-50 to-yellow-100">
-                        <th className="text-left py-3 px-4 font-bold text-yellow-900">Frente</th>
-                        <th className="text-left py-3 px-4 font-bold text-yellow-900">N° Acop</th>
-                        <th className="text-left py-3 px-4 font-bold text-yellow-900">Acopios</th>
-                        <th className="text-left py-3 px-4 font-bold text-yellow-900">Jornada</th>
-                        <th className="text-left py-3 px-4 font-bold text-yellow-900">Fecha</th>
-                        <th className="text-left py-3 px-4 font-bold text-yellow-900">Ley Visual</th>
-                        <th className="text-left py-3 px-4 font-bold text-yellow-900">Estado</th>
-                        <th className="text-left py-3 px-4 font-bold text-yellow-900">Acción</th>
+                        <th className="text-left py-2 px-2 font-bold text-yellow-900 text-xs">Frente</th>
+                        <th className="text-left py-2 px-2 font-bold text-yellow-900 text-xs whitespace-nowrap">N° Acop</th>
+                        <th className="text-left py-2 px-2 font-bold text-yellow-900 text-xs">Acopios</th>
+                        <th className="text-left py-2 px-2 font-bold text-yellow-900 text-xs">Jornada</th>
+                        <th className="text-left py-2 px-2 font-bold text-yellow-900 text-xs">Fecha</th>
+                        <th className="text-left py-2 px-2 font-bold text-yellow-900 text-xs">Ton</th>
+                        <th className="text-left py-2 px-2 font-bold text-yellow-900 text-xs">Ley</th>
+                        <th className="text-left py-2 px-2 font-bold text-yellow-900 text-xs whitespace-nowrap">Ley Cup</th>
+                        <th className="text-left py-2 px-2 font-bold text-yellow-900 text-xs">Certificado</th>
+                        <th className="text-left py-2 px-2 font-bold text-yellow-900 text-xs whitespace-nowrap">Ley Visual</th>
+                        <th className="text-left py-2 px-2 font-bold text-yellow-900 text-xs">Rango</th>
+                        <th className="text-left py-2 px-2 font-bold text-yellow-900 text-xs">Estado</th>
+                        <th className="text-left py-2 px-2 font-bold text-yellow-900 text-xs">Acción</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -738,38 +758,57 @@ export default function Dispatch() {
                           className={`border-b border-gray-200 hover:bg-yellow-50 transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
                             }`}
                         >
-                          <td className="py-3 px-4">
-                            <span className="font-bold text-blue-900 bg-blue-100 px-2 py-1 rounded text-sm">
+                          <td className="py-2 px-2" title={dumpada.frente_trabajo?.codigo_completo || '-'}>
+                            <span className="font-bold text-blue-900 bg-blue-100 px-1.5 py-0.5 rounded text-xs whitespace-nowrap">
                               {dumpada.frente_trabajo?.codigo_completo || '-'}
                             </span>
                           </td>
-                          <td className="py-3 px-4">
-                            <span className="font-mono font-bold text-gray-800">
+                          <td className="py-2 px-2">
+                            <span className="font-mono font-bold text-gray-800 text-xs">
                               {dumpada.n_acop ? String(dumpada.n_acop).padStart(3, '0') : '-'}
                             </span>
                           </td>
-                          <td className="py-3 px-4">
-                            <span className="font-mono text-sm text-blue-700 bg-blue-50 px-2 py-1 rounded border border-blue-200">
+                          <td className="py-2 px-2" title={dumpada.acopios || '-'}>
+                            <span className="font-mono text-xs text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-200 block truncate max-w-[180px]">
                               {dumpada.acopios || '-'}
                             </span>
                           </td>
-                          <td className="py-3 px-4">
-                            <span className="bg-blue-600 text-white px-2 py-1 rounded-full text-xs font-semibold">
+                          <td className="py-2 px-2">
+                            <span className="bg-blue-600 text-white px-2 py-0.5 rounded-full text-xs font-semibold whitespace-nowrap">
                               {dumpada.jornada}
                             </span>
                           </td>
-                          <td className="py-3 px-4 text-sm text-gray-800">
-                            {dumpada.fecha ? new Date(dumpada.fecha).toLocaleDateString('es-CL') : '-'}
+                          <td className="py-2 px-2 text-xs text-gray-800 whitespace-nowrap">
+                            {formatearFecha(dumpada.fecha)}
                           </td>
-                          <td className="py-3 px-4 text-sm text-gray-700">
+                          <td className="py-2 px-2 text-xs text-gray-700 font-semibold">
+                            {dumpada.ton ? `${parseFloat(dumpada.ton).toFixed(2)}` : '-'}
+                          </td>
+                          <td className="py-2 px-2 text-xs text-gray-700">
+                            {dumpada.ley ? `${parseFloat(dumpada.ley).toFixed(3)}%` : '-'}
+                          </td>
+                          <td className="py-2 px-2 text-xs text-gray-700">
+                            {dumpada.ley_cup ? `${parseFloat(dumpada.ley_cup).toFixed(3)}%` : '-'}
+                          </td>
+                          <td className="py-2 px-2 text-xs text-gray-700">
+                            {dumpada.certificado || '-'}
+                          </td>
+                          <td className="py-2 px-2 text-xs text-gray-700">
                             {dumpada.ley_visual ? `${parseFloat(dumpada.ley_visual).toFixed(3)}%` : '-'}
                           </td>
-                          <td className="py-3 px-4">
-                            <span className={`${getEstadoColor(dumpada.estado)} text-white px-3 py-1 rounded-full text-xs font-bold`}>
+                          <td className="py-2 px-2">
+                            {dumpada.rango ? (
+                              <span className={`${getRangoColor(dumpada.rango)} text-white px-2 py-0.5 rounded-full text-xs font-bold whitespace-nowrap`}>
+                                {dumpada.rango}
+                              </span>
+                            ) : '-'}
+                          </td>
+                          <td className="py-2 px-2">
+                            <span className={`${getEstadoColor(dumpada.estado)} text-white px-2 py-0.5 rounded-full text-xs font-bold whitespace-nowrap`}>
                               {dumpada.estado}
                             </span>
                           </td>
-                          <td className="py-3 px-4">
+                          <td className="py-2 px-2">
                             <Button
                               variant="success"
                               size="sm"
@@ -810,19 +849,22 @@ export default function Dispatch() {
             ) : (
               <>
                 <div className="overflow-x-auto">
-                  <table className="w-full">
+                  <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b-2 border-blue-200 bg-gradient-to-r from-blue-50 to-blue-100">
-                        <th className="text-left py-4 px-4 font-bold text-blue-900">Frente</th>
-                        <th className="text-left py-4 px-4 font-bold text-blue-900">N° Acop</th>
-                        <th className="text-left py-4 px-4 font-bold text-blue-900">Acopios</th>
-                        <th className="text-left py-4 px-4 font-bold text-blue-900">Fecha</th>
-                        <th className="text-left py-4 px-4 font-bold text-blue-900">Jornada</th>
-                        <th className="text-left py-4 px-4 font-bold text-blue-900">Ley</th>
-                        <th className="text-left py-4 px-4 font-bold text-blue-900">Ley Cup</th>
-                        <th className="text-left py-4 px-4 font-bold text-blue-900">Rango</th>
-                        <th className="text-left py-4 px-4 font-bold text-blue-900">Estado</th>
-                        <th className="text-left py-4 px-4 font-bold text-blue-900">Acciones</th>
+                        <th className="text-left py-2 px-2 font-bold text-blue-900 text-xs">Frente</th>
+                        <th className="text-left py-2 px-2 font-bold text-blue-900 text-xs whitespace-nowrap">N° Acop</th>
+                        <th className="text-left py-2 px-2 font-bold text-blue-900 text-xs">Acopios</th>
+                        <th className="text-left py-2 px-2 font-bold text-blue-900 text-xs">Jornada</th>
+                        <th className="text-left py-2 px-2 font-bold text-blue-900 text-xs">Fecha</th>
+                        <th className="text-left py-2 px-2 font-bold text-blue-900 text-xs">Ton</th>
+                        <th className="text-left py-2 px-2 font-bold text-blue-900 text-xs">Ley</th>
+                        <th className="text-left py-2 px-2 font-bold text-blue-900 text-xs whitespace-nowrap">Ley Cup</th>
+                        <th className="text-left py-2 px-2 font-bold text-blue-900 text-xs">Certificado</th>
+                        <th className="text-left py-2 px-2 font-bold text-blue-900 text-xs whitespace-nowrap">Ley Visual</th>
+                        <th className="text-left py-2 px-2 font-bold text-blue-900 text-xs">Rango</th>
+                        <th className="text-left py-2 px-2 font-bold text-blue-900 text-xs">Estado</th>
+                        <th className="text-left py-2 px-2 font-bold text-blue-900 text-xs">Acciones</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -832,58 +874,67 @@ export default function Dispatch() {
                           className={`border-b border-gray-200 hover:bg-blue-50 transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
                             }`}
                         >
-                           <td className="py-4 px-4">
-                            <span className="font-bold text-blue-900 bg-gradient-to-r from-blue-100 to-blue-200 px-3 py-1 rounded-lg shadow-sm border border-blue-300 inline-block">
+                           <td className="py-2 px-2" title={dumpada.frente_trabajo?.codigo_completo || '-'}>
+                            <span className="font-bold text-blue-900 bg-gradient-to-r from-blue-100 to-blue-200 px-1.5 py-0.5 rounded-lg shadow-sm border border-blue-300 inline-block text-xs whitespace-nowrap">
                               {dumpada.frente_trabajo?.codigo_completo || '-'}
                             </span>
                           </td>
-                          <td className="py-4 px-4">
-                            <span className="font-mono font-bold text-gray-800">
+                          <td className="py-2 px-2">
+                            <span className="font-mono font-bold text-gray-800 text-xs">
                               {dumpada.n_acop ? String(dumpada.n_acop).padStart(3, '0') : '-'}
                             </span>
                           </td>
-                          <td className="py-4 px-4">
-                            <span className="font-mono text-sm text-blue-700 bg-blue-50 px-3 py-1 rounded-lg border border-blue-200 font-semibold">
+                          <td className="py-2 px-2" title={dumpada.acopios || '-'}>
+                            <span className="font-mono text-xs text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded-lg border border-blue-200 font-semibold block truncate max-w-[180px]">
                               {dumpada.acopios || '-'}
                             </span>
                           </td>
-                          <td className="py-4 px-4 font-semibold text-gray-800">
-                            {dumpada.fecha ? new Date(dumpada.fecha).toLocaleDateString('es-CL') : '-'}
-                          </td>
-                          <td className="py-4 px-4">
+                          <td className="py-2 px-2">
                             {dumpada.jornada ? (
-                              <span className="bg-blue-600 text-white px-3 py-1 rounded-full text-sm font-semibold shadow-sm">
+                              <span className="bg-blue-600 text-white px-2 py-0.5 rounded-full text-xs font-semibold shadow-sm whitespace-nowrap">
                                 {dumpada.jornada}
                               </span>
                             ) : '-'}
                           </td>
-                          <td className="py-4 px-4 text-gray-700">
+                          <td className="py-2 px-2 font-semibold text-gray-800 text-xs whitespace-nowrap">
+                            {formatearFecha(dumpada.fecha)}
+                          </td>
+                          <td className="py-2 px-2 text-gray-700 font-semibold text-xs">
+                            {dumpada.ton ? `${parseFloat(dumpada.ton).toFixed(2)}` : '-'}
+                          </td>
+                          <td className="py-2 px-2 text-gray-700 text-xs">
                             {dumpada.ley ? `${parseFloat(dumpada.ley).toFixed(3)}%` : '-'}
                           </td>
-                          <td className="py-4 px-4 text-gray-700">
+                          <td className="py-2 px-2 text-gray-700 text-xs">
                             {dumpada.ley_cup ? `${parseFloat(dumpada.ley_cup).toFixed(3)}%` : '-'}
                           </td>
-                          <td className="py-4 px-4">
+                          <td className="py-2 px-2 text-gray-700 text-xs">
+                            {dumpada.certificado || '-'}
+                          </td>
+                          <td className="py-2 px-2 text-gray-700 text-xs">
+                            {dumpada.ley_visual ? `${parseFloat(dumpada.ley_visual).toFixed(3)}%` : '-'}
+                          </td>
+                          <td className="py-2 px-2">
                             {dumpada.rango ? (
-                              <span className={`${getRangoColor(dumpada.rango)} text-white px-3 py-1 rounded-full text-sm font-bold shadow-sm`}>
+                              <span className={`${getRangoColor(dumpada.rango)} text-white px-2 py-0.5 rounded-full text-xs font-bold shadow-sm whitespace-nowrap`}>
                                 {dumpada.rango}
                               </span>
                             ) : '-'}
                           </td>
-                          <td className="py-4 px-4">
-                            <span className={`${getEstadoColor(dumpada.estado)} text-white px-3 py-1 rounded-full text-sm font-bold shadow-sm`}>
+                          <td className="py-2 px-2">
+                            <span className={`${getEstadoColor(dumpada.estado)} text-white px-2 py-0.5 rounded-full text-xs font-bold shadow-sm whitespace-nowrap`}>
                               {dumpada.estado}
                             </span>
                           </td>
-                          <td className="py-4 px-4">
-                            <div className="flex gap-2">
+                          <td className="py-2 px-2">
+                            <div className="flex gap-1">
                               {dumpada.estado !== 'Completado' && (
                                 <button
                                   onClick={() => {
                                     setVistaActual('ingreso');
                                     handleCompletar(dumpada);
                                   }}
-                                  className="p-2 bg-green-500 hover:bg-green-600 text-white rounded-lg transition-colors text-xs"
+                                  className="px-2 py-1 bg-green-500 hover:bg-green-600 text-white rounded transition-colors text-xs whitespace-nowrap"
                                   title="Completar"
                                 >
                                   Completar
@@ -891,10 +942,10 @@ export default function Dispatch() {
                               )}
                               <button
                                 onClick={() => handleDelete(dumpada.id)}
-                                className="p-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors"
+                                className="p-1 bg-red-500 hover:bg-red-600 text-white rounded transition-colors"
                                 title="Eliminar"
                               >
-                                <HiTrash className="w-4 h-4" />
+                                <HiTrash className="w-3.5 h-3.5" />
                               </button>
                             </div>
                           </td>

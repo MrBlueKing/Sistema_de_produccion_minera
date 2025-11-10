@@ -15,6 +15,8 @@ class Dumpada extends Model
 
     protected $fillable = [
         'id_frente_trabajo',
+        'user_id',
+        'faena',
         'n_acop',
         'acopios',
         'jornada',
@@ -29,16 +31,19 @@ class Dumpada extends Model
     ];
 
     protected $casts = [
-        'fecha' => 'date',
+        'fecha' => 'date:d-m-Y',
         'ton' => 'decimal:2',
         'ley' => 'decimal:3',
         'ley_cup' => 'decimal:3',
     ];
 
+    protected $dateFormat = 'Y-m-d';
+
     // Constantes de estados
-    const ESTADO_INGRESADO = 'Ingresado';
-    const ESTADO_EN_ANALISIS = 'En Análisis';
-    const ESTADO_COMPLETADO = 'Completado';
+    // Solo se usan 2 estados porque el laboratorio siempre envía los 3 datos juntos
+    const ESTADO_INGRESADO = 'Ingresado';      // Muestra enviada al laboratorio (sin resultados)
+    const ESTADO_EN_ANALISIS = 'En Análisis';  // NO SE USA (por compatibilidad con BD)
+    const ESTADO_COMPLETADO = 'Completado';    // Resultados recibidos del laboratorio
 
     // Relación: una dumpada pertenece a un frente de trabajo
     public function frenteTrabajo()
@@ -47,16 +52,16 @@ class Dumpada extends Model
     }
 
     /**
-     * Genera automáticamente el siguiente número de acopio para un frente específico
+     * Genera automáticamente el siguiente número de acopio global (para todas las dumpadas)
+     * El número de acopio es único y secuencial independiente del frente de trabajo
      *
-     * @param int $idFrenteTrabajo
+     * @param int $idFrenteTrabajo (no se usa, se mantiene por compatibilidad)
      * @return int
      */
-    public static function generarNumeroAcopio($idFrenteTrabajo)
+    public static function generarNumeroAcopio($idFrenteTrabajo = null)
     {
-        $ultimaDumpada = self::where('id_frente_trabajo', $idFrenteTrabajo)
-                             ->orderBy('n_acop', 'desc')
-                             ->first();
+        // Obtener el último número de acopio global (de todas las dumpadas)
+        $ultimaDumpada = self::orderBy('n_acop', 'desc')->first();
 
         return $ultimaDumpada ? ((int) $ultimaDumpada->n_acop + 1) : 1;
     }
@@ -73,10 +78,11 @@ class Dumpada extends Model
      */
     public static function generarCodigoAcopios($codigoFrente, $turno, $nAcopio, $fecha = null)
     {
-        $fecha = $fecha ?? Carbon::now()->format('Y-m-d');
+        // Formato de fecha: d-m-Y (día-mes-año)
+        $fechaFormateada = $fecha ? Carbon::parse($fecha)->format('d-m-Y') : Carbon::now()->format('d-m-Y');
         $nAcopioFormateado = str_pad($nAcopio, 3, '0', STR_PAD_LEFT);
 
-        return "{$codigoFrente}-{$turno}-{$nAcopioFormateado}-{$fecha}";
+        return "{$codigoFrente}-{$turno}-{$nAcopioFormateado}-{$fechaFormateada}";
     }
 
     /**

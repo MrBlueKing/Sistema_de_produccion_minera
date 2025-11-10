@@ -7,9 +7,28 @@ use App\Models\Dispatch\Dumpada;
 use App\Models\Ingenieria\FrenteTrabajo;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Carbon\Carbon;
 
 class DumpadaController extends Controller
 {
+    /**
+     * Convertir fecha de formato DD-MM-YYYY a Y-m-d
+     */
+    private function convertirFecha($fecha)
+    {
+        if (!$fecha) {
+            return null;
+        }
+
+        // Si la fecha viene en formato DD-MM-YYYY
+        if (preg_match('/^\d{2}-\d{2}-\d{4}$/', $fecha)) {
+            return Carbon::createFromFormat('d-m-Y', $fecha)->format('Y-m-d');
+        }
+
+        // Si ya viene en formato Y-m-d o es una fecha válida
+        return $fecha;
+    }
+
     /**
      * Listar todas las dumpadas con paginación
      */
@@ -71,8 +90,8 @@ class DumpadaController extends Controller
         // Generar número de acopio automáticamente
         $nAcopio = Dumpada::generarNumeroAcopio($request->id_frente_trabajo);
 
-        // Usar la fecha proporcionada o la fecha actual
-        $fecha = $request->fecha ?? now()->format('Y-m-d');
+        // Usar la fecha proporcionada o la fecha actual, convertida al formato correcto
+        $fecha = $this->convertirFecha($request->fecha) ?? now()->format('Y-m-d');
 
         // Generar código de acopios automáticamente
         $acopios = Dumpada::generarCodigoAcopios(
@@ -85,23 +104,32 @@ class DumpadaController extends Controller
         // Determinar el rango automáticamente basado en la ley
         $rango = $request->ley ? Dumpada::determinarRango($request->ley) : null;
 
-        // Determinar el estado inicial basado en si tiene ley y certificado
-        $estado = Dumpada::ESTADO_INGRESADO; // Estado inicial siempre es "Ingresado"
+        // Determinar el estado basado en si tiene los datos del laboratorio
+        // Solo hay 2 estados: "Ingresado" (sin datos) o "Completado" (con todos los datos)
+        $estado = Dumpada::ESTADO_INGRESADO; // Estado inicial: muestra enviada al laboratorio
 
-        // Si viene con ley, cup y certificado, está en análisis o completado
+        // Si tiene los 3 datos del laboratorio, está completado
         if ($request->ley && $request->ley_cup && $request->certificado) {
             $estado = Dumpada::ESTADO_COMPLETADO;
-        } elseif ($request->ley || $request->ley_cup || $request->certificado) {
-            $estado = Dumpada::ESTADO_EN_ANALISIS;
         }
 
         // Crear la dumpada con los datos generados
-        $data = $request->all();
-        $data['n_acop'] = $nAcopio;
-        $data['acopios'] = $acopios;
-        $data['fecha'] = $fecha;
-        $data['rango'] = $rango;
-        $data['estado'] = $estado;
+        $data = [
+            'id_frente_trabajo' => $request->id_frente_trabajo,
+            'jornada' => $request->jornada,
+            'ley_visual' => $request->ley_visual,
+            'ton' => $request->ton,
+            'ley' => $request->ley,
+            'ley_cup' => $request->ley_cup,
+            'certificado' => $request->certificado,
+            'n_acop' => $nAcopio,
+            'acopios' => $acopios,
+            'fecha' => $fecha,
+            'rango' => $rango,
+            'estado' => $estado,
+            'user_id' => $request->auth_user_id,
+            'faena' => $request->auth_faena,
+        ];
 
         $dumpada = Dumpada::create($data);
         $dumpada->load('frenteTrabajo.tipoFrente');
@@ -173,7 +201,7 @@ class DumpadaController extends Controller
             $request->jornada != $dumpada->jornada ||
             $request->fecha != $dumpada->fecha) {
 
-            $fecha = $request->fecha ?? $dumpada->fecha;
+            $fecha = $this->convertirFecha($request->fecha) ?? $dumpada->fecha;
             $acopios = Dumpada::generarCodigoAcopios(
                 $frente->codigo_completo,
                 $request->jornada,
@@ -188,23 +216,31 @@ class DumpadaController extends Controller
         $rango = $request->ley ? Dumpada::determinarRango($request->ley) : $dumpada->rango;
 
         // Actualizar estado basado en los datos proporcionados
+        // Solo hay 2 estados: "Ingresado" (sin datos) o "Completado" (con todos los datos)
         $ley = $request->ley ?? $dumpada->ley;
         $leyCup = $request->ley_cup ?? $dumpada->ley_cup;
         $certificado = $request->certificado ?? $dumpada->certificado;
 
         if ($ley && $leyCup && $certificado) {
             $estado = Dumpada::ESTADO_COMPLETADO;
-        } elseif ($ley || $leyCup || $certificado) {
-            $estado = Dumpada::ESTADO_EN_ANALISIS;
         } else {
             $estado = Dumpada::ESTADO_INGRESADO;
         }
 
         // Actualizar la dumpada
-        $data = $request->all();
-        $data['acopios'] = $acopios;
-        $data['rango'] = $rango;
-        $data['estado'] = $estado;
+        $data = [
+            'id_frente_trabajo' => $request->id_frente_trabajo,
+            'jornada' => $request->jornada,
+            'fecha' => $this->convertirFecha($request->fecha) ?? $dumpada->fecha,
+            'ton' => $request->ton ?? $dumpada->ton,
+            'ley' => $request->ley ?? $dumpada->ley,
+            'ley_cup' => $request->ley_cup ?? $dumpada->ley_cup,
+            'certificado' => $request->certificado ?? $dumpada->certificado,
+            'ley_visual' => $request->ley_visual ?? $dumpada->ley_visual,
+            'acopios' => $acopios,
+            'rango' => $rango,
+            'estado' => $estado,
+        ];
 
         $dumpada->update($data);
         $dumpada->load('frenteTrabajo.tipoFrente');
@@ -262,8 +298,8 @@ class DumpadaController extends Controller
         // Generar número de acopio automáticamente
         $nAcopio = Dumpada::generarNumeroAcopio($request->id_frente_trabajo);
 
-        // Usar la fecha proporcionada o la fecha actual
-        $fecha = $request->fecha ?? now()->format('Y-m-d');
+        // Usar la fecha proporcionada o la fecha actual, convertida al formato correcto
+        $fecha = $this->convertirFecha($request->fecha) ?? now()->format('Y-m-d');
 
         // Generar código de acopios automáticamente
         $acopios = Dumpada::generarCodigoAcopios(
