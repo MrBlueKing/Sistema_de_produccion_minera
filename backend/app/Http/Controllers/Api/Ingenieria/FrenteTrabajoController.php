@@ -6,20 +6,90 @@ use App\Http\Controllers\Controller;
 use App\Models\Ingenieria\FrenteTrabajo;
 use App\Models\Ingenieria\AuditoriaFrenteTrabajo;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
 class FrenteTrabajoController extends Controller
 {
-  /**
-     * Listar todos los frentes de trabajo
+    /**
+     * Listar todos los frentes de trabajo con paginación y filtros
      */
-    public function index()
+    public function index(Request $request)
     {
-        $frentes = FrenteTrabajo::with('tipoFrente')->get();
-        
+        Log::info('Accediendo al método index de FrenteTrabajoController.');
+
+        // Parámetros de paginación
+        $perPage = $request->get('per_page', 15);
+        $page = $request->get('page', 1);
+
+        // Parámetros de filtros
+        $search = $request->get('search');
+        $idTipoFrente = $request->get('id_tipo_frente');
+        $manto = $request->get('manto');
+        $idFaena = $request->get('id_faena');
+        $estado = $request->get('estado');
+        $soloActivos = $request->get('solo_activos', false); // Por defecto mostrar todos
+
+        // Construir query
+        $query = FrenteTrabajo::with('tipoFrente')
+            ->orderBy('created_at', 'desc');
+
+        // Filtro por estado activo (útil para selectores en formularios)
+        if ($soloActivos) {
+            $query->activos();
+        }
+
+        // Filtro por faena
+        if ($idFaena) {
+            $query->porFaena($idFaena);
+        }
+
+        // Filtro por estado específico
+        if ($estado) {
+            $query->where('estado', $estado);
+        }
+
+        // Aplicar búsqueda general (busca en código completo, manto, calle, hebra)
+        if ($search) {
+            $query->where(function ($q) use ($search) {
+                $q->where('codigo_completo', 'like', '%' . $search . '%')
+                    ->orWhere('manto', 'like', '%' . $search . '%')
+                    ->orWhere('calle', 'like', '%' . $search . '%')
+                    ->orWhere('hebra', 'like', '%' . $search . '%')
+                    ->orWhere('numero_frente', 'like', '%' . $search . '%');
+            });
+        }
+
+        // Filtro por tipo de frente
+        if ($idTipoFrente) {
+            $query->where('id_tipo_frente', $idTipoFrente);
+        }
+
+        // Filtro por manto
+        if ($manto) {
+            $query->where('manto', 'like', '%' . $manto . '%');
+        }
+
+        // Paginar resultados
+        $frentes = $query->paginate($perPage, ['*'], 'page', $page);
+
+        // Cargar datos de faenas desde el sistema central
+        $frentesConFaenas = $this->cargarFaenasDesdeApiCentral($frentes->items(), $request->bearerToken());
+
+        Log::info('Se recuperaron ' . $frentes->total() . ' frentes de trabajo (página ' . $page . ').');
+
         return response()->json([
             'success' => true,
-            'data' => $frentes
+            'data' => $frentesConFaenas,
+            'pagination' => [
+                'total' => $frentes->total(),
+                'per_page' => $frentes->perPage(),
+                'current_page' => $frentes->currentPage(),
+                'last_page' => $frentes->lastPage(),
+                'from' => $frentes->firstItem(),
+                'to' => $frentes->lastItem()
+            ]
         ], 200);
     }
 
@@ -34,6 +104,8 @@ class FrenteTrabajoController extends Controller
             'hebra' => 'nullable|string|max:10',
             'numero_frente' => 'nullable|string|max:10',
             'id_tipo_frente' => 'required|exists:tipos_frente,id',
+            'id_faena' => 'nullable|integer',
+            'estado' => 'nullable|in:activo,inactivo',
         ]);
 
         if ($validator->fails()) {
@@ -68,6 +140,8 @@ class FrenteTrabajoController extends Controller
             'numero_frente' => $request->numero_frente,
             'codigo_completo' => $codigo,
             'id_tipo_frente' => $request->id_tipo_frente,
+            'id_faena' => $request->id_faena,
+            'estado' => $request->estado ?? 'activo',
         ]);
 
         // Registrar en auditoría
@@ -129,6 +203,8 @@ class FrenteTrabajoController extends Controller
             'hebra' => 'nullable|string|max:10',
             'numero_frente' => 'nullable|string|max:10',
             'id_tipo_frente' => 'required|exists:tipos_frente,id',
+            'id_faena' => 'nullable|integer',
+            'estado' => 'nullable|in:activo,inactivo',
         ]);
 
         if ($validator->fails()) {
@@ -168,6 +244,8 @@ class FrenteTrabajoController extends Controller
             'numero_frente' => $request->numero_frente,
             'codigo_completo' => $codigo,
             'id_tipo_frente' => $request->id_tipo_frente,
+            'id_faena' => $request->id_faena,
+            'estado' => $request->estado ?? $frente->estado,
         ]);
 
         // Registrar cambios en auditoría
@@ -418,6 +496,57 @@ class FrenteTrabajoController extends Controller
             'success' => true,
             'message' => 'Frente de trabajo eliminado permanentemente'
         ], 200);
+    }
+
+    /**
+     * Cargar datos de faenas desde el sistema central y mapearlos a los frentes
+     */
+    private function cargarFaenasDesdeApiCentral($frentes, $token)
+    {
+        // Extraer IDs de faena únicos (excluyendo nulls)
+        $idsFaena = collect($frentes)
+            ->pluck('id_faena')
+            ->filter()
+            ->unique()
+            ->values()
+            ->toArray();
+
+        // Si no hay IDs de faena, retornar frentes sin modificar
+        if (empty($idsFaena)) {
+            return $frentes;
+        }
+
+        try {
+            // Hacer petición al sistema central para obtener todas las faenas
+            $response = Http::withToken($token)
+                ->get(env('SISTEMA_CENTRAL_API') . '/faenas');
+
+            if ($response->successful()) {
+                $todasLasFaenas = $response->json('data', []);
+
+                // Crear mapa de faenas por ID para búsqueda rápida
+                $faenasMap = collect($todasLasFaenas)->keyBy('id');
+
+                // Mapear faenas a frentes
+                foreach ($frentes as $frente) {
+                    if ($frente->id_faena && isset($faenasMap[$frente->id_faena])) {
+                        $frente->faena = $faenasMap[$frente->id_faena];
+                    } else {
+                        $frente->faena = null;
+                    }
+                }
+            } else {
+                Log::warning('No se pudieron cargar faenas del sistema central', [
+                    'status' => $response->status()
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::error('Error al cargar faenas del sistema central', [
+                'message' => $e->getMessage()
+            ]);
+        }
+
+        return $frentes;
     }
 
     /**

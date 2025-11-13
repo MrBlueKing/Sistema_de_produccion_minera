@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\RegistroProduccionController;
+use App\Http\Controllers\Api\FaenaController;
 use Illuminate\Support\Facades\Route;
 
 // Ruta de prueba pública
@@ -18,6 +19,10 @@ Route::middleware(['validate.token'])->group(function () {
     //Rutas de registros de prueba de produccion
     Route::get('/registros', [RegistroProduccionController::class, 'index']);
     Route::post('/registros', [RegistroProduccionController::class, 'store']);
+
+    // Rutas para Faenas (desde sistema central)
+    Route::get('/faenas', [FaenaController::class, 'index']);
+    Route::get('/faenas/{id}', [FaenaController::class, 'show']);
 
     // ========================================
     // CARGAR RUTAS DE SUB-MÓDULOS

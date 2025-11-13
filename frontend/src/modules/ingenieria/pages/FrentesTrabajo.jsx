@@ -7,58 +7,105 @@ import Input from '../../../shared/components/atoms/Input';
 import Card from '../../../shared/components/atoms/Card';
 import Breadcrumb from '../../../shared/components/atoms/Breadcrumb';
 import ConfirmModal from '../../../shared/components/molecules/ConfirmModal';
-import AlertMessage from '../../../shared/components/molecules/AlertMessage';
+import SearchableSelect from '../../../shared/components/atoms/SearchableSelect';
 import HistorialCambios from '../../../shared/components/organisms/HistorialCambios';
+import Pagination from '../../../shared/components/molecules/Pagination';
+import TableFilters from '../../../shared/components/molecules/TableFilters';
+import useDebounce from '../../../hooks/useDebounce';
+import useToast from '../../../hooks/useToast';
 import ingenieriaService from '../../ingenieria/services/ingenieria';
+import faenaService from '../../../services/faenaService';
 
 export default function FrentesTrabajo() {
   const navigate = useNavigate();
-  const [frentes, setFrentes] = useState([]); // ✅ CORREGIDO: era setFrente
+  const toast = useToast();
+  const [frentes, setFrentes] = useState([]);
   const [tiposFrente, setTiposFrente] = useState([]);
+  const [faenas, setFaenas] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
-  const [error, setError] = useState(null);
-  const [success, setSuccess] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [deleteModal, setDeleteModal] = useState({ show: false, id: null, codigo: '' });
   const [historialModal, setHistorialModal] = useState({ show: false, frenteId: null });
+
+  // Estados de paginación
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalRecords, setTotalRecords] = useState(0);
+  const perPage = 15;
+
+  // Estados de filtros
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filters, setFilters] = useState({
+    id_tipo_frente: '',
+    manto: '',
+    id_faena: '',
+    estado: '',
+  });
+
+  // Debounce para la búsqueda (espera 500ms después de que el usuario deje de escribir)
+  const debouncedSearchTerm = useDebounce(searchTerm, 500);
+
   const [formData, setFormData] = useState({
     manto: '',
     calle: '',
     hebra: '',
     numero_frente: '',
     id_tipo_frente: '',
+    id_faena: '',
+    estado: 'activo',
   });
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [currentPage, debouncedSearchTerm, filters]); // Usar debouncedSearchTerm en lugar de searchTerm
 
   const loadData = async () => {
     setLoading(true);
-    setError(null);
 
     try {
       console.log('🔄 Cargando datos de ingeniería...');
 
-      const [frentesRes, tiposRes] = await Promise.all([
-        ingenieriaService.getFrentesTrabajo(),
-        ingenieriaService.getTiposFrente(),
+      // Construir parámetros de la petición
+      const params = {
+        page: currentPage,
+        per_page: perPage,
+        search: debouncedSearchTerm || undefined, // Usar el valor con debounce
+        id_tipo_frente: filters.id_tipo_frente || undefined,
+        manto: filters.manto || undefined,
+        id_faena: filters.id_faena || undefined,
+        estado: filters.estado || undefined,
+      };
+
+      // Limpiar parámetros undefined
+      Object.keys(params).forEach(key => params[key] === undefined && delete params[key]);
+
+      const [frentesRes, tiposRes, faenasRes] = await Promise.all([
+        ingenieriaService.getFrentesTrabajo(params),
+        tiposFrente.length > 0 ? Promise.resolve({ data: tiposFrente }) : ingenieriaService.getTiposFrente(),
+        faenas.length > 0 ? Promise.resolve({ data: faenas }) : faenaService.getFaenas(),
       ]);
 
       console.log('✅ Frentes obtenidos:', frentesRes);
       console.log('✅ Tipos obtenidos:', tiposRes);
+      console.log('✅ Faenas obtenidas:', faenasRes);
 
-      setFrentes(frentesRes.data || []); // ✅ CORREGIDO: era setFrente
+      setFrentes(frentesRes.data || []);
       setTiposFrente(tiposRes.data || []);
+      setFaenas(faenasRes.data || []);
+
+      // Actualizar información de paginación
+      if (frentesRes.pagination) {
+        setTotalPages(frentesRes.pagination.last_page);
+        setTotalRecords(frentesRes.pagination.total);
+      }
     } catch (error) {
       console.error('❌ Error cargando datos:', error);
       console.error('Error completo:', error.response?.data || error.message);
 
-      setError(
-        error.response?.data?.message ||
-        error.message ||
-        'Error al cargar datos'
+      toast.error(
+        'Error al cargar datos',
+        error.response?.data?.message || error.message
       );
     } finally {
       setLoading(false);
@@ -68,26 +115,29 @@ export default function FrentesTrabajo() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-    setError(null);
-    setSuccess(null);
 
     try {
       if (editingId) {
         // Actualizar frente existente
         await ingenieriaService.updateFrenteTrabajo(editingId, formData);
-        setSuccess('¡Frente de trabajo actualizado con éxito! Los cambios han sido guardados correctamente.');
+        toast.success(
+          '¡Frente actualizado!',
+          'Los cambios han sido guardados correctamente'
+        );
       } else {
         // Crear nuevo frente
         await ingenieriaService.createFrenteTrabajo(formData);
-        setSuccess('¡Frente de trabajo creado con éxito! El nuevo frente ha sido registrado correctamente.');
+        toast.success(
+          '¡Frente creado!',
+          'El nuevo frente ha sido registrado correctamente'
+        );
       }
 
-      setFormData({ manto: '', calle: '', hebra: '', numero_frente: '', id_tipo_frente: '' });
+      setFormData({ manto: '', calle: '', hebra: '', numero_frente: '', id_tipo_frente: '', id_faena: '', estado: 'activo' });
       setShowForm(false);
       setEditingId(null);
+      setCurrentPage(1); // Volver a la primera página
       await loadData();
-
-      setTimeout(() => setSuccess(null), 5000);
     } catch (error) {
       console.error('❌ Error guardando frente:', error);
 
@@ -96,8 +146,7 @@ export default function FrentesTrabajo() {
         error.message ||
         'Error al guardar frente de trabajo';
 
-      setError(errorMsg);
-      setTimeout(() => setError(null), 5000);
+      toast.error('Error al guardar', errorMsg);
     } finally {
       setLoading(false);
     }
@@ -110,6 +159,8 @@ export default function FrentesTrabajo() {
       hebra: frente.hebra || '',
       numero_frente: frente.numero_frente || '',
       id_tipo_frente: frente.id_tipo_frente || '',
+      id_faena: frente.id_faena || '',
+      estado: frente.estado || 'activo',
     });
     setEditingId(frente.id);
     setShowForm(true);
@@ -130,18 +181,20 @@ export default function FrentesTrabajo() {
     setDeleteModal({ show: false, id: null, codigo: '' });
 
     setLoading(true);
-    setError(null);
-    setSuccess(null);
 
     try {
       await ingenieriaService.deleteFrenteTrabajo(id);
-      setSuccess('¡Frente de trabajo eliminado con éxito! El registro ha sido removido de la base de datos.');
+      toast.success(
+        '¡Frente eliminado!',
+        'El registro ha sido removido de la base de datos'
+      );
       await loadData();
-      setTimeout(() => setSuccess(null), 5000);
     } catch (error) {
       console.error('❌ Error eliminando frente:', error);
-      setError(error.response?.data?.message || 'Error al eliminar frente de trabajo');
-      setTimeout(() => setError(null), 5000);
+      toast.error(
+        'Error al eliminar',
+        error.response?.data?.message || 'No se pudo eliminar el frente de trabajo'
+      );
     } finally {
       setLoading(false);
     }
@@ -152,9 +205,36 @@ export default function FrentesTrabajo() {
   };
 
   const handleCancelEdit = () => {
-    setFormData({ manto: '', calle: '', hebra: '', numero_frente: '', id_tipo_frente: '' });
+    setFormData({ manto: '', calle: '', hebra: '', numero_frente: '', id_tipo_frente: '', id_faena: '', estado: 'activo' });
     setEditingId(null);
     setShowForm(false);
+  };
+
+  // Handlers para filtros
+  const handleSearchChange = (value) => {
+    setSearchTerm(value);
+    setCurrentPage(1); // Resetear a la primera página al buscar
+  };
+
+  const handleFilterChange = (name, value) => {
+    setFilters(prev => ({ ...prev, [name]: value }));
+    setCurrentPage(1); // Resetear a la primera página al filtrar
+  };
+
+  const handleClearFilters = () => {
+    setSearchTerm('');
+    setFilters({
+      id_tipo_frente: '',
+      manto: '',
+      id_faena: '',
+      estado: '',
+    });
+    setCurrentPage(1);
+  };
+
+  const handlePageChange = (page) => {
+    setCurrentPage(page);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   // ✅ NUEVO: Volver al SAC en lugar de dashboard local
@@ -202,25 +282,6 @@ export default function FrentesTrabajo() {
           />
         </div>
 
-        {/* Mensajes de Éxito y Error */}
-        {success && (
-          <AlertMessage
-            type="success"
-            title="¡Operación Exitosa!"
-            message={success}
-            onClose={() => setSuccess(null)}
-          />
-        )}
-
-        {error && (
-          <AlertMessage
-            type="error"
-            title="Error en la Operación"
-            message={error}
-            onClose={() => setError(null)}
-          />
-        )}
-
         {/* Modal de Confirmación de Eliminación */}
         <ConfirmModal
           show={deleteModal.show}
@@ -245,8 +306,7 @@ export default function FrentesTrabajo() {
           onRevertir={ingenieriaService.revertirFrenteTrabajo}
           onSuccess={() => {
             loadData(); // Recargar datos de la tabla
-            setSuccess('¡Frente revertido exitosamente! Los cambios se han aplicado.');
-            setTimeout(() => setSuccess(null), 3000);
+            toast.success('¡Frente revertido!', 'Los cambios se han aplicado correctamente');
           }}
           title="Historial de Cambios del Frente"
         />
@@ -371,6 +431,46 @@ export default function FrentesTrabajo() {
                 />
               </div>
 
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <SearchableSelect
+                  label="Faena"
+                  options={faenas.map(faena => ({
+                    value: faena.id,
+                    label: `${faena.ubicacion}${faena.detalle ? ` - ${faena.detalle}` : ''}`
+                  }))}
+                  value={formData.id_faena}
+                  onChange={(value) => setFormData({ ...formData, id_faena: value })}
+                  placeholder="Seleccione una faena"
+                  emptyMessage="No hay faenas disponibles"
+                />
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Estado
+                  </label>
+                  <div className="flex items-center gap-4 h-[42px]">
+                    <button
+                      type="button"
+                      onClick={() => setFormData({ ...formData, estado: formData.estado === 'activo' ? 'inactivo' : 'activo' })}
+                      className={`relative inline-flex h-8 w-16 items-center rounded-full transition-colors ${
+                        formData.estado === 'activo' ? 'bg-green-500' : 'bg-gray-300'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform ${
+                          formData.estado === 'activo' ? 'translate-x-9' : 'translate-x-1'
+                        }`}
+                      />
+                    </button>
+                    <span className={`text-sm font-semibold ${
+                      formData.estado === 'activo' ? 'text-green-700' : 'text-gray-500'
+                    }`}>
+                      {formData.estado === 'activo' ? 'Activo' : 'Inactivo'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
               {/* Vista previa del código */}
               {formData.manto && (
                 <div className="bg-gradient-to-r from-orange-50 to-orange-100 border-2 border-orange-300 rounded-xl p-4 shadow-sm">
@@ -424,10 +524,55 @@ export default function FrentesTrabajo() {
             <div>
               <h3 className="text-2xl font-bold text-gray-900">Listado de Frentes</h3>
               <p className="text-sm text-gray-600 mt-1">
-                Total: <span className="font-semibold text-orange-600">{frentes.length}</span> frente{frentes.length !== 1 ? 's' : ''} registrado{frentes.length !== 1 ? 's' : ''}
+                Total: <span className="font-semibold text-orange-600">{totalRecords}</span> frente{totalRecords !== 1 ? 's' : ''} registrado{totalRecords !== 1 ? 's' : ''}
               </p>
             </div>
           </div>
+
+          {/* Componente de Filtros */}
+          <TableFilters
+            searchValue={searchTerm}
+            searchPlaceholder="Buscar por código, manto, calle o hebra..."
+            onSearchChange={handleSearchChange}
+            filters={[
+              {
+                name: 'id_tipo_frente',
+                label: 'Tipo de Frente',
+                type: 'select',
+                options: tiposFrente.map(tipo => ({
+                  value: tipo.id,
+                  label: `${tipo.nombre}${tipo.abreviatura ? ` (${tipo.abreviatura})` : ''}`
+                }))
+              },
+              {
+                name: 'id_faena',
+                label: 'Faena',
+                type: 'select',
+                options: faenas.map(faena => ({
+                  value: faena.id,
+                  label: `${faena.ubicacion}${faena.detalle ? ` - ${faena.detalle}` : ''}`
+                }))
+              },
+              {
+                name: 'manto',
+                label: 'Manto',
+                type: 'text',
+                placeholder: 'Ej: M5, M12'
+              },
+              {
+                name: 'estado',
+                label: 'Estado',
+                type: 'select',
+                options: [
+                  { value: 'activo', label: 'Activo' },
+                  { value: 'inactivo', label: 'Inactivo' }
+                ]
+              }
+            ]}
+            filterValues={filters}
+            onFilterChange={handleFilterChange}
+            onClear={handleClearFilters}
+          />
 
           {loading && frentes.length === 0 ? (
             <div className="text-center py-12">
@@ -455,17 +600,23 @@ export default function FrentesTrabajo() {
                     <th className="text-left py-4 px-4 font-bold text-orange-900">Hebra</th>
                     <th className="text-left py-4 px-4 font-bold text-orange-900">Tipo Frente</th>
                     <th className="text-left py-4 px-4 font-bold text-orange-900">Número</th>
+                    <th className="text-left py-4 px-4 font-bold text-orange-900">Faena</th>
+                    <th className="text-left py-4 px-4 font-bold text-orange-900">Estado</th>
                     <th className="text-left py-4 px-4 font-bold text-orange-900">Creado</th>
                     <th className="text-left py-4 px-4 font-bold text-orange-900">Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {frentes.map((frente, index) => (
-                    <tr
-                      key={frente.id}
-                      className={`border-b border-gray-200 hover:bg-orange-50 transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
-                        }`}
-                    >
+                  {frentes.map((frente, index) => {
+                    // Obtener el color de la faena si existe
+                    const backgroundColor = frente.faena?.color || (index % 2 === 0 ? '#ffffff' : '#f9fafb');
+
+                    return (
+                      <tr
+                        key={frente.id}
+                        style={{ backgroundColor }}
+                        className="border-b border-gray-200 hover:opacity-90 transition-all"
+                      >
                       <td className="py-4 px-4">
                         <span className="font-bold text-orange-900 bg-gradient-to-r from-orange-100 to-orange-200 px-4 py-2 rounded-lg shadow-sm border border-orange-300 inline-block">
                           {frente.codigo_completo || '-'}
@@ -487,6 +638,27 @@ export default function FrentesTrabajo() {
                         )}
                       </td>
                       <td className="py-4 px-4 text-gray-700">{frente.numero_frente || '-'}</td>
+                      <td className="py-4 px-4">
+                        {frente.faena ? (
+                          <div className="flex flex-col">
+                            <span className="font-semibold text-gray-800">{frente.faena.ubicacion}</span>
+                            {frente.faena.detalle && (
+                              <span className="text-xs text-gray-600">{frente.faena.detalle}</span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-gray-400 italic">Sin asignar</span>
+                        )}
+                      </td>
+                      <td className="py-4 px-4">
+                        <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold ${
+                          frente.estado === 'activo'
+                            ? 'bg-green-100 text-green-800 border border-green-300'
+                            : 'bg-gray-100 text-gray-600 border border-gray-300'
+                        }`}>
+                          {frente.estado === 'activo' ? 'Activo' : 'Inactivo'}
+                        </span>
+                      </td>
                       <td className="py-4 px-4 text-sm text-gray-600">
                         {new Date(frente.created_at).toLocaleDateString('es-CL', {
                           day: '2-digit',
@@ -520,10 +692,24 @@ export default function FrentesTrabajo() {
                         </div>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
+          )}
+
+          {/* Componente de Paginación */}
+          {totalRecords > 0 && (
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalRecords={totalRecords}
+              perPage={perPage}
+              onPageChange={handlePageChange}
+              showInfo={true}
+              showFirstLast={true}
+            />
           )}
         </Card>
 

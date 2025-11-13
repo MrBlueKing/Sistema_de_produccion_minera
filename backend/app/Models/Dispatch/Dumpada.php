@@ -16,7 +16,8 @@ class Dumpada extends Model
     protected $fillable = [
         'id_frente_trabajo',
         'user_id',
-        'faena',
+        'id_faena',
+        'faena', // Deprecated: Usar id_faena en su lugar
         'n_acop',
         'acopios',
         'jornada',
@@ -60,10 +61,18 @@ class Dumpada extends Model
      */
     public static function generarNumeroAcopio($idFrenteTrabajo = null)
     {
-        // Obtener el último número de acopio global (de todas las dumpadas)
-        $ultimaDumpada = self::orderBy('n_acop', 'desc')->first();
+        // IMPORTANTE: n_acop es tipo string en la BD, pero contiene números
+        // MAX() sobre strings ordena alfabéticamente: "999" > "4307" (incorrecto)
+        // Solución: Obtener TODOS los valores, convertir a int y obtener el máximo en PHP
 
-        return $ultimaDumpada ? ((int) $ultimaDumpada->n_acop + 1) : 1;
+        $maxAcopio = self::whereNotNull('n_acop')
+            ->where('n_acop', '!=', '')
+            ->pluck('n_acop')
+            ->map(fn($val) => (int) $val) // Convertir cada valor a entero
+            ->max(); // Obtener el máximo numérico real
+
+        // Si no hay registros, empezar en 1
+        return $maxAcopio ? ($maxAcopio + 1) : 1;
     }
 
     /**

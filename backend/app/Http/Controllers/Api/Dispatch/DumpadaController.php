@@ -6,6 +6,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Dispatch\Dumpada;
 use App\Models\Ingenieria\FrenteTrabajo;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Carbon\Carbon;
 
@@ -30,26 +32,67 @@ class DumpadaController extends Controller
     }
 
     /**
-     * Listar todas las dumpadas con paginación
+     * Listar todas las dumpadas con paginación y filtros mejorados
      */
     public function index(Request $request)
     {
         $perPage = $request->get('per_page', 15);
-        $estado = $request->get('estado'); // Filtrar por estado si se proporciona
+        $page = $request->get('page', 1);
+
+        // Parámetros de filtros
+        $search = $request->get('search');
+        $estado = $request->get('estado');
+        $jornada = $request->get('jornada');
+        $fechaInicio = $request->get('fecha_inicio');
+        $fechaFin = $request->get('fecha_fin');
+        $idFrenteTrabajo = $request->get('id_frente_trabajo');
 
         $query = Dumpada::with('frenteTrabajo.tipoFrente')
-            ->orderBy('fecha', 'desc')
-            ->orderBy('created_at', 'desc');
+            ->orderBy('id', 'desc'); // Ordenar por ID descendente (los más recientes primero)
 
+        // Búsqueda general (busca en código de acopios, certificado, número de acopio)
+        if ($search) {
+            $query->where(function ($q) use ($search) {
+                $q->where('acopios', 'like', '%' . $search . '%')
+                    ->orWhere('certificado', 'like', '%' . $search . '%')
+                    ->orWhere('n_acop', 'like', '%' . $search . '%')
+                    ->orWhereHas('frenteTrabajo', function ($fq) use ($search) {
+                        $fq->where('codigo_completo', 'like', '%' . $search . '%');
+                    });
+            });
+        }
+
+        // Filtro por estado
         if ($estado) {
             $query->where('estado', $estado);
         }
 
-        $dumpadas = $query->paginate($perPage);
+        // Filtro por jornada
+        if ($jornada) {
+            $query->where('jornada', $jornada);
+        }
+
+        // Filtro por rango de fechas
+        if ($fechaInicio) {
+            $query->whereDate('fecha', '>=', $fechaInicio);
+        }
+        if ($fechaFin) {
+            $query->whereDate('fecha', '<=', $fechaFin);
+        }
+
+        // Filtro por frente de trabajo
+        if ($idFrenteTrabajo) {
+            $query->where('id_frente_trabajo', $idFrenteTrabajo);
+        }
+
+        $dumpadas = $query->paginate($perPage, ['*'], 'page', $page);
+
+        // Cargar datos de faenas desde el sistema central
+        $dumpadasConFaenas = $this->cargarFaenasDesdeApiCentral($dumpadas->items(), $request->bearerToken());
 
         return response()->json([
             'success' => true,
-            'data' => $dumpadas->items(),
+            'data' => $dumpadasConFaenas,
             'pagination' => [
                 'total' => $dumpadas->total(),
                 'per_page' => $dumpadas->perPage(),
@@ -128,7 +171,8 @@ class DumpadaController extends Controller
             'rango' => $rango,
             'estado' => $estado,
             'user_id' => $request->auth_user_id,
-            'faena' => $request->auth_faena,
+            'id_faena' => $frente->id_faena, // Obtener id_faena del frente de trabajo
+            'faena' => $request->auth_faena, // Deprecated: mantener por compatibilidad
         ];
 
         $dumpada = Dumpada::create($data);
@@ -319,5 +363,68 @@ class DumpadaController extends Controller
                 'fecha' => $fecha
             ]
         ], 200);
+    }
+
+    /**
+     * Cargar datos de faenas desde el sistema central y mapearlos a las dumpadas
+     */
+    private function cargarFaenasDesdeApiCentral($dumpadas, $token)
+    {
+        // Extraer IDs de faena únicos desde las dumpadas directamente (excluyendo nulls)
+        $idsFaena = collect($dumpadas)
+            ->pluck('id_faena')
+            ->filter()
+            ->unique()
+            ->values()
+            ->toArray();
+
+        // Si no hay IDs de faena, intentar obtenerlos desde los frentes de trabajo (para compatibilidad con datos viejos)
+        if (empty($idsFaena)) {
+            $idsFaena = collect($dumpadas)
+                ->pluck('frenteTrabajo.id_faena')
+                ->filter()
+                ->unique()
+                ->values()
+                ->toArray();
+        }
+
+        // Si aún no hay IDs de faena, retornar dumpadas sin modificar
+        if (empty($idsFaena)) {
+            return $dumpadas;
+        }
+
+        try {
+            // Hacer petición al sistema central para obtener todas las faenas
+            $response = Http::withToken($token)
+                ->get(env('SISTEMA_CENTRAL_API') . '/faenas');
+
+            if ($response->successful()) {
+                $todasLasFaenas = $response->json('data', []);
+
+                // Crear mapa de faenas por ID para búsqueda rápida
+                $faenasMap = collect($todasLasFaenas)->keyBy('id');
+
+                // Mapear faenas a dumpadas usando id_faena directo o del frente de trabajo
+                foreach ($dumpadas as $dumpada) {
+                    $idFaena = $dumpada->id_faena ?? $dumpada->frenteTrabajo?->id_faena;
+
+                    if ($idFaena && isset($faenasMap[$idFaena])) {
+                        $dumpada->faena_info = $faenasMap[$idFaena];
+                    } else {
+                        $dumpada->faena_info = null;
+                    }
+                }
+            } else {
+                Log::warning('No se pudieron cargar faenas del sistema central para dumpadas', [
+                    'status' => $response->status()
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::error('Error al cargar faenas del sistema central para dumpadas', [
+                'message' => $e->getMessage()
+            ]);
+        }
+
+        return $dumpadas;
     }
 }

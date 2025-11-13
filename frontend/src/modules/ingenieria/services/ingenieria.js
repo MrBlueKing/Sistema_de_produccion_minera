@@ -13,8 +13,8 @@ class IngenieriaService {
   }
 
   // Frentes de Trabajo
-  async getFrentesTrabajo() {
-    const response = await api.get('/ingenieria/frentes-trabajo');
+  async getFrentesTrabajo(params = {}) {
+    const response = await api.get('/ingenieria/frentes-trabajo', { params });
     return response.data;
   }
 

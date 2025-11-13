@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { HiHome, HiPencil, HiTrash, HiInformationCircle, HiCheckCircle, HiXCircle, HiEye, HiDocumentPlus, HiChevronLeft, HiChevronRight } from 'react-icons/hi2';
 import { useNavigate } from 'react-router-dom';
 import Header from '../../../shared/components/organisms/Header';
@@ -7,19 +7,31 @@ import Input from '../../../shared/components/atoms/Input';
 import Card from '../../../shared/components/atoms/Card';
 import Badge from '../../../shared/components/atoms/Badge';
 import Breadcrumb from '../../../shared/components/atoms/Breadcrumb';
+import SearchableSelect from '../../../shared/components/atoms/SearchableSelect';
+import ConfirmModal from '../../../shared/components/molecules/ConfirmModal';
+import BulkCompleteModal from '../../../shared/components/molecules/BulkCompleteModal';
+import EditDumpadaModal from '../../../shared/components/molecules/EditDumpadaModal';
+import Pagination from '../../../shared/components/molecules/Pagination';
+import TableFilters from '../../../shared/components/molecules/TableFilters';
+import useDebounce from '../../../hooks/useDebounce';
+import useToast from '../../../hooks/useToast';
 import dispatchService from '../services/dispatch';
 import ingenieriaService from '../../ingenieria/services/ingenieria';
 
 export default function Dispatch() {
   const navigate = useNavigate();
+  const toast = useToast();
   const [dumpadas, setDumpadas] = useState([]);
   const [frentes, setFrentes] = useState([]);
   const [rangos, setRangos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showInfo, setShowInfo] = useState(false);
-  const [editingId, setEditingId] = useState(null);
-  const [error, setError] = useState(null);
-  const [success, setSuccess] = useState(null);
+  const [deleteModal, setDeleteModal] = useState({ show: false, id: null, acopio: '' });
+  const [editModal, setEditModal] = useState({ show: false, dumpada: null });
+
+  // Selección múltiple
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [showBulkCompleteModal, setShowBulkCompleteModal] = useState(false);
 
   // Paginación
   const [currentPage, setCurrentPage] = useState(1);
@@ -30,7 +42,18 @@ export default function Dispatch() {
   // Vista actual: 'ingreso' o 'historial'
   const [vistaActual, setVistaActual] = useState('ingreso');
 
-  const frenteRef = useRef(null);
+  // Estados de filtros (solo para vista historial)
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filters, setFilters] = useState({
+    estado: '',
+    jornada: '',
+    fecha_inicio: '',
+    fecha_fin: '',
+    id_frente_trabajo: '',
+  });
+
+  // Debounce para la búsqueda
+  const debouncedSearchTerm = useDebounce(searchTerm, 500);
 
   const jornadas = ['AM', 'PM', 'Madrugada', 'Noche'];
   const TONELADAS_CONSTANTE = 4.6;
@@ -45,12 +68,6 @@ export default function Dispatch() {
     }
   ]);
 
-  // Formulario de completado (para agregar ley, cup, certificado)
-  const [formDataCompletado, setFormDataCompletado] = useState({
-    ley: '',
-    ley_cup: '',
-    certificado: '',
-  });
 
   useEffect(() => {
     loadData();
@@ -61,14 +78,18 @@ export default function Dispatch() {
     if (vistaActual === 'historial') {
       loadData();
     }
-  }, [currentPage, vistaActual]);
+  }, [currentPage, vistaActual, debouncedSearchTerm, filters]);
 
   const loadMaestros = async () => {
     try {
       const [frentesRes, rangosRes] = await Promise.all([
-        ingenieriaService.getFrentesTrabajo(),
+        // Cargar TODAS las frentes activas sin paginación (per_page=1000 para asegurar que traiga todas)
+        ingenieriaService.getFrentesTrabajo({ solo_activos: true, per_page: 1000 }),
         dispatchService.getRangos(),
       ]);
+
+      console.log('📊 Frentes cargadas:', frentesRes.data?.length || 0);
+      console.log('📋 Total en BD según paginación:', frentesRes.pagination?.total || 'N/A');
 
       setFrentes(frentesRes.data || []);
       setRangos(rangosRes.data || []);
@@ -79,10 +100,27 @@ export default function Dispatch() {
 
   const loadData = async () => {
     setLoading(true);
-    setError(null);
 
     try {
-      const params = vistaActual === 'historial' ? { page: currentPage, per_page: perPage } : {};
+      let params = {};
+
+      if (vistaActual === 'historial') {
+        // Construir parámetros con filtros
+        params = {
+          page: currentPage,
+          per_page: perPage,
+          search: debouncedSearchTerm || undefined,
+          estado: filters.estado || undefined,
+          jornada: filters.jornada || undefined,
+          fecha_inicio: filters.fecha_inicio || undefined,
+          fecha_fin: filters.fecha_fin || undefined,
+          id_frente_trabajo: filters.id_frente_trabajo || undefined,
+        };
+
+        // Limpiar parámetros undefined
+        Object.keys(params).forEach(key => params[key] === undefined && delete params[key]);
+      }
+
       const dumpadasRes = await dispatchService.getDumpadas(params);
 
       setDumpadas(dumpadasRes.data || []);
@@ -94,10 +132,9 @@ export default function Dispatch() {
 
     } catch (error) {
       console.error('❌ Error cargando datos:', error);
-      setError(
-        error.response?.data?.message ||
-        error.message ||
-        'Error al cargar datos'
+      toast.error(
+        'Error al cargar datos',
+        error.response?.data?.message || error.message
       );
     } finally {
       setLoading(false);
@@ -132,7 +169,6 @@ export default function Dispatch() {
         ley_visual: '',
       }
     ]);
-    setTimeout(() => frenteRef.current?.focus(), 100);
   };
 
   const agregarFilaIngreso = () => {
@@ -157,29 +193,18 @@ export default function Dispatch() {
     ));
   };
 
-  const resetFormCompletado = () => {
-    setFormDataCompletado({
-      ley: '',
-      ley_cup: '',
-      certificado: '',
-    });
-    setEditingId(null);
-  };
-
   // Ingreso masivo - Guardar todas las filas
   const handleSubmitIngresoMasivo = async (e) => {
     e.preventDefault();
     setLoading(true);
-    setError(null);
-    setSuccess(null);
 
     // Validar que todas las filas estén completas
     const filasValidas = formsIngresoMasivo.filter(f =>
-      f.id_frente_trabajo && f.jornada && f.ley_visual
+      f.id_frente_trabajo && f.jornada
     );
 
     if (filasValidas.length === 0) {
-      setError('Debes completar al menos una fila para guardar');
+      toast.warning('Atención', 'Debes completar al menos una fila para guardar');
       setLoading(false);
       return;
     }
@@ -197,12 +222,13 @@ export default function Dispatch() {
 
       await Promise.all(promises);
 
-      setSuccess(`${filasValidas.length} dumpada(s) ingresadas exitosamente - En espera de análisis de laboratorio`);
+      toast.success(
+        `${filasValidas.length} dumpada(s) ingresadas`,
+        'En espera de análisis de laboratorio'
+      );
 
       resetFormIngreso();
       await loadData();
-
-      setTimeout(() => setSuccess(null), 3000);
     } catch (error) {
       console.error('❌ Error guardando dumpadas:', error);
 
@@ -211,76 +237,234 @@ export default function Dispatch() {
         error.message ||
         'Error al guardar dumpadas';
 
-      setError(errorMsg);
-      setTimeout(() => setError(null), 5000);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Completar dumpada - Agregar ley, cup, certificado
-  const handleSubmitCompletado = async (e) => {
-    e.preventDefault();
-    if (!editingId) return;
-
-    setLoading(true);
-    setError(null);
-    setSuccess(null);
-
-    try {
-      const dumpada = dumpadas.find(d => d.id === editingId);
-      const dataToSend = {
-        ...formDataCompletado,
-        id_frente_trabajo: dumpada.id_frente_trabajo,
-        jornada: dumpada.jornada,
-        ley_visual: dumpada.ley_visual,
-        ton: TONELADAS_CONSTANTE
-      };
-
-      await dispatchService.updateDumpada(editingId, dataToSend);
-      setSuccess('Dumpada completada exitosamente');
-
-      resetFormCompletado();
-      await loadData();
-
-      setTimeout(() => setSuccess(null), 3000);
-    } catch (error) {
-      console.error('❌ Error completando dumpada:', error);
-      const errorMsg = error.response?.data?.message || 'Error al completar dumpada';
-      setError(errorMsg);
-      setTimeout(() => setError(null), 5000);
+      toast.error('Error al guardar', errorMsg);
     } finally {
       setLoading(false);
     }
   };
 
   const handleCompletar = (dumpada) => {
-    setFormDataCompletado({
-      ley: dumpada.ley || '',
-      ley_cup: dumpada.ley_cup || '',
-      certificado: dumpada.certificado || '',
+    // Seleccionar solo esta dumpada y abrir el modal de completar múltiple
+    setSelectedIds([dumpada.id]);
+    setShowBulkCompleteModal(true);
+  };
+
+  const handleEdit = (dumpada) => {
+    setEditModal({ show: true, dumpada });
+  };
+
+  const handleEditConfirm = async (updatedData) => {
+    setEditModal({ show: false, dumpada: null });
+    setLoading(true);
+
+    try {
+      await dispatchService.updateDumpada(updatedData.id, updatedData);
+      toast.success('¡Dumpada actualizada!', 'Los cambios han sido guardados correctamente');
+      await loadData();
+    } catch (error) {
+      console.error('❌ Error actualizando dumpada:', error);
+      toast.error('Error al actualizar', error.response?.data?.message || 'No se pudo actualizar la dumpada');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEditCancel = () => {
+    setEditModal({ show: false, dumpada: null });
+  };
+
+  // Handlers para filtros
+  const handleSearchChange = (value) => {
+    setSearchTerm(value);
+    setCurrentPage(1);
+  };
+
+  const handleFilterChange = (name, value) => {
+    setFilters(prev => ({ ...prev, [name]: value }));
+    setCurrentPage(1);
+  };
+
+  const handleClearFilters = () => {
+    setSearchTerm('');
+    setFilters({
+      estado: '',
+      jornada: '',
+      fecha_inicio: '',
+      fecha_fin: '',
+      id_frente_trabajo: '',
     });
-    setEditingId(dumpada.id);
+    setCurrentPage(1);
+  };
+
+  const handlePageChange = (page) => {
+    setCurrentPage(page);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('¿Estás seguro de eliminar esta dumpada?')) {
+    const dumpada = dumpadas.find(d => d.id === id);
+    setDeleteModal({
+      show: true,
+      id: id,
+      acopio: dumpada?.acopios || dumpada?.n_acop || 'esta dumpada'
+    });
+  };
+
+  const confirmDelete = async () => {
+    const id = deleteModal.id;
+
+    // Si id es null, es eliminación múltiple
+    if (id === null) {
+      confirmBulkDelete();
       return;
     }
 
+    // Eliminación individual
+    setDeleteModal({ show: false, id: null, acopio: '' });
     setLoading(true);
-    setError(null);
-    setSuccess(null);
 
     try {
       await dispatchService.deleteDumpada(id);
-      setSuccess('Dumpada eliminada exitosamente');
+      toast.success('¡Dumpada eliminada!', 'El registro ha sido eliminado correctamente');
       await loadData();
-      setTimeout(() => setSuccess(null), 3000);
     } catch (error) {
       console.error('❌ Error eliminando dumpada:', error);
-      setError(error.response?.data?.message || 'Error al eliminar dumpada');
+      toast.error('Error al eliminar', error.response?.data?.message || 'No se pudo eliminar la dumpada');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const cancelDelete = () => {
+    setDeleteModal({ show: false, id: null, acopio: '' });
+  };
+
+  // Funciones de selección múltiple
+  const handleSelectOne = (id) => {
+    setSelectedIds(prev => {
+      if (prev.includes(id)) {
+        return prev.filter(itemId => itemId !== id);
+      } else {
+        return [...prev, id];
+      }
+    });
+  };
+
+  const handleSelectAll = (dumpadasList) => {
+    const allIds = dumpadasList.map(d => d.id);
+    if (selectedIds.length === allIds.length) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(allIds);
+    }
+  };
+
+  const clearSelection = () => {
+    setSelectedIds([]);
+  };
+
+  // Completar múltiples dumpadas con wizard
+  const handleBulkComplete = () => {
+    if (selectedIds.length === 0) {
+      toast.warning('Atención', 'Debes seleccionar al menos una dumpada');
+      return;
+    }
+
+    const selectedDumpadas = dumpadas.filter(d => selectedIds.includes(d.id));
+    const alreadyCompleted = selectedDumpadas.filter(d => d.estado === 'Completado');
+
+    if (alreadyCompleted.length > 0) {
+      toast.warning(
+        'Algunas ya completadas',
+        `${alreadyCompleted.length} dumpada(s) ya están completadas y serán omitidas`
+      );
+    }
+
+    // Filtrar solo las que están en estado "Ingresado"
+    const dumpadasToComplete = selectedDumpadas.filter(d => d.estado !== 'Completado');
+
+    if (dumpadasToComplete.length === 0) {
+      toast.info('Sin pendientes', 'Todas las dumpadas seleccionadas ya están completadas');
+      return;
+    }
+
+    setShowBulkCompleteModal(true);
+  };
+
+  const handleBulkCompleteConfirm = async (completedDataMap) => {
+    setShowBulkCompleteModal(false);
+    setLoading(true);
+
+    try {
+      const promises = Object.entries(completedDataMap).map(([id, data]) => {
+        const dumpada = dumpadas.find(d => d.id === parseInt(id));
+        return dispatchService.updateDumpada(parseInt(id), {
+          ley: data.ley,
+          ley_cup: data.ley_cup,
+          certificado: data.certificado,
+          id_frente_trabajo: dumpada.id_frente_trabajo,
+          jornada: dumpada.jornada,
+          ley_visual: dumpada.ley_visual,
+          ton: TONELADAS_CONSTANTE
+        });
+      });
+
+      await Promise.all(promises);
+
+      toast.success(
+        `${Object.keys(completedDataMap).length} dumpada(s) completadas`,
+        'Los resultados del laboratorio han sido registrados'
+      );
+
+      clearSelection();
+      await loadData();
+    } catch (error) {
+      console.error('❌ Error completando dumpadas:', error);
+      toast.error('Error al completar', error.response?.data?.message || 'No se pudieron completar las dumpadas');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleBulkCompleteCancel = () => {
+    setShowBulkCompleteModal(false);
+  };
+
+  // Eliminar múltiples dumpadas
+  const handleBulkDelete = () => {
+    if (selectedIds.length === 0) {
+      toast.warning('Atención', 'Debes seleccionar al menos una dumpada');
+      return;
+    }
+
+    const selectedDumpadas = dumpadas.filter(d => selectedIds.includes(d.id));
+    const acopios = selectedDumpadas.map(d => d.acopios || d.n_acop).join(', ');
+
+    setDeleteModal({
+      show: true,
+      id: null, // null indica que es eliminación múltiple
+      acopio: `${selectedIds.length} dumpadas: ${acopios}`
+    });
+  };
+
+  const confirmBulkDelete = async () => {
+    setDeleteModal({ show: false, id: null, acopio: '' });
+    setLoading(true);
+
+    try {
+      const promises = selectedIds.map(id => dispatchService.deleteDumpada(id));
+      await Promise.all(promises);
+
+      toast.success(
+        `${selectedIds.length} dumpada(s) eliminadas`,
+        'Los registros han sido eliminados correctamente'
+      );
+
+      clearSelection();
+      await loadData();
+    } catch (error) {
+      console.error('❌ Error eliminando dumpadas:', error);
+      toast.error('Error al eliminar', error.response?.data?.message || 'No se pudieron eliminar las dumpadas');
     } finally {
       setLoading(false);
     }
@@ -358,37 +542,38 @@ export default function Dispatch() {
           />
         </div>
 
-        {/* Mensajes */}
-        {error && (
-          <div className="mb-6 bg-red-50 border-l-4 border-red-500 rounded-lg p-4 flex items-start gap-3 shadow-sm">
-            <HiXCircle className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <p className="font-semibold text-red-800">Error</p>
-              <p className="text-red-700 text-sm">{error}</p>
-            </div>
-            <button
-              onClick={() => setError(null)}
-              className="text-red-500 hover:text-red-700 font-bold"
-            >
-              ✕
-            </button>
-          </div>
-        )}
+        {/* Modal de Confirmación de Eliminación */}
+        <ConfirmModal
+          show={deleteModal.show}
+          onConfirm={confirmDelete}
+          onCancel={cancelDelete}
+          title="¿Eliminar Dumpada?"
+          message="Estás a punto de eliminar la dumpada:"
+          highlightText={deleteModal.acopio}
+          warningText="Esta acción no se puede deshacer."
+          confirmText="Eliminar"
+          cancelText="Cancelar"
+          variant="danger"
+          icon={HiTrash}
+        />
 
-        {success && (
-          <div className="mb-6 bg-green-50 border-l-4 border-green-500 rounded-lg p-4 flex items-start gap-3 shadow-sm">
-            <HiCheckCircle className="w-6 h-6 text-green-600 flex-shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <p className="font-semibold text-green-800">{success}</p>
-            </div>
-            <button
-              onClick={() => setSuccess(null)}
-              className="text-green-500 hover:text-green-700 font-bold"
-            >
-              ✕
-            </button>
-          </div>
-        )}
+        {/* Modal de Edición */}
+        <EditDumpadaModal
+          show={editModal.show}
+          dumpada={editModal.dumpada}
+          frentes={frentes}
+          jornadas={jornadas}
+          onConfirm={handleEditConfirm}
+          onCancel={handleEditCancel}
+        />
+
+        {/* Modal de Completar Múltiples (Wizard) */}
+        <BulkCompleteModal
+          show={showBulkCompleteModal}
+          dumpadas={dumpadas.filter(d => selectedIds.includes(d.id) && d.estado !== 'Completado')}
+          onConfirm={handleBulkCompleteConfirm}
+          onCancel={handleBulkCompleteCancel}
+        />
 
         {/* Header con Switch de Vista */}
         <div className="bg-white rounded-xl shadow-md p-6 mb-6 border-l-4 border-blue-500">
@@ -418,7 +603,6 @@ export default function Dispatch() {
               <button
                 onClick={() => {
                   setVistaActual('ingreso');
-                  resetFormCompletado();
                 }}
                 className={`relative flex items-center gap-2 px-6 py-3 font-semibold transition-all rounded-t-lg ${vistaActual === 'ingreso'
                   ? 'bg-blue-600 text-white shadow-lg transform translate-y-0.5'
@@ -520,76 +704,8 @@ export default function Dispatch() {
         {/* Vista de Ingreso */}
         {vistaActual === 'ingreso' && (
           <>
-            {/* Formulario de completado (si hay uno seleccionado) */}
-            {editingId && (
-              <Card className="mb-6 border-l-4 border-green-400">
-                <div className="mb-4">
-                  <h3 className="text-xl font-bold text-gray-900">
-                    🔬 Completar Análisis de Laboratorio
-                  </h3>
-                  <p className="text-sm text-gray-600 mt-1">
-                    Agregue los resultados del laboratorio para completar el registro
-                  </p>
-                </div>
-
-                <form onSubmit={handleSubmitCompletado} className="space-y-6">
-                  <div className="bg-gradient-to-br from-green-50 to-green-100 p-5 rounded-lg border border-green-200">
-                    <h4 className="font-semibold text-green-900 mb-4">Resultados de Laboratorio</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      <Input
-                        label="Ley (%)"
-                        type="number"
-                        step="0.001"
-                        value={formDataCompletado.ley}
-                        onChange={(e) => setFormDataCompletado({ ...formDataCompletado, ley: e.target.value })}
-                        placeholder="Ej: 2.500"
-                        required
-                      />
-
-                      <Input
-                        label="Ley Cup - Cobre (%)"
-                        type="number"
-                        step="0.001"
-                        value={formDataCompletado.ley_cup}
-                        onChange={(e) => setFormDataCompletado({ ...formDataCompletado, ley_cup: e.target.value })}
-                        placeholder="Ej: 0.850"
-                        required
-                      />
-
-                      <Input
-                        label="Certificado"
-                        type="text"
-                        value={formDataCompletado.certificado}
-                        onChange={(e) => setFormDataCompletado({ ...formDataCompletado, certificado: e.target.value })}
-                        placeholder="N° de certificado"
-                        required
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex gap-3">
-                    <Button
-                      type="submit"
-                      variant="success"
-                      disabled={loading}
-                    >
-                      {loading ? 'Guardando...' : 'Completar Dumpada'}
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      onClick={resetFormCompletado}
-                    >
-                      Cancelar
-                    </Button>
-                  </div>
-                </form>
-              </Card>
-            )}
-
             {/* Formulario de ingreso masivo */}
-            {!editingId && (
-              <Card className="mb-6 border-l-4 border-blue-400">
+            <Card className="mb-6 border-l-4 border-blue-400">
                 <div className="flex items-center justify-between mb-4">
                   <div>
                     <h3 className="text-xl font-bold text-gray-900">
@@ -613,90 +729,79 @@ export default function Dispatch() {
                 </div>
 
                 <form onSubmit={handleSubmitIngresoMasivo} className="space-y-4">
-                  <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-4 rounded-lg border border-blue-200">
-                    <div className="overflow-x-auto">
-                      <table className="w-full">
-                        <thead>
-                          <tr className="border-b-2 border-blue-300">
-                            <th className="text-left py-2 px-2 font-bold text-blue-900 text-sm">#</th>
-                            <th className="text-left py-2 px-2 font-bold text-blue-900 text-sm">Frente <span className="text-red-500">*</span></th>
-                            <th className="text-left py-2 px-2 font-bold text-blue-900 text-sm">Jornada <span className="text-red-500">*</span></th>
-                            <th className="text-left py-2 px-2 font-bold text-blue-900 text-sm">Ley Visual (%)</th>
-                            <th className="text-center py-2 px-2 font-bold text-blue-900 text-sm">Acción</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {formsIngresoMasivo.map((form, index) => (
-                            <tr key={form.id} className="border-b border-blue-200 hover:bg-blue-100 transition-colors">
-                              <td className="py-2 px-2">
-                                <span className="font-mono text-sm font-bold text-gray-700">{index + 1}</span>
-                              </td>
-                              <td className="py-2 px-2">
-                                <select
-                                  ref={index === 0 ? frenteRef : null}
-                                  value={form.id_frente_trabajo}
-                                  onChange={(e) => actualizarFilaIngreso(form.id, 'id_frente_trabajo', e.target.value)}
-                                  required
-                                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
-                                >
-                                  <option value="">Seleccione...</option>
-                                  {frentes.map((frente) => (
-                                    <option key={frente.id} value={frente.id}>
-                                      {frente.codigo_completo}
-                                    </option>
-                                  ))}
-                                </select>
-                              </td>
-                              <td className="py-2 px-2">
-                                <select
-                                  value={form.jornada}
-                                  onChange={(e) => actualizarFilaIngreso(form.id, 'jornada', e.target.value)}
-                                  required
-                                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
-                                >
-                                  <option value="">Seleccione...</option>
-                                  {jornadas.map((jornada) => (
-                                    <option key={jornada} value={jornada}>
-                                      {jornada}
-                                    </option>
-                                  ))}
-                                </select>
-                              </td>
-                              <td className="py-2 px-2">
-                                <input
-                                  type="number"
-                                  step="0.001"
-                                  value={form.ley_visual}
-                                  onChange={(e) => actualizarFilaIngreso(form.id, 'ley_visual', e.target.value)}
-                                  placeholder="2.300"
-                                  className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                                />
-                              </td>
-                              <td className="py-2 px-2 text-center">
-                                {formsIngresoMasivo.length > 1 && (
-                                  <button
-                                    type="button"
-                                    onClick={() => eliminarFilaIngreso(form.id)}
-                                    className="p-1.5 bg-red-500 hover:bg-red-600 text-white rounded transition-colors"
-                                    title="Eliminar fila"
-                                  >
-                                    <HiTrash className="w-4 h-4" />
-                                  </button>
-                                )}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+                  <div className="space-y-4">
+                    {formsIngresoMasivo.map((form, index) => (
+                      <div key={form.id} className="bg-gradient-to-br from-blue-50 to-blue-100 p-5 rounded-lg border-2 border-blue-200 shadow-sm">
+                        <div className="flex items-start gap-4">
+                          <div className="flex-shrink-0 w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center">
+                            <span className="font-bold text-white">{index + 1}</span>
+                          </div>
 
-                    <div className="mt-3 p-3 bg-blue-200 rounded-lg">
-                      <p className="text-xs text-blue-900">
-                        <strong>ℹ️ Información:</strong> Fecha actual, {TONELADAS_CONSTANTE} Ton constante, N° Acopio automático.
-                        Las filas completas se guardarán en estado "Ingresado" hasta agregar los resultados del laboratorio.
-                      </p>
-                    </div>
+                          <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <SearchableSelect
+                              label="Frente de Trabajo *"
+                              options={frentes.map(frente => ({
+                                value: frente.id,
+                                label: frente.codigo_completo
+                              }))}
+                              value={form.id_frente_trabajo}
+                              onChange={(value) => actualizarFilaIngreso(form.id, 'id_frente_trabajo', value)}
+                              placeholder="Buscar frente..."
+                              emptyMessage="No hay frentes disponibles"
+                              required
+                            />
+
+                            <div>
+                              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                                Jornada <span className="text-red-500">*</span>
+                              </label>
+                              <select
+                                value={form.jornada}
+                                onChange={(e) => actualizarFilaIngreso(form.id, 'jornada', e.target.value)}
+                                required
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                              >
+                                <option value="">Seleccione...</option>
+                                {jornadas.map((jornada) => (
+                                  <option key={jornada} value={jornada}>
+                                    {jornada}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            <Input
+                              label="Ley Visual (%)"
+                              type="number"
+                              step="0.001"
+                              value={form.ley_visual}
+                              onChange={(e) => actualizarFilaIngreso(form.id, 'ley_visual', e.target.value)}
+                              placeholder="Ej: 2.300"
+                            />
+                          </div>
+
+                          {formsIngresoMasivo.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => eliminarFilaIngreso(form.id)}
+                              className="flex-shrink-0 w-10 h-10 bg-red-500 hover:bg-red-600 text-white rounded-full flex items-center justify-center transition-colors shadow-md"
+                              title="Eliminar fila"
+                            >
+                              <HiTrash className="w-5 h-5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
                   </div>
+
+                  <div className="bg-blue-50 border-2 border-blue-200 rounded-lg p-4">
+                    <p className="text-sm text-blue-900">
+                      <strong>ℹ️ Información:</strong> Fecha actual, {TONELADAS_CONSTANTE} Ton constante, N° Acopio automático.
+                      Las filas completas se guardarán en estado "Ingresado" hasta agregar los resultados del laboratorio.
+                    </p>
+                  </div>
+
 
                   <div className="flex gap-3">
                     <Button
@@ -716,15 +821,67 @@ export default function Dispatch() {
                   </div>
                 </form>
               </Card>
-            )}
 
             {/* Últimos registros ingresados */}
             <Card className="border-l-4 border-yellow-400">
               <div className="mb-4">
-                <h3 className="text-xl font-bold text-gray-900">Últimos Registros Ingresados</h3>
-                <p className="text-sm text-gray-600 mt-1">
-                  Registros recientes en espera de análisis de laboratorio
-                </p>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-xl font-bold text-gray-900">Últimos Registros Ingresados</h3>
+                    <p className="text-sm text-gray-600 mt-1">
+                      Registros recientes en espera de análisis de laboratorio
+                    </p>
+                  </div>
+
+                  {/* Contador de selección */}
+                  {selectedIds.length > 0 && (
+                    <div className="bg-blue-100 border-2 border-blue-500 rounded-lg px-4 py-2">
+                      <span className="text-blue-800 font-semibold">
+                        {selectedIds.length} seleccionada{selectedIds.length !== 1 ? 's' : ''}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Barra de acciones múltiples */}
+                {selectedIds.length > 0 && (
+                  <div className="mt-4 bg-gradient-to-r from-blue-50 to-blue-100 border-2 border-blue-300 rounded-lg p-4">
+                    <div className="flex items-center justify-between flex-wrap gap-3">
+                      <div className="flex items-center gap-2">
+                        <HiCheckCircle className="w-5 h-5 text-blue-600" />
+                        <span className="font-semibold text-blue-900">
+                          {selectedIds.length} dumpada{selectedIds.length !== 1 ? 's' : ''} seleccionada{selectedIds.length !== 1 ? 's' : ''}
+                        </span>
+                      </div>
+
+                      <div className="flex gap-2">
+                        <Button
+                          variant="success"
+                          size="sm"
+                          onClick={handleBulkComplete}
+                          disabled={loading}
+                        >
+                          Completar Seleccionadas
+                        </Button>
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          onClick={handleBulkDelete}
+                          disabled={loading}
+                        >
+                          Eliminar Seleccionadas
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={clearSelection}
+                        >
+                          Cancelar
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {dumpadas.filter(d => d.estado === 'Ingresado').length === 0 ? (
@@ -736,6 +893,14 @@ export default function Dispatch() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b-2 border-yellow-200 bg-gradient-to-r from-yellow-50 to-yellow-100">
+                        <th className="text-center py-2 px-2 font-bold text-yellow-900 text-xs w-10">
+                          <input
+                            type="checkbox"
+                            onChange={() => handleSelectAll(dumpadas.filter(d => d.estado === 'Ingresado').slice(0, 10))}
+                            checked={selectedIds.length === dumpadas.filter(d => d.estado === 'Ingresado').slice(0, 10).length && selectedIds.length > 0}
+                            className="w-4 h-4 rounded border-yellow-300 text-yellow-600 focus:ring-yellow-500"
+                          />
+                        </th>
                         <th className="text-left py-2 px-2 font-bold text-yellow-900 text-xs">Frente</th>
                         <th className="text-left py-2 px-2 font-bold text-yellow-900 text-xs whitespace-nowrap">N° Acop</th>
                         <th className="text-left py-2 px-2 font-bold text-yellow-900 text-xs">Acopios</th>
@@ -752,12 +917,24 @@ export default function Dispatch() {
                       </tr>
                     </thead>
                     <tbody>
-                      {dumpadas.filter(d => d.estado === 'Ingresado').slice(0, 10).map((dumpada, index) => (
-                        <tr
-                          key={dumpada.id}
-                          className={`border-b border-gray-200 hover:bg-yellow-50 transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
-                            }`}
-                        >
+                      {dumpadas.filter(d => d.estado === 'Ingresado').slice(0, 10).map((dumpada, index) => {
+                        // Obtener el color de la faena si existe
+                        const backgroundColor = dumpada.faena_info?.color || (index % 2 === 0 ? '#ffffff' : '#f9fafb');
+
+                        return (
+                          <tr
+                            key={dumpada.id}
+                            style={{ backgroundColor }}
+                            className={`border-b border-gray-200 hover:opacity-90 transition-all ${selectedIds.includes(dumpada.id) ? 'ring-2 ring-blue-400' : ''}`}
+                          >
+                          <td className="py-2 px-2 text-center">
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.includes(dumpada.id)}
+                              onChange={() => handleSelectOne(dumpada.id)}
+                              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            />
+                          </td>
                           <td className="py-2 px-2" title={dumpada.frente_trabajo?.codigo_completo || '-'}>
                             <span className="font-bold text-blue-900 bg-blue-100 px-1.5 py-0.5 rounded text-xs whitespace-nowrap">
                               {dumpada.frente_trabajo?.codigo_completo || '-'}
@@ -818,7 +995,8 @@ export default function Dispatch() {
                             </Button>
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -833,9 +1011,55 @@ export default function Dispatch() {
             <div className="mb-6">
               <h3 className="text-2xl font-bold text-gray-900">Historial de Dumpadas</h3>
               <p className="text-sm text-gray-600 mt-1">
-                Página {currentPage} de {totalPages} • Total: {totalRecords} registros
+                Total: <span className="font-semibold text-blue-600">{totalRecords}</span> registro{totalRecords !== 1 ? 's' : ''}
               </p>
             </div>
+
+            {/* Componente de Filtros */}
+            <TableFilters
+              searchValue={searchTerm}
+              searchPlaceholder="Buscar por código de acopios, certificado, frente..."
+              onSearchChange={handleSearchChange}
+              filters={[
+                {
+                  name: 'estado',
+                  label: 'Estado',
+                  type: 'select',
+                  options: [
+                    { value: 'Ingresado', label: 'Ingresado' },
+                    { value: 'Completado', label: 'Completado' }
+                  ]
+                },
+                {
+                  name: 'jornada',
+                  label: 'Jornada',
+                  type: 'select',
+                  options: jornadas.map(j => ({ value: j, label: j }))
+                },
+                {
+                  name: 'id_frente_trabajo',
+                  label: 'Frente de Trabajo',
+                  type: 'select',
+                  options: frentes.map(f => ({
+                    value: f.id,
+                    label: f.codigo_completo || `ID: ${f.id}`
+                  }))
+                },
+                {
+                  name: 'fecha_inicio',
+                  label: 'Fecha Desde',
+                  type: 'date'
+                },
+                {
+                  name: 'fecha_fin',
+                  label: 'Fecha Hasta',
+                  type: 'date'
+                }
+              ]}
+              filterValues={filters}
+              onFilterChange={handleFilterChange}
+              onClear={handleClearFilters}
+            />
 
             {loading && dumpadas.length === 0 ? (
               <div className="text-center py-12">
@@ -848,10 +1072,58 @@ export default function Dispatch() {
               </div>
             ) : (
               <>
+                {/* Barra de acciones múltiples para historial */}
+                {selectedIds.length > 0 && (
+                  <div className="mb-4 bg-gradient-to-r from-blue-50 to-blue-100 border-2 border-blue-300 rounded-lg p-4">
+                    <div className="flex items-center justify-between flex-wrap gap-3">
+                      <div className="flex items-center gap-2">
+                        <HiCheckCircle className="w-5 h-5 text-blue-600" />
+                        <span className="font-semibold text-blue-900">
+                          {selectedIds.length} dumpada{selectedIds.length !== 1 ? 's' : ''} seleccionada{selectedIds.length !== 1 ? 's' : ''}
+                        </span>
+                      </div>
+
+                      <div className="flex gap-2">
+                        <Button
+                          variant="success"
+                          size="sm"
+                          onClick={handleBulkComplete}
+                          disabled={loading}
+                        >
+                          Completar Seleccionadas
+                        </Button>
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          onClick={handleBulkDelete}
+                          disabled={loading}
+                        >
+                          Eliminar Seleccionadas
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={clearSelection}
+                        >
+                          Cancelar
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b-2 border-blue-200 bg-gradient-to-r from-blue-50 to-blue-100">
+                        <th className="text-center py-2 px-2 font-bold text-blue-900 text-xs w-10">
+                          <input
+                            type="checkbox"
+                            onChange={() => handleSelectAll(dumpadas)}
+                            checked={selectedIds.length === dumpadas.length && selectedIds.length > 0}
+                            className="w-4 h-4 rounded border-blue-300 text-blue-600 focus:ring-blue-500"
+                          />
+                        </th>
                         <th className="text-left py-2 px-2 font-bold text-blue-900 text-xs">Frente</th>
                         <th className="text-left py-2 px-2 font-bold text-blue-900 text-xs whitespace-nowrap">N° Acop</th>
                         <th className="text-left py-2 px-2 font-bold text-blue-900 text-xs">Acopios</th>
@@ -868,13 +1140,25 @@ export default function Dispatch() {
                       </tr>
                     </thead>
                     <tbody>
-                      {dumpadas.map((dumpada, index) => (
-                        <tr
-                          key={dumpada.id}
-                          className={`border-b border-gray-200 hover:bg-blue-50 transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
-                            }`}
-                        >
-                           <td className="py-2 px-2" title={dumpada.frente_trabajo?.codigo_completo || '-'}>
+                      {dumpadas.map((dumpada, index) => {
+                        // Obtener el color de la faena si existe
+                        const backgroundColor = dumpada.faena_info?.color || (index % 2 === 0 ? '#ffffff' : '#f9fafb');
+
+                        return (
+                          <tr
+                            key={dumpada.id}
+                            style={{ backgroundColor }}
+                            className={`border-b border-gray-200 hover:opacity-90 transition-all ${selectedIds.includes(dumpada.id) ? 'ring-2 ring-blue-400' : ''}`}
+                          >
+                          <td className="py-2 px-2 text-center">
+                            <input
+                              type="checkbox"
+                              checked={selectedIds.includes(dumpada.id)}
+                              onChange={() => handleSelectOne(dumpada.id)}
+                              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            />
+                          </td>
+                          <td className="py-2 px-2" title={dumpada.frente_trabajo?.codigo_completo || '-'}>
                             <span className="font-bold text-blue-900 bg-gradient-to-r from-blue-100 to-blue-200 px-1.5 py-0.5 rounded-lg shadow-sm border border-blue-300 inline-block text-xs whitespace-nowrap">
                               {dumpada.frente_trabajo?.codigo_completo || '-'}
                             </span>
@@ -930,16 +1214,20 @@ export default function Dispatch() {
                             <div className="flex gap-1">
                               {dumpada.estado !== 'Completado' && (
                                 <button
-                                  onClick={() => {
-                                    setVistaActual('ingreso');
-                                    handleCompletar(dumpada);
-                                  }}
+                                  onClick={() => handleCompletar(dumpada)}
                                   className="px-2 py-1 bg-green-500 hover:bg-green-600 text-white rounded transition-colors text-xs whitespace-nowrap"
                                   title="Completar"
                                 >
                                   Completar
                                 </button>
                               )}
+                              <button
+                                onClick={() => handleEdit(dumpada)}
+                                className="p-1 bg-blue-500 hover:bg-blue-600 text-white rounded transition-colors"
+                                title="Editar"
+                              >
+                                <HiPencil className="w-3.5 h-3.5" />
+                              </button>
                               <button
                                 onClick={() => handleDelete(dumpada.id)}
                                 className="p-1 bg-red-500 hover:bg-red-600 text-white rounded transition-colors"
@@ -950,35 +1238,24 @@ export default function Dispatch() {
                             </div>
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
 
-                {/* Paginación */}
-                <div className="mt-6 flex items-center justify-between">
-                  <div className="text-sm text-gray-600">
-                    Mostrando {(currentPage - 1) * perPage + 1} - {Math.min(currentPage * perPage, totalRecords)} de {totalRecords}
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                      disabled={currentPage === 1}
-                      className="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                    >
-                      <HiChevronLeft className="w-5 h-5" />
-                      Anterior
-                    </button>
-                    <button
-                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                      disabled={currentPage === totalPages}
-                      className="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                    >
-                      Siguiente
-                      <HiChevronRight className="w-5 h-5" />
-                    </button>
-                  </div>
-                </div>
+                {/* Componente de Paginación */}
+                {totalRecords > 0 && (
+                  <Pagination
+                    currentPage={currentPage}
+                    totalPages={totalPages}
+                    totalRecords={totalRecords}
+                    perPage={perPage}
+                    onPageChange={handlePageChange}
+                    showInfo={true}
+                    showFirstLast={true}
+                  />
+                )}
               </>
             )}
           </Card>
