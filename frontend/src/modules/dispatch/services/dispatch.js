@@ -17,6 +17,11 @@ class DispatchService {
     return response.data;
   }
 
+  async createDumpadasBulk(dumpadas) {
+    const response = await api.post('/dispatch/dumpadas/bulk', { dumpadas });
+    return response.data;
+  }
+
   async updateDumpada(id, data) {
     const response = await api.put(`/dispatch/dumpadas/${id}`, data);
     return response.data;

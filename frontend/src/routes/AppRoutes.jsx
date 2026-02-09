@@ -45,28 +45,10 @@ export default function AppRoutes() {
   // ========================================
   return (
     <Routes>
-      {/* Ruta raíz - Redirige al login de SAC */}
-      {/* El usuario SIEMPRE debe venir con una URL específica desde SAC */}
-      <Route 
-        path="/" 
-        element={
-          <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-            <div className="text-center max-w-md">
-              <h1 className="text-2xl font-bold text-gray-900 mb-4">
-                Sistema de Producción
-              </h1>
-              <p className="text-gray-600 mb-6">
-                Este sistema debe ser accedido desde el Dashboard de Autenticación Central.
-              </p>
-              <button
-                onClick={() => window.location.href = 'http://localhost:5173'}
-                className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                Ir al Dashboard Central
-              </button>
-            </div>
-          </div>
-        } 
+      {/* Ruta raíz - Si está autenticado, redirige a dispatch */}
+      <Route
+        path="/"
+        element={<Navigate to="/dispatch/dumpadas" replace />}
       />
 
       {/* Generar rutas dinámicamente desde configuración */}

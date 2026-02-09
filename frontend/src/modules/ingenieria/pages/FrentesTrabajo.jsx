@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { HiPlus, HiHome, HiPencil, HiTrash, HiClock } from 'react-icons/hi2';
+import { HiPlus, HiHome, HiPencil, HiTrash, HiClock, HiTag } from 'react-icons/hi2';
 import { useNavigate } from 'react-router-dom';
 import Header from '../../../shared/components/organisms/Header';
 import Button from '../../../shared/components/atoms/Button';
@@ -15,13 +15,28 @@ import useDebounce from '../../../hooks/useDebounce';
 import useToast from '../../../hooks/useToast';
 import ingenieriaService from '../../ingenieria/services/ingenieria';
 import faenaService from '../../../services/faenaService';
+import { getFaenaColors } from '../../../constants/faenaColors';
+import { FaenaProvider, useFaena } from '../../../contexts/FaenaContext';
+import FaenaMultiSelector from '../../../shared/components/molecules/FaenaMultiSelector';
 
-export default function FrentesTrabajo() {
+// ✅ CONFIGURACIÓN: IDs de faenas que se mostrarán en el selector
+// Para mostrar todas las faenas, dejar como null: const FAENAS_VISIBLES_INGENIERIA = null;
+// Para filtrar, especificar los IDs: const FAENAS_VISIBLES_INGENIERIA = [1, 2, 4];
+const FAENAS_VISIBLES_INGENIERIA = [1, 2, 4]; // Solo mostrar faenas 1, 2 y 4
+
+function FrentesTrabajoContent() {
   const navigate = useNavigate();
   const toast = useToast();
+  const { faenaUsuario } = useFaena(); // Obtener faena del usuario
+
+  // ✅ INGENIERÍA: En este módulo, TODOS los usuarios ven TODAS las faenas
+  // Esto es independiente del rol de dispatch
+  const esUsuarioGlobal = true;
+
   const [frentes, setFrentes] = useState([]);
   const [tiposFrente, setTiposFrente] = useState([]);
   const [faenas, setFaenas] = useState([]);
+  const [selectedFaenas, setSelectedFaenas] = useState([]); // IDs de faenas seleccionadas
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -56,53 +71,49 @@ export default function FrentesTrabajo() {
     estado: 'activo',
   });
 
+  // Cargar datos iniciales (solo una vez)
   useEffect(() => {
-    loadData();
-  }, [currentPage, debouncedSearchTerm, filters]); // Usar debouncedSearchTerm en lugar de searchTerm
+    loadInitialData();
+  }, []);
 
-  const loadData = async () => {
+  // Cargar frentes cuando cambien filtros o faenas seleccionadas
+  useEffect(() => {
+    if (faenas.length > 0) {
+      loadFrentes();
+    }
+  }, [currentPage, debouncedSearchTerm, filters, selectedFaenas]);
+
+  // Cargar datos iniciales: tipos de frente y faenas (solo una vez)
+  const loadInitialData = async () => {
     setLoading(true);
 
     try {
-      console.log('🔄 Cargando datos de ingeniería...');
+      console.log('🔄 Cargando datos iniciales...');
 
-      // Construir parámetros de la petición
-      const params = {
-        page: currentPage,
-        per_page: perPage,
-        search: debouncedSearchTerm || undefined, // Usar el valor con debounce
-        id_tipo_frente: filters.id_tipo_frente || undefined,
-        manto: filters.manto || undefined,
-        id_faena: filters.id_faena || undefined,
-        estado: filters.estado || undefined,
-      };
-
-      // Limpiar parámetros undefined
-      Object.keys(params).forEach(key => params[key] === undefined && delete params[key]);
-
-      const [frentesRes, tiposRes, faenasRes] = await Promise.all([
-        ingenieriaService.getFrentesTrabajo(params),
-        tiposFrente.length > 0 ? Promise.resolve({ data: tiposFrente }) : ingenieriaService.getTiposFrente(),
-        faenas.length > 0 ? Promise.resolve({ data: faenas }) : faenaService.getFaenas(),
+      const [tiposRes, faenasRes] = await Promise.all([
+        ingenieriaService.getTiposFrente(),
+        faenaService.getFaenas(),
       ]);
 
-      console.log('✅ Frentes obtenidos:', frentesRes);
       console.log('✅ Tipos obtenidos:', tiposRes);
       console.log('✅ Faenas obtenidas:', faenasRes);
 
-      setFrentes(frentesRes.data || []);
       setTiposFrente(tiposRes.data || []);
-      setFaenas(faenasRes.data || []);
 
-      // Actualizar información de paginación
-      if (frentesRes.pagination) {
-        setTotalPages(frentesRes.pagination.last_page);
-        setTotalRecords(frentesRes.pagination.total);
+      const faenasData = faenasRes.data || [];
+      setFaenas(faenasData);
+
+      // ✅ Inicializar con las faenas visibles seleccionadas (para todos los usuarios en ingeniería)
+      if (faenasData.length > 0) {
+        // Si hay filtro de faenas visibles, inicializar solo con esas
+        const faenasASeleccionar = FAENAS_VISIBLES_INGENIERIA
+          ? faenasData.filter(f => FAENAS_VISIBLES_INGENIERIA.includes(f.id)).map(f => f.id)
+          : faenasData.map(f => f.id);
+
+        setSelectedFaenas(faenasASeleccionar);
       }
     } catch (error) {
-      console.error('❌ Error cargando datos:', error);
-      console.error('Error completo:', error.response?.data || error.message);
-
+      console.error('❌ Error cargando datos iniciales:', error);
       toast.error(
         'Error al cargar datos',
         error.response?.data?.message || error.message
@@ -110,6 +121,64 @@ export default function FrentesTrabajo() {
     } finally {
       setLoading(false);
     }
+  };
+
+  // Cargar solo los frentes (se llama cuando cambian filtros o faenas)
+  const loadFrentes = async () => {
+    setLoading(true);
+
+    try {
+      console.log('🔄 Cargando frentes...');
+
+      // ✅ INGENIERÍA: Todos los usuarios pueden filtrar por faenas
+      // El backend siempre permite ver todas las faenas en este módulo
+      let faenasParam = undefined;
+
+      // Enviar faenas seleccionadas si hay alguna seleccionada
+      faenasParam = selectedFaenas.length > 0
+        ? selectedFaenas.join(',')
+        : undefined; // undefined = todas las faenas
+
+      // Construir parámetros de la petición
+      const params = {
+        page: currentPage,
+        per_page: perPage,
+        search: debouncedSearchTerm || undefined,
+        id_tipo_frente: filters.id_tipo_frente || undefined,
+        manto: filters.manto || undefined,
+        id_faena: faenasParam,
+        estado: filters.estado || undefined,
+      };
+
+      // Limpiar parámetros undefined
+      Object.keys(params).forEach(key => params[key] === undefined && delete params[key]);
+
+      const frentesRes = await ingenieriaService.getFrentesTrabajo(params);
+
+      console.log('✅ Frentes obtenidos:', frentesRes);
+
+      setFrentes(frentesRes.data || []);
+
+      // Actualizar información de paginación
+      if (frentesRes.pagination) {
+        setTotalPages(frentesRes.pagination.last_page);
+        setTotalRecords(frentesRes.pagination.total);
+      }
+    } catch (error) {
+      console.error('❌ Error cargando frentes:', error);
+
+      toast.error(
+        'Error al cargar frentes',
+        error.response?.data?.message || error.message
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Función para recargar todo (se usa después de crear/editar/eliminar)
+  const loadData = async () => {
+    await loadFrentes();
   };
 
   const handleSubmit = async (e) => {
@@ -237,6 +306,21 @@ export default function FrentesTrabajo() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  // ✅ NUEVO: Manejar selección/deselección de faenas
+  const handleToggleFaena = (faenaId, isSelected) => {
+    setSelectedFaenas(prev => {
+      if (isSelected) {
+        // Agregar faena si no está en la lista
+        return prev.includes(faenaId) ? prev : [...prev, faenaId];
+      } else {
+        // Remover faena de la lista
+        return prev.filter(id => id !== faenaId);
+      }
+    });
+    // Resetear a la primera página cuando cambian las faenas
+    setCurrentPage(1);
+  };
+
   // ✅ NUEVO: Volver al SAC en lugar de dashboard local
   const handleGoBack = () => {
     window.location.href = 'http://localhost:5173';
@@ -311,16 +395,35 @@ export default function FrentesTrabajo() {
           title="Historial de Cambios del Frente"
         />
 
+        {/* Selector Multi-Faena - Para todos los usuarios en ingeniería */}
+        <FaenaMultiSelector
+          selectedFaenas={selectedFaenas}
+          onToggleFaena={handleToggleFaena}
+          faenas={faenas}
+          faenasVisibles={FAENAS_VISIBLES_INGENIERIA}
+          loading={loading}
+          className="mb-6"
+        />
+
         {/* Header de sección */}
         <div className="bg-white rounded-xl shadow-md p-6 mb-6 border-l-4 border-orange-500">
           <div className="flex items-center justify-between">
-            <div>
+            <div className="flex-1">
               <h2 className="text-3xl font-bold bg-gradient-to-r from-orange-600 to-orange-500 bg-clip-text text-transparent">
                 Frentes de Trabajo
               </h2>
               <p className="text-gray-600 mt-1">Gestiona los frentes de trabajo de ingeniería</p>
             </div>
+
             <div className="flex gap-3">
+              <Button
+                variant="secondary"
+                onClick={() => navigate('/ingenieria/tipos-frente')}
+                icon={HiTag}
+                disabled={loading}
+              >
+                Tipos de Frente
+              </Button>
               <Button
                 variant="secondary"
                 onClick={() => navigate('/ingenieria/frentes-trabajo/historial')}
@@ -608,14 +711,13 @@ export default function FrentesTrabajo() {
                 </thead>
                 <tbody>
                   {frentes.map((frente, index) => {
-                    // Obtener el color de la faena si existe
-                    const backgroundColor = frente.faena?.color || (index % 2 === 0 ? '#ffffff' : '#f9fafb');
+                    // ✅ Obtener colores de la faena usando el sistema centralizado
+                    const colors = getFaenaColors(frente.id_faena);
 
                     return (
                       <tr
                         key={frente.id}
-                        style={{ backgroundColor }}
-                        className="border-b border-gray-200 hover:opacity-90 transition-all"
+                        className={`border-b border-gray-200 hover:shadow-md hover:scale-[1.01] transition-all duration-200 ${colors.bg} border-l-4 ${colors.border}`}
                       >
                       <td className="py-4 px-4">
                         <span className="font-bold text-orange-900 bg-gradient-to-r from-orange-100 to-orange-200 px-4 py-2 rounded-lg shadow-sm border border-orange-300 inline-block">
@@ -640,14 +742,21 @@ export default function FrentesTrabajo() {
                       <td className="py-4 px-4 text-gray-700">{frente.numero_frente || '-'}</td>
                       <td className="py-4 px-4">
                         {frente.faena ? (
-                          <div className="flex flex-col">
-                            <span className="font-semibold text-gray-800">{frente.faena.ubicacion}</span>
-                            {frente.faena.detalle && (
-                              <span className="text-xs text-gray-600">{frente.faena.detalle}</span>
-                            )}
+                          <div className="flex items-center gap-2">
+                            <span className="text-xl">{colors.emoji}</span>
+                            <div className="flex flex-col">
+                              <span className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold ${colors.badge} border ${colors.borderFull} shadow-sm`}>
+                                {frente.faena.ubicacion}
+                              </span>
+                              {frente.faena.detalle && (
+                                <span className="text-xs text-gray-600 mt-1 ml-1">{frente.faena.detalle}</span>
+                              )}
+                            </div>
                           </div>
                         ) : (
-                          <span className="text-gray-400 italic">Sin asignar</span>
+                          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600 border border-gray-300">
+                            ❓ Sin asignar
+                          </span>
                         )}
                       </td>
                       <td className="py-4 px-4">
@@ -723,5 +832,14 @@ export default function FrentesTrabajo() {
         )}
       </main>
     </div>
+  );
+}
+
+// ✅ MULTI-FAENA: Wrapper con FaenaProvider para manejar roles
+export default function FrentesTrabajo() {
+  return (
+    <FaenaProvider>
+      <FrentesTrabajoContent />
+    </FaenaProvider>
   );
 }

@@ -1,0 +1,2427 @@
+import { useState, useEffect } from 'react';
+import { HiBeaker, HiCube, HiEye, HiTrash, HiPencil, HiCheck, HiXMark } from 'react-icons/hi2';
+import Button from '../../../shared/components/atoms/Button';
+import Input from '../../../shared/components/atoms/Input';
+import Card from '../../../shared/components/atoms/Card';
+import Badge from '../../../shared/components/atoms/Badge';
+import Pagination from '../../../shared/components/molecules/Pagination';
+import Loader from '../../../shared/components/atoms/Loader';
+import LoadingOverlay from '../../../shared/components/molecules/LoadingOverlay';
+import ConfirmDialog from '../../../shared/components/molecules/ConfirmDialog';
+import TableFilters from '../../../shared/components/molecules/TableFilters';
+import mezclasService from '../services/mezclas';
+import acopiosService from '../../../services/acopios';
+import { useConfig } from '../../../hooks/useConfig';
+
+export default function MezclasView({
+  loading,
+  setLoading,
+  toast,
+  formatearFecha,
+  dumpadasDisponibles,
+  setDumpadasDisponibles,
+  mezclas,
+  setMezclas,
+  loadData,
+  frentes = [],
+  jornadas = ['AM', 'PM', 'Madrugada', 'Noche']
+}) {
+  console.log('🎨 [MEZCLAS VIEW] Renderizando con:', {
+    mezclas: mezclas.length
+  });
+
+  // Obtener configuraciones desde BD
+  const { factorAjusteLey, factorRemanenteVisual, usarSistemaAcopios } = useConfig();
+
+  // Cambiar de dumpadas a acopios
+  const [acopiosDisponibles, setAcopiosDisponibles] = useState([]);
+  const [acopiosSeleccionados, setAcopiosSeleccionados] = useState([]);
+
+  // Estados para dumpadas directas (cuando NO se usan acopios)
+  const [dumpadasSeleccionadas, setDumpadasSeleccionadas] = useState([]);
+  const [formDataMezcla, setFormDataMezcla] = useState({
+    codigo: '',
+    fecha: new Date().toISOString().split('T')[0],
+    planta_id: '',
+    observaciones: '',
+  });
+  const [plantas, setPlantas] = useState([]);
+  const [mezclaSeleccionada, setMezclaSeleccionada] = useState(null);
+  const [loteRemanenteSeleccionado, setLoteRemanenteSeleccionado] = useState('');
+
+  // Estados para remanentes de mezclas
+  const [remanentesDisponibles, setRemanentesDisponibles] = useState([]);
+  const [remanentesSeleccionados, setRemanentesSeleccionados] = useState([]); // Array de {mezcla_id, toneladas}
+
+  // Estados para edición de mezcla (agregar/quitar dumpadas)
+  const [modoAgregarDumpadas, setModoAgregarDumpadas] = useState(false);
+  const [dumpadasAgregar, setDumpadasAgregar] = useState([]);
+
+  // Estados para diálogo de confirmación
+  const [confirmDialog, setConfirmDialog] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: null,
+    type: 'warning'
+  });
+
+  // Estados para ajuste de toneladas
+  const [mostrarModalAjuste, setMostrarModalAjuste] = useState(false);
+  const [ajusteForm, setAjusteForm] = useState({
+    toneladas_reales_remanente: '',
+    motivo: ''
+  });
+
+  // Estados para revertir ajuste
+  const [mostrarModalRevertir, setMostrarModalRevertir] = useState(false);
+  const [revertirForm, setRevertirForm] = useState({
+    motivo: ''
+  });
+
+  // Paginación de dumpadas disponibles
+  const [currentPageDumpadas, setCurrentPageDumpadas] = useState(1);
+  const perPageDumpadas = 25; // 25 dumpadas por página
+
+  // Filtros profesionales para dumpadas
+  const [searchDumpada, setSearchDumpada] = useState('');
+  const [filtersDumpada, setFiltersDumpada] = useState({
+    id_frente_trabajo: '',
+    jornada: '',
+    fecha_desde: '',
+    fecha_hasta: ''
+  });
+
+  // Cargar plantas y acopios al montar el componente
+  useEffect(() => {
+    const cargarPlantas = async () => {
+      try {
+        const response = await mezclasService.getPlantas();
+        setPlantas(response.data || response);
+      } catch (error) {
+        console.error('Error cargando plantas:', error);
+      }
+    };
+
+    const cargarAcopios = async () => {
+      try {
+        const response = await acopiosService.getAcopiosParaMezclas();
+        setAcopiosDisponibles(response.data || []);
+        console.log('📦 [MEZCLAS] Acopios disponibles cargados:', response.data);
+      } catch (error) {
+        console.error('Error cargando acopios:', error);
+        toast?.error('Error', 'No se pudieron cargar los acopios disponibles');
+      }
+    };
+
+    cargarPlantas();
+
+    // Solo cargar acopios si el sistema de acopios está activado
+    if (usarSistemaAcopios) {
+      cargarAcopios();
+    }
+  }, [usarSistemaAcopios]);
+
+  // Cargar remanentes disponibles al montar el componente
+  useEffect(() => {
+    const cargarRemanentes = async () => {
+      try {
+        const remanentes = await mezclasService.getRemanentesDisponibles();
+        setRemanentesDisponibles(remanentes || []);
+        console.log('📦 [MEZCLAS] Remanentes disponibles cargados:', remanentes);
+      } catch (error) {
+        console.error('Error cargando remanentes disponibles:', error);
+      }
+    };
+    cargarRemanentes();
+  }, [mezclas]); // Recargar cuando cambian las mezclas
+
+  // Recargar acopios cuando cambian las mezclas (solo si sistema de acopios está activado)
+  useEffect(() => {
+    if (!usarSistemaAcopios) return;
+
+    const recargarAcopios = async () => {
+      try {
+        const response = await acopiosService.getAcopiosParaMezclas();
+        setAcopiosDisponibles(response.data || []);
+      } catch (error) {
+        console.error('Error recargando acopios:', error);
+      }
+    };
+    recargarAcopios();
+  }, [mezclas, usarSistemaAcopios]);
+
+  
+  const handleSelectAcopio = (id) => {
+    if (acopiosSeleccionados.includes(id)) {
+      setAcopiosSeleccionados(acopiosSeleccionados.filter(a => a !== id));
+    } else {
+      setAcopiosSeleccionados([...acopiosSeleccionados, id]);
+    }
+  };
+
+  // Seleccionar/Deseleccionar todos los acopios
+  const handleSelectAllAcopios = () => {
+    if (acopiosSeleccionados.length === acopiosDisponibles.length) {
+      setAcopiosSeleccionados([]);
+    } else {
+      setAcopiosSeleccionados(acopiosDisponibles.map(a => a.id));
+    }
+  };
+
+  // Filtrar acopios
+  const acopiosFiltrados = acopiosDisponibles.filter(a => {
+    if (!busquedaDumpada) return true;
+    const busqueda = busquedaDumpada.toLowerCase();
+    return (
+      a.codigo_acopio?.toLowerCase().includes(busqueda) ||
+      a.nombre?.toLowerCase().includes(busqueda) ||
+      a.frente_trabajo?.codigo_completo?.toLowerCase().includes(busqueda)
+    );
+  });
+
+  // Calcular paginación de acopios
+  const totalAcopios = acopiosFiltrados.length;
+  const totalPagesAcopios = Math.ceil(totalAcopios / perPageDumpadas);
+  const acopiosPaginados = acopiosFiltrados.slice(
+    (currentPageDumpadas - 1) * perPageDumpadas,
+    currentPageDumpadas * perPageDumpadas
+  );
+
+  const handlePageChangeDumpadas = (page) => {
+    setCurrentPageDumpadas(page);
+  };
+
+  // Funciones para dumpadas directas (cuando NO se usan acopios)
+  const handleSelectDumpada = (id) => {
+    if (dumpadasSeleccionadas.includes(id)) {
+      setDumpadasSeleccionadas(dumpadasSeleccionadas.filter(d => d !== id));
+    } else {
+      setDumpadasSeleccionadas([...dumpadasSeleccionadas, id]);
+    }
+  };
+
+  const handleSelectAllDumpadas = () => {
+    if (dumpadasSeleccionadas.length === dumpadasDisponibles.length) {
+      setDumpadasSeleccionadas([]);
+    } else {
+      setDumpadasSeleccionadas(dumpadasDisponibles.map(d => d.id));
+    }
+  };
+
+  // Handlers para filtros
+  const handleSearchDumpadaChange = (value) => {
+    setSearchDumpada(value);
+    setCurrentPageDumpadas(1);
+  };
+
+  const handleFilterDumpadaChange = (name, value) => {
+    setFiltersDumpada(prev => ({ ...prev, [name]: value }));
+    setCurrentPageDumpadas(1);
+  };
+
+  const handleClearFiltersDumpada = () => {
+    setSearchDumpada('');
+    setFiltersDumpada({
+      id_frente_trabajo: '',
+      jornada: '',
+      fecha_desde: '',
+      fecha_hasta: ''
+    });
+    setCurrentPageDumpadas(1);
+  };
+
+  // Función auxiliar para convertir fecha del backend (puede ser DD-MM-YYYY o YYYY-MM-DD) a formato comparable YYYY-MM-DD
+  const normalizarFecha = (fecha) => {
+    if (!fecha) return null;
+
+    // Si es un string en formato DD-MM-YYYY, convertir a YYYY-MM-DD
+    if (typeof fecha === 'string' && fecha.match(/^\d{2}-\d{2}-\d{4}$/)) {
+      const [dia, mes, anio] = fecha.split('-');
+      return `${anio}-${mes}-${dia}`;
+    }
+
+    // Si ya está en formato YYYY-MM-DD o es un objeto Date, usar como está
+    if (fecha instanceof Date) {
+      return fecha.toISOString().split('T')[0];
+    }
+
+    // Si es YYYY-MM-DD, retornar tal cual
+    if (typeof fecha === 'string' && fecha.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      return fecha;
+    }
+
+    return fecha;
+  };
+
+  // Filtrar dumpadas con filtros profesionales
+  const dumpadasFiltradas = dumpadasDisponibles.filter(d => {
+    // Filtro de búsqueda
+    if (searchDumpada) {
+      const busqueda = searchDumpada.toLowerCase();
+      const matchBusqueda = (
+        d.numero_dumpada?.toString().includes(busqueda) ||
+        d.frente_trabajo?.codigo_completo?.toLowerCase().includes(busqueda) ||
+        d.jornada?.toLowerCase().includes(busqueda)
+      );
+      if (!matchBusqueda) return false;
+    }
+
+    // Filtro por frente de trabajo
+    if (filtersDumpada.id_frente_trabajo && d.id_frente_trabajo !== parseInt(filtersDumpada.id_frente_trabajo)) {
+      return false;
+    }
+
+    // Filtro por jornada
+    if (filtersDumpada.jornada && d.jornada !== filtersDumpada.jornada) {
+      return false;
+    }
+
+    // Filtro por fecha desde
+    if (filtersDumpada.fecha_desde) {
+      const fechaDumpada = normalizarFecha(d.fecha);
+      if (fechaDumpada && fechaDumpada < filtersDumpada.fecha_desde) {
+        return false;
+      }
+    }
+
+    // Filtro por fecha hasta
+    if (filtersDumpada.fecha_hasta) {
+      const fechaDumpada = normalizarFecha(d.fecha);
+      if (fechaDumpada && fechaDumpada > filtersDumpada.fecha_hasta) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+
+  // Función para obtener el color de fondo por grupo (frente + jornada + fecha)
+  const getBackgroundColorByGroup = (dumpadas, currentIndex) => {
+    const colors = ['#fed7aa', '#bfdbfe']; // Naranja durazno y azul cielo
+
+    if (currentIndex === 0) return colors[0];
+
+    const currentDumpada = dumpadas[currentIndex];
+    const previousDumpada = dumpadas[currentIndex - 1];
+
+    // Crear identificador de grupo (frente + jornada + fecha)
+    const currentGroup = `${currentDumpada.id_frente_trabajo || ''}_${currentDumpada.jornada || ''}_${currentDumpada.fecha || ''}`;
+    const previousGroup = `${previousDumpada.id_frente_trabajo || ''}_${previousDumpada.jornada || ''}_${previousDumpada.fecha || ''}`;
+
+    // Si es del mismo grupo, mantener el color anterior
+    if (currentGroup === previousGroup) {
+      return getBackgroundColorByGroup(dumpadas, currentIndex - 1);
+    }
+
+    // Si cambió el grupo, alternar color
+    const previousColor = getBackgroundColorByGroup(dumpadas, currentIndex - 1);
+    return previousColor === colors[0] ? colors[1] : colors[0];
+  };
+
+  // Paginación de dumpadas directas
+  const dumpadasPaginadas = dumpadasFiltradas.slice(
+    (currentPageDumpadas - 1) * perPageDumpadas,
+    currentPageDumpadas * perPageDumpadas
+  );
+
+  const calcularTotalesMezcla = () => {
+    // Determinar si estamos usando acopios o dumpadas directas
+    const usandoDumpadasDirectas = !usarSistemaAcopios;
+
+    let totalToneladas = 0;
+    let cantidadDumpadas = 0;
+    let sumaPonderadaLey = 0;
+    let sumaPonderadaLeyVisual = 0;
+    let detallesOrigen = [];
+
+    if (usandoDumpadasDirectas) {
+      // MODO DUMPADAS DIRECTAS
+      const dumpadasSel = dumpadasDisponibles.filter(d => dumpadasSeleccionadas.includes(d.id));
+      totalToneladas = dumpadasSel.reduce((sum, d) => sum + parseFloat(d.ton || 0), 0);
+      cantidadDumpadas = dumpadasSel.length;
+
+      // Calcular promedios ponderados
+      // Para ley: usar ley de laboratorio si existe, sino usar ley_visual
+      sumaPonderadaLey = dumpadasSel.reduce((sum, d) => {
+        const ton = parseFloat(d.ton || 0);
+        const ley = parseFloat(d.ley || d.ley_visual || 0); // Fallback a ley_visual
+        return sum + (ton * ley);
+      }, 0);
+
+      sumaPonderadaLeyVisual = dumpadasSel.reduce((sum, d) => {
+        const ton = parseFloat(d.ton || 0);
+        const leyVisual = parseFloat(d.ley_visual || d.ley || 0); // Fallback a ley
+        return sum + (ton * leyVisual);
+      }, 0);
+
+      detallesOrigen = dumpadasSel;
+    } else {
+      // MODO ACOPIOS (código original)
+      const acopiosSel = acopiosDisponibles.filter(a => acopiosSeleccionados.includes(a.id));
+      totalToneladas = acopiosSel.reduce((sum, a) => sum + parseFloat(a.total_toneladas || 0), 0);
+      cantidadDumpadas = acopiosSel.reduce((sum, a) => sum + parseInt(a.cantidad_dumpadas || 0), 0);
+
+      sumaPonderadaLey = acopiosSel.reduce((sum, a) => {
+        const ton = parseFloat(a.total_toneladas || 0);
+        const ley = parseFloat(a.ley_promedio || 0);
+        return sum + (ton * ley);
+      }, 0);
+
+      sumaPonderadaLeyVisual = acopiosSel.reduce((sum, a) => {
+        const ton = parseFloat(a.total_toneladas || 0);
+        const leyVisual = parseFloat(a.ley_visual_promedio || 0);
+        return sum + (ton * leyVisual);
+      }, 0);
+
+      detallesOrigen = acopiosSel;
+    }
+
+    // Sumar toneladas de remanentes seleccionados
+    const totalTonRemanentes = remanentesSeleccionados.reduce((sum, r) => sum + parseFloat(r.toneladas || 0), 0);
+    const totalTon = totalToneladas + totalTonRemanentes;
+
+    const cantidadRemanentes = remanentesSeleccionados.length;
+
+    // Para compatibilidad con código existente
+    const acopiosSel = usandoDumpadasDirectas ? [] : acopiosDisponibles.filter(a => acopiosSeleccionados.includes(a.id));
+
+    // ============ LEY LOTE ============
+    // IMPORTANTE: LEY LOTE se calcula PRIMERO porque ley_dump depende de ella
+    // Para ACOPIOS: usar ley_lote_promedio que ya viene con factor 0.81
+    // Para DUMPADAS DIRECTAS: usar ley cruda y aplicar factor 0.81
+    let sumaPonderadaLoteOrigen = 0;
+
+    if (usandoDumpadasDirectas) {
+      // DUMPADAS: ley cruda × factor 0.81 (0.9 × 0.9)
+      sumaPonderadaLoteOrigen = sumaPonderadaLey * 0.81;
+    } else {
+      // ACOPIOS: usar ley_lote_promedio que YA tiene factor 0.81
+      sumaPonderadaLoteOrigen = acopiosSel.reduce((sum, a) => {
+        const ton = parseFloat(a.total_toneladas || 0);
+        const leyLote = parseFloat(a.ley_lote_promedio || 0);
+        return sum + (ton * leyLote);
+      }, 0);
+    }
+
+    // REMANENTES: ley_prom_lote viene CON factor 0.81, usar directamente
+    let sumaPonderadaLoteRemanentes = 0;
+    remanentesSeleccionados.forEach(rem => {
+      const mezcla = remanentesDisponibles.find(m => m.id === rem.mezcla_id);
+      if (mezcla) {
+        const ton = parseFloat(rem.toneladas || 0);
+        const leyLote = parseFloat(mezcla.ley_prom_lote || 0); // YA tiene factor 0.81
+        sumaPonderadaLoteRemanentes += (ton * leyLote);
+      }
+    });
+
+    // Combinar: ambos ya tienen factor 0.81 aplicado
+    const sumaTotalLote = sumaPonderadaLoteOrigen + sumaPonderadaLoteRemanentes;
+    const leyLote = totalTon > 0 ? (sumaTotalLote / totalTon) : 0;
+
+    console.log('🔍 [PREVIEW] Cálculo Ley Lote:', {
+      modo: usandoDumpadasDirectas ? 'DUMPADAS_DIRECTAS' : 'ACOPIOS',
+      origen: usandoDumpadasDirectas ? detallesOrigen.length : acopiosSel.length,
+      remanentes: remanentesSeleccionados.length,
+      sumaPonderadaOrigen: sumaPonderadaLoteOrigen,
+      sumaPonderadaRemanentes: sumaPonderadaLoteRemanentes,
+      sumaTotalLote: sumaTotalLote,
+      totalTon: totalTon,
+      leyLote: leyLote,
+      calculo: `${sumaTotalLote.toFixed(3)} / ${totalTon} = ${leyLote.toFixed(3)}`
+    });
+
+    // ============ LEY DUMP AJUSTADA ============
+    // FÓRMULA CORRECTA: ley_dump_mezcla = ley_lote / 0.9
+    // EXPLICACIÓN:
+    // - ley_dump en BD está cruda (sin ajustar)
+    // - ley_lote = ley_dump_cruda × 0.81 (doble ajuste: 0.9 × 0.9)
+    // - ley_dump_cruda = ley_lote / 0.81
+    // - ley_dump_mezcla = ley_dump_cruda × 0.9 = (ley_lote / 0.81) × 0.9 = ley_lote / 0.9
+    const leyAjustada = leyLote / factorAjusteLey;
+
+    console.log("Cálculo Ley Dump Ajustada:", {
+      leyLote: leyLote,
+      factorAjuste: factorAjusteLey,
+      leyDump: leyAjustada
+    });
+
+    // ============ LEY VISUAL ============
+    // LÓGICA: Sumar todas las contribuciones SIN factor, luego aplicar 0.9 al final
+    // Para ACOPIOS: usar ley_visual_promedio (sin ajustar)
+    // Para DUMPADAS DIRECTAS: usar ley_visual cruda (sin ajustar)
+    let sumaPonderadaVisualOrigen = 0;
+
+    if (usandoDumpadasDirectas) {
+      // DUMPADAS: ley_visual ya calculada arriba (sumaPonderadaLeyVisual)
+      sumaPonderadaVisualOrigen = sumaPonderadaLeyVisual;
+    } else {
+      // ACOPIOS: usar ley_visual_promedio SIN factor
+      sumaPonderadaVisualOrigen = acopiosSel.reduce((sum, a) => {
+        const ton = parseFloat(a.total_toneladas || 0);
+        const leyVisualOriginal = parseFloat(a.ley_visual_promedio || 0);
+        return sum + (ton * leyVisualOriginal);
+      }, 0);
+    }
+
+    // REMANENTES: ley_prom_lote viene CON factor 0.9
+    // Fórmula: ley_prom_lote × factor_remanente_visual (1.11)
+    // El resultado (ej: 0.86×1.11=0.95%) se trata como "ley original" para este cálculo
+    let sumaPonderadaVisualRemanentes = 0;
+    remanentesSeleccionados.forEach(rem => {
+      const mezcla = remanentesDisponibles.find(m => m.id === rem.mezcla_id);
+      if (mezcla) {
+        const ton = parseFloat(rem.toneladas || 0);
+        const leyVisualOriginal = parseFloat(mezcla.ley_prom_lote || 0) * factorRemanenteVisual; // 0.86×1.11=0.95%
+        sumaPonderadaVisualRemanentes += (ton * leyVisualOriginal); // Tratar como original
+      }
+    });
+
+    // Combinar leyes "originales" y aplicar factor 0.9 AL FINAL
+    const sumaTotalVisualOriginal = sumaPonderadaVisualOrigen + sumaPonderadaVisualRemanentes;
+    const leyVisualPromedio = totalTon > 0 ? (sumaTotalVisualOriginal / totalTon) : 0;
+    const leyVisual = leyVisualPromedio * factorAjusteLey; // Aplicar factor 0.9 al final
+
+    // ============ LEY LAB ============
+    // FÓRMULA: ley_lab = ley_dump_ajustada / 0.9
+    // También se puede expresar como: ley_lab = ley_lote / 0.81
+    // Representa el promedio ponderado de las leyes dump crudas (sin ajuste)
+    const leyLab = leyAjustada / factorAjusteLey;
+
+    return {
+      totalTon: totalTon.toFixed(2),
+      cantidadDumpadas: cantidadDumpadas,
+      cantidadRemanentes,
+      leyAjustada: leyAjustada.toFixed(2),
+      leyVisual: leyVisual.toFixed(2),
+      leyLote: leyLote.toFixed(2),
+      leyLab: leyLab.toFixed(2),
+      acopiosDetalle: acopiosSel,
+      dumpadasDetalle: usandoDumpadasDirectas ? detallesOrigen : [],
+    };
+  };
+
+  const handleCrearMezcla = async () => {
+    // Validar que haya selección (acopios o dumpadas según el modo)
+    const tieneSeleccion = usarSistemaAcopios
+      ? (acopiosSeleccionados.length > 0 || remanentesSeleccionados.length > 0)
+      : (dumpadasSeleccionadas.length > 0 || remanentesSeleccionados.length > 0);
+
+    if (!tieneSeleccion) {
+      const mensaje = usarSistemaAcopios
+        ? 'Debes seleccionar al menos un acopio o remanente'
+        : 'Debes seleccionar al menos una dumpada o remanente';
+      toast.warning('Atención', mensaje);
+      return;
+    }
+
+    if (!formDataMezcla.planta_id) {
+      toast.warning('Atención', 'Debes seleccionar una planta destino');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const data = {
+        codigo: formDataMezcla.codigo || null,
+        fecha: new Date().toISOString().split('T')[0], // Siempre usar fecha actual
+        planta_id: parseInt(formDataMezcla.planta_id),
+        observaciones: formDataMezcla.observaciones || null,
+      };
+
+      // Agregar acopios O dumpadas según configuración
+      if (usarSistemaAcopios) {
+        data.acopios = acopiosSeleccionados;
+      } else {
+        data.dumpadas = dumpadasSeleccionadas;
+      }
+
+      // Agregar lote remanente si fue seleccionado (legacy)
+      if (loteRemanenteSeleccionado) {
+        data.lotes_venta_remanentes = [parseInt(loteRemanenteSeleccionado)];
+      }
+
+      // Agregar remanentes de mezclas si fueron seleccionados
+      if (remanentesSeleccionados.length > 0) {
+        data.remanentes_mezclas = remanentesSeleccionados.map(r => ({
+          mezcla_id: parseInt(r.mezcla_id),
+          toneladas: parseFloat(r.toneladas)
+        }));
+      }
+
+      const response = await mezclasService.createMezcla(data);
+
+      toast.success(
+        `Mezcla ${response.mezcla.codigo} creada`,
+        `${response.mezcla.total_ton} toneladas`
+      );
+
+      // Resetear formulario
+      setFormDataMezcla({
+        codigo: '',
+        fecha: new Date().toISOString().split('T')[0],
+        planta_id: '',
+        observaciones: '',
+      });
+      setAcopiosSeleccionados([]);
+      setDumpadasSeleccionadas([]);
+      setLoteRemanenteSeleccionado('');
+      setRemanentesSeleccionados([]);
+
+      // Recargar datos
+      await loadData();
+    } catch (error) {
+      console.error('Error creando mezcla:', error);
+      toast.error(
+        'Error al crear mezcla',
+        error.response?.data?.mensaje || error.message
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerDetalleMezcla = async (mezclaId) => {
+    try {
+      const mezcla = await mezclasService.getMezcla(mezclaId);
+      setMezclaSeleccionada(mezcla);
+    } catch (error) {
+      console.error('Error cargando detalle:', error);
+      toast.error('Error', 'No se pudo cargar el detalle de la mezcla');
+    }
+  };
+
+  const handleEliminarMezcla = (mezclaId, mezclacodigo) => {
+    setConfirmDialog({
+      isOpen: true,
+      title: '¿Eliminar mezcla?',
+      message: `¿Estás seguro de que deseas eliminar la mezcla ${mezclacodigo}? Esta acción no se puede deshacer.`,
+      type: 'danger',
+      onConfirm: async () => {
+        setLoading(true);
+        try {
+          await mezclasService.deleteMezcla(mezclaId);
+          toast.success('Mezcla eliminada', 'La mezcla ha sido eliminada correctamente');
+          await loadData();
+        } catch (error) {
+          console.error('Error eliminando mezcla:', error);
+          toast.error(
+            'Error al eliminar',
+            error.response?.data?.mensaje || 'No se pudo eliminar la mezcla'
+          );
+        } finally {
+          setLoading(false);
+        }
+      }
+    });
+  };
+
+  const handleAbrirAgregarDumpadas = () => {
+    setModoAgregarDumpadas(true);
+    setDumpadasAgregar([]);
+  };
+
+  const handleCerrarAgregarDumpadas = () => {
+    setModoAgregarDumpadas(false);
+    setDumpadasAgregar([]);
+  };
+
+  const handleToggleDumpadaAgregar = (id) => {
+    if (dumpadasAgregar.includes(id)) {
+      setDumpadasAgregar(dumpadasAgregar.filter(d => d !== id));
+    } else {
+      setDumpadasAgregar([...dumpadasAgregar, id]);
+    }
+  };
+
+  const handleAgregarDumpadasAMezcla = async () => {
+    if (dumpadasAgregar.length === 0) {
+      toast.warning('Atención', 'Debes seleccionar al menos una dumpada');
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      await mezclasService.agregarDumpadas(mezclaSeleccionada.id, dumpadasAgregar);
+
+      toast.success(
+        'Dumpadas agregadas',
+        `${dumpadasAgregar.length} dumpada(s) agregada(s) a la mezcla`
+      );
+
+      // Recargar el detalle de la mezcla
+      const mezclaActualizada = await mezclasService.getMezcla(mezclaSeleccionada.id);
+      setMezclaSeleccionada(mezclaActualizada);
+
+      // Cerrar modal
+      handleCerrarAgregarDumpadas();
+
+      // Recargar datos
+      await loadData();
+    } catch (error) {
+      console.error('Error agregando dumpadas:', error);
+      toast.error(
+        'Error al agregar dumpadas',
+        error.response?.data?.mensaje || error.response?.data?.message || 'No se pudieron agregar las dumpadas'
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEliminarDetalleMezcla = (detalleId, origen) => {
+    setConfirmDialog({
+      isOpen: true,
+      title: '¿Eliminar componente?',
+      message: `¿Estás seguro de que deseas eliminar "${origen}" de esta mezcla? Los totales se recalcularán automáticamente.`,
+      type: 'danger',
+      onConfirm: async () => {
+        try {
+          setLoading(true);
+
+          await mezclasService.eliminarDetalle(mezclaSeleccionada.id, detalleId);
+
+          toast.success('Detalle eliminado', 'El detalle ha sido eliminado de la mezcla');
+
+          // Recargar el detalle de la mezcla
+          const mezclaActualizada = await mezclasService.getMezcla(mezclaSeleccionada.id);
+          setMezclaSeleccionada(mezclaActualizada);
+
+          // Recargar datos
+          await loadData();
+        } catch (error) {
+          console.error('Error eliminando detalle:', error);
+          toast.error(
+            'Error al eliminar',
+            error.response?.data?.mensaje || error.response?.data?.message || 'No se pudo eliminar el detalle'
+          );
+        } finally {
+          setLoading(false);
+        }
+      }
+    });
+  };
+
+  // Abrir modal de ajuste de toneladas
+  const handleAbrirModalAjuste = () => {
+    // Pre-llenar con el valor del remanente actual
+    setAjusteForm({
+      toneladas_reales_remanente: mezclaSeleccionada.toneladas_disponibles || '',
+      motivo: ''
+    });
+    setMostrarModalAjuste(true);
+  };
+
+  // Aplicar ajuste de toneladas
+  const handleAplicarAjuste = async () => {
+    try {
+      // Validaciones
+      if (!ajusteForm.toneladas_reales_remanente || parseFloat(ajusteForm.toneladas_reales_remanente) < 0) {
+        toast.error('Error de validación', 'Las toneladas reales deben ser un número positivo');
+        return;
+      }
+
+      if (!ajusteForm.motivo || ajusteForm.motivo.trim().length < 10) {
+        toast.error('Error de validación', 'El motivo debe tener al menos 10 caracteres');
+        return;
+      }
+
+      setLoading(true);
+
+      const response = await mezclasService.aplicarAjusteToneladas(mezclaSeleccionada.id, {
+        toneladas_reales_remanente: parseFloat(ajusteForm.toneladas_reales_remanente),
+        motivo: ajusteForm.motivo.trim()
+      });
+
+      toast.success('Ajuste aplicado', 'El ajuste de toneladas se ha aplicado exitosamente');
+
+      // Cerrar modal
+      setMostrarModalAjuste(false);
+      setAjusteForm({ toneladas_reales_remanente: '', motivo: '' });
+
+      // Recargar el detalle de la mezcla
+      const mezclaActualizada = await mezclasService.getMezcla(mezclaSeleccionada.id);
+      setMezclaSeleccionada(mezclaActualizada);
+
+      // Recargar datos
+      await loadData();
+
+    } catch (error) {
+      console.error('Error aplicando ajuste:', error);
+      toast.error(
+        'Error al aplicar ajuste',
+        error.response?.data?.mensaje || error.response?.data?.message || 'No se pudo aplicar el ajuste'
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Abrir modal de revertir ajuste
+  const handleAbrirModalRevertir = () => {
+    setRevertirForm({
+      motivo: ''
+    });
+    setMostrarModalRevertir(true);
+  };
+
+  // Revertir ajuste de toneladas
+  const handleRevertirAjuste = async () => {
+    try {
+      // Validación
+      if (!revertirForm.motivo || revertirForm.motivo.trim().length < 10) {
+        toast.error('Error de validación', 'El motivo debe tener al menos 10 caracteres');
+        return;
+      }
+
+      setLoading(true);
+
+      const response = await mezclasService.revertirAjusteToneladas(mezclaSeleccionada.id, {
+        motivo: revertirForm.motivo.trim()
+      });
+
+      toast.success('Ajuste revertido', 'El ajuste se ha revertido exitosamente y se restauraron los valores originales');
+
+      // Cerrar modal
+      setMostrarModalRevertir(false);
+      setRevertirForm({ motivo: '' });
+
+      // Recargar el detalle de la mezcla
+      const mezclaActualizada = await mezclasService.getMezcla(mezclaSeleccionada.id);
+      setMezclaSeleccionada(mezclaActualizada);
+
+      // Recargar datos
+      await loadData();
+
+    } catch (error) {
+      console.error('Error revirtiendo ajuste:', error);
+      toast.error(
+        'Error al revertir ajuste',
+        error.response?.data?.mensaje || error.response?.data?.message || 'No se pudo revertir el ajuste'
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <>
+        {/* Selección de Acopios O Dumpadas según configuración */}
+        {usarSistemaAcopios ? (
+          // ============ MODO ACOPIOS ============
+        <LoadingOverlay isLoading={loading} text="Cargando acopios disponibles...">
+          <Card className="mb-6 border-l-4 border-green-400">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 gap-3">
+              <div>
+                <h3 className="text-xl font-bold text-gray-900">
+                  ✅ Seleccionar Acopios ({acopiosSeleccionados.length} seleccionados)
+                </h3>
+                <p className="text-sm text-gray-600 mt-1">
+                  Acopios disponibles: {acopiosDisponibles.length} • Mostrando: {totalAcopios} • Total seleccionado: {calcularTotalesMezcla().totalTon} t
+                </p>
+              </div>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  const paginadosIds = acopiosPaginados.map(a => a.id);
+                  const todosSeleccionados = paginadosIds.every(id => acopiosSeleccionados.includes(id));
+                  if (todosSeleccionados) {
+                    setAcopiosSeleccionados(acopiosSeleccionados.filter(id => !paginadosIds.includes(id)));
+                  } else {
+                    setAcopiosSeleccionados([...new Set([...acopiosSeleccionados, ...paginadosIds])]);
+                  }
+                }}
+              >
+                {acopiosPaginados.every(a => acopiosSeleccionados.includes(a.id)) && acopiosPaginados.length > 0
+                  ? 'Deseleccionar Página'
+                  : 'Seleccionar Página'}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={handleSelectAllAcopios}
+              >
+                {acopiosSeleccionados.length === acopiosDisponibles.length ? 'Deseleccionar Todos' : 'Seleccionar Todos'}
+              </Button>
+            </div>
+          </div>
+
+          {/* Filtros y ordenamiento */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">
+                🔍 Buscar
+              </label>
+              <input
+                type="text"
+                placeholder="Buscar por código de acopio, frente..."
+                value={busquedaDumpada}
+                onChange={(e) => {
+                  setBusquedaDumpada(e.target.value);
+                  setCurrentPageDumpadas(1); // Resetear a página 1 al buscar
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm"
+              />
+            </div>
+          </div>
+
+          {acopiosDisponibles.length === 0 ? (
+            <div className="text-center py-8">
+              <p className="text-gray-600">No hay acopios disponibles para mezclar</p>
+              <p className="text-sm text-gray-500 mt-1">Los acopios deben estar cerrados y no asignados a otra mezcla</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b-2 border-green-200 bg-gradient-to-r from-green-50 to-green-100">
+                    <th className="text-center py-2 px-2 font-bold text-green-900 text-xs w-10">
+                      <input
+                        type="checkbox"
+                        onChange={() => {
+                          const paginadosIds = acopiosPaginados.map(a => a.id);
+                          const todosSeleccionados = paginadosIds.every(id => acopiosSeleccionados.includes(id));
+                          if (todosSeleccionados) {
+                            setAcopiosSeleccionados(acopiosSeleccionados.filter(id => !paginadosIds.includes(id)));
+                          } else {
+                            setAcopiosSeleccionados([...new Set([...acopiosSeleccionados, ...paginadosIds])]);
+                          }
+                        }}
+                        checked={acopiosPaginados.length > 0 && acopiosPaginados.every(a => acopiosSeleccionados.includes(a.id))}
+                        className="w-4 h-4 rounded border-green-300 text-green-600 focus:ring-green-500"
+                        title="Seleccionar/Deseleccionar página actual"
+                      />
+                    </th>
+                    <th className="text-left py-2 px-2 font-bold text-green-900 text-xs">Código Acopio</th>
+                    <th className="text-left py-2 px-2 font-bold text-green-900 text-xs">Frente</th>
+                    <th className="text-left py-2 px-2 font-bold text-green-900 text-xs">Dumpadas</th>
+                    <th className="text-left py-2 px-2 font-bold text-green-900 text-xs">Toneladas</th>
+                    <th className="text-left py-2 px-2 font-bold text-green-900 text-xs">Ley Prom</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {acopiosPaginados.map((acopio, index) => (
+                    <tr
+                      key={acopio.id}
+                      className={`border-b border-gray-200 hover:bg-green-50 transition-all ${acopiosSeleccionados.includes(acopio.id) ? 'bg-green-100' : index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
+                        }`}
+                    >
+                      <td className="py-2 px-2 text-center">
+                        <input
+                          type="checkbox"
+                          checked={acopiosSeleccionados.includes(acopio.id)}
+                          onChange={() => handleSelectAcopio(acopio.id)}
+                          className="w-4 h-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
+                        />
+                      </td>
+                      <td className="py-2 px-2 font-mono font-bold text-blue-800 text-xs">
+                        {acopio.codigo_acopio}
+                      </td>
+                      <td className="py-2 px-2 text-xs">
+                        {acopio.frente_trabajo?.codigo_completo || acopio.nombre || 'Manual'}
+                      </td>
+                      <td className="py-2 px-2 text-xs font-semibold text-purple-700">
+                        {acopio.cantidad_dumpadas || 0}
+                      </td>
+                      <td className="py-2 px-2 text-xs font-semibold text-orange-700">
+                        {acopio.total_toneladas ? parseFloat(acopio.total_toneladas).toFixed(2) : '0.00'} t
+                      </td>
+                      <td className="py-2 px-2 text-xs">
+                        {acopio.ley_promedio ? `${parseFloat(acopio.ley_promedio).toFixed(2)}%` : '-'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Paginación de acopios */}
+          {totalAcopios > perPageDumpadas && (
+            <Pagination
+              currentPage={currentPageDumpadas}
+              totalPages={totalPagesAcopios}
+              totalRecords={totalAcopios}
+              perPage={perPageDumpadas}
+              onPageChange={handlePageChangeDumpadas}
+              showInfo={true}
+              showFirstLast={false}
+            />
+          )}
+        </Card>
+        </LoadingOverlay>
+        ) : (
+          // ============ MODO DUMPADAS DIRECTAS ============
+          <Card className="mb-6 border-l-4 border-blue-400">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 gap-3">
+              <div>
+                <h3 className="text-xl font-bold text-gray-900">
+                  ✅ Seleccionar Dumpadas ({dumpadasSeleccionadas.length} seleccionadas)
+                </h3>
+                <p className="text-sm text-gray-600 mt-1">
+                  Mostrando: {dumpadasDisponibles.length} dumpadas disponibles • Total seleccionado: {dumpadasSeleccionadas.reduce((sum, id) => sum + parseFloat(dumpadasDisponibles.find(d => d.id === id)?.ton || 0), 0).toFixed(2)} t
+                </p>
+                {dumpadasDisponibles.length > 0 && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Desde #{dumpadasDisponibles[0]?.numero_dumpada} hasta #{dumpadasDisponibles[dumpadasDisponibles.length - 1]?.numero_dumpada}
+                  </p>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  onClick={() => {
+                    const paginadosIds = dumpadasPaginadas.map(d => d.id);
+                    const todosSeleccionados = paginadosIds.every(id => dumpadasSeleccionadas.includes(id));
+                    if (todosSeleccionados) {
+                      setDumpadasSeleccionadas(dumpadasSeleccionadas.filter(id => !paginadosIds.includes(id)));
+                    } else {
+                      setDumpadasSeleccionadas([...new Set([...dumpadasSeleccionadas, ...paginadosIds])]);
+                    }
+                  }}
+                >
+                  {dumpadasPaginadas.every(d => dumpadasSeleccionadas.includes(d.id)) && dumpadasPaginadas.length > 0
+                    ? 'Deseleccionar Página'
+                    : 'Seleccionar Página'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={handleSelectAllDumpadas}
+                >
+                  {dumpadasSeleccionadas.length === dumpadasDisponibles.length ? 'Deseleccionar Todas' : 'Seleccionar Todas'}
+                </Button>
+              </div>
+            </div>
+
+            {/* Filtros Profesionales */}
+            <TableFilters
+              searchValue={searchDumpada}
+              searchPlaceholder="Buscar por número, frente, jornada..."
+              onSearchChange={handleSearchDumpadaChange}
+              filters={[
+                {
+                  name: 'id_frente_trabajo',
+                  label: 'Frente de Trabajo',
+                  type: 'select',
+                  options: frentes.map(f => ({
+                    value: f.id,
+                    label: f.codigo_completo || `ID: ${f.id}`
+                  }))
+                },
+                {
+                  name: 'jornada',
+                  label: 'Jornada',
+                  type: 'select',
+                  options: jornadas.map(j => ({ value: j, label: j }))
+                },
+                {
+                  name: 'fecha_desde',
+                  label: 'Fecha Desde',
+                  type: 'date'
+                },
+                {
+                  name: 'fecha_hasta',
+                  label: 'Fecha Hasta',
+                  type: 'date'
+                }
+              ]}
+              filterValues={filtersDumpada}
+              onFilterChange={handleFilterDumpadaChange}
+              onClear={handleClearFiltersDumpada}
+            />
+
+            {dumpadasDisponibles.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-gray-600">No hay dumpadas disponibles para mezclas</p>
+                <p className="text-sm text-gray-500 mt-1">Las dumpadas deben estar completadas y no asignadas a otra mezcla</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-blue-50 border-b-2 border-blue-200">
+                      <th className="py-2 px-3 text-left">
+                        <input
+                          type="checkbox"
+                          onChange={() => {
+                            const paginadosIds = dumpadasPaginadas.map(d => d.id);
+                            const todosSeleccionados = paginadosIds.every(id => dumpadasSeleccionadas.includes(id));
+                            if (todosSeleccionados) {
+                              setDumpadasSeleccionadas(dumpadasSeleccionadas.filter(id => !paginadosIds.includes(id)));
+                            } else {
+                              setDumpadasSeleccionadas([...new Set([...dumpadasSeleccionadas, ...paginadosIds])]);
+                            }
+                          }}
+                          checked={dumpadasPaginadas.length > 0 && dumpadasPaginadas.every(d => dumpadasSeleccionadas.includes(d.id))}
+                          className="w-4 h-4 rounded border-blue-300 text-blue-600 focus:ring-blue-500"
+                        />
+                      </th>
+                      <th className="py-2 px-3 text-left font-bold text-gray-700">#</th>
+                      <th className="py-2 px-3 text-left font-bold text-gray-700">Frente</th>
+                      <th className="py-2 px-3 text-left font-bold text-gray-700">Jornada</th>
+                      <th className="py-2 px-3 text-left font-bold text-gray-700">Fecha</th>
+                      <th className="py-2 px-3 text-right font-bold text-gray-700">Ton</th>
+                      <th className="py-2 px-3 text-right font-bold text-gray-700">Ley</th>
+                      <th className="py-2 px-3 text-right font-bold text-gray-700">Ley Visual</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dumpadasPaginadas.map((dumpada, index) => {
+                      // Obtener el color según grupo (frente + jornada + fecha)
+                      const backgroundColor = getBackgroundColorByGroup(dumpadasFiltradas, dumpadasFiltradas.indexOf(dumpada));
+
+                      return (
+                        <tr
+                          key={dumpada.id}
+                          style={{ backgroundColor: dumpadasSeleccionadas.includes(dumpada.id) ? '#dbeafe' : backgroundColor }}
+                          className={`border-b border-gray-200 hover:opacity-90 transition-all ${dumpadasSeleccionadas.includes(dumpada.id) ? 'ring-2 ring-blue-400' : ''}`}
+                        >
+                          <td className="py-2 px-3">
+                            <input
+                              type="checkbox"
+                              checked={dumpadasSeleccionadas.includes(dumpada.id)}
+                              onChange={() => handleSelectDumpada(dumpada.id)}
+                              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            />
+                          </td>
+                          <td className="py-2 px-3 font-bold text-blue-700">{dumpada.numero_dumpada}</td>
+                          <td className="py-2 px-3">
+                            <span className="font-bold text-blue-900 bg-gradient-to-r from-blue-100 to-blue-200 px-1.5 py-0.5 rounded-lg shadow-sm border border-blue-300 inline-block text-xs whitespace-nowrap">
+                              {dumpada.frente_trabajo?.codigo_completo || '-'}
+                            </span>
+                          </td>
+                          <td className="py-2 px-3">
+                            <Badge variant={dumpada.jornada === 'AM' ? 'warning' : dumpada.jornada === 'PM' ? 'info' : 'default'}>
+                              {dumpada.jornada}
+                            </Badge>
+                          </td>
+                          <td className="py-2 px-3 text-xs text-gray-600">
+                            {dumpada.fecha ? formatearFecha(dumpada.fecha) : '-'}
+                          </td>
+                          <td className="py-2 px-3 text-right font-semibold">{parseFloat(dumpada.ton || 0).toFixed(2)}</td>
+                          <td className="py-2 px-3 text-right font-semibold">
+                            {dumpada.ley ? `${parseFloat(dumpada.ley).toFixed(2)}%` : <span className="text-gray-400">-</span>}
+                          </td>
+                          <td className="py-2 px-3 text-right font-semibold">
+                            {dumpada.ley_visual ? `${parseFloat(dumpada.ley_visual).toFixed(2)}%` : <span className="text-gray-400">-</span>}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {/* Paginación */}
+            {dumpadasFiltradas.length > perPageDumpadas && (
+              <div className="mt-4">
+                <Pagination
+                  currentPage={currentPageDumpadas}
+                  totalPages={Math.ceil(dumpadasFiltradas.length / perPageDumpadas)}
+                  totalRecords={dumpadasFiltradas.length}
+                  perPage={perPageDumpadas}
+                  onPageChange={handlePageChangeDumpadas}
+                  showInfo={true}
+                  showFirstLast={true}
+                />
+                <div className="mt-2 text-center text-sm text-gray-600">
+                  Mostrando {((currentPageDumpadas - 1) * perPageDumpadas) + 1} - {Math.min(currentPageDumpadas * perPageDumpadas, dumpadasFiltradas.length)} de {dumpadasFiltradas.length} dumpadas filtradas
+                </div>
+              </div>
+            )}
+          </Card>
+        )}
+
+        {/* Selección de Remanentes (Mezclas con toneladas disponibles) */}
+        {remanentesDisponibles.length > 0 && (
+          <Card className="mb-6 border-l-4 border-orange-400">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-xl font-bold text-gray-900">
+                  🔄 Remanentes Disponibles ({remanentesSeleccionados.length} seleccionados)
+                </h3>
+                <p className="text-sm text-gray-600 mt-1">
+                  Mezclas con toneladas disponibles que puedes usar en la nueva mezcla
+                </p>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b-2 border-orange-200 bg-gradient-to-r from-orange-50 to-orange-100">
+                    <th className="text-left py-2 px-2 font-bold text-orange-900 text-xs">Código</th>
+                    <th className="text-left py-2 px-2 font-bold text-orange-900 text-xs">Fecha</th>
+                    <th className="text-left py-2 px-2 font-bold text-orange-900 text-xs">Disponibles</th>
+                    <th className="text-left py-2 px-2 font-bold text-orange-900 text-xs">Ley Dump</th>
+                    <th className="text-left py-2 px-2 font-bold text-orange-900 text-xs">Ley Visual</th>
+                    <th className="text-left py-2 px-2 font-bold text-orange-900 text-xs">Ley Lote</th>
+                    <th className="text-left py-2 px-2 font-bold text-orange-900 text-xs">Usar (t)</th>
+                    <th className="text-center py-2 px-2 font-bold text-orange-900 text-xs">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {remanentesDisponibles.map((mezcla, index) => {
+                    const remanenteSeleccionado = remanentesSeleccionados.find(r => r.mezcla_id === mezcla.id);
+                    const toneladasUsadas = remanenteSeleccionado ? parseFloat(remanenteSeleccionado.toneladas) : 0;
+
+                    return (
+                      <tr
+                        key={mezcla.id}
+                        className={`border-b border-gray-200 hover:bg-orange-50 transition-all ${
+                          toneladasUsadas > 0 ? 'bg-orange-100' : index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
+                        }`}
+                      >
+                        <td className="py-2 px-2">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-orange-900">{mezcla.codigo}</span>
+                            {mezcla.ajuste_aplicado && (
+                              <span
+                                className="px-1.5 py-0.5 bg-amber-500 text-white text-[10px] font-bold rounded"
+                                title="Este remanente tiene un ajuste de toneladas aplicado"
+                              >
+                                AJUSTADO
+                              </span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-2 px-2 text-xs">{formatearFecha(mezcla.fecha)}</td>
+                        <td className="py-2 px-2 text-xs font-semibold text-green-700">
+                          {parseFloat(mezcla.toneladas_disponibles).toFixed(2)} t
+                        </td>
+                        <td className="py-2 px-2 text-xs">
+                          {mezcla.ley_prom_dump ? `${parseFloat(mezcla.ley_prom_dump).toFixed(2)}%` : '-'}
+                        </td>
+                        <td className="py-2 px-2 text-xs text-purple-700 font-semibold">
+                          {(() => {
+                            // FÓRMULA: Ley Visual para remanentes = ley_prom_lote × 1.11
+                            // NO revertir el factor 0.9, la fórmula trabaja con leyes ajustadas
+                            const leyLote = parseFloat(mezcla.ley_prom_lote || 0);
+                            const leyVisualCalculada = leyLote * factorRemanenteVisual; // × 1.11
+                            return leyLote > 0 ? `${leyVisualCalculada.toFixed(2)}%` : '-';
+                          })()}
+                        </td>
+                        <td className="py-2 px-2 text-xs text-blue-700 font-semibold">
+                          {mezcla.ley_prom_lote ? `${parseFloat(mezcla.ley_prom_lote).toFixed(2)}%` : '-'}
+                        </td>
+                        <td className="py-2 px-2">
+                          <input
+                            type="number"
+                            min="0"
+                            max={parseFloat(mezcla.toneladas_disponibles)}
+                            step="0.01"
+                            value={toneladasUsadas || ''}
+                            onChange={(e) => {
+                              const valor = parseFloat(e.target.value) || 0;
+                              const disponibles = parseFloat(mezcla.toneladas_disponibles);
+
+                              if (valor > disponibles) {
+                                toast.warning(
+                                  'Toneladas excedidas',
+                                  `Solo hay ${disponibles.toFixed(2)} t disponibles en ${mezcla.codigo}`
+                                );
+                                return;
+                              }
+
+                              if (valor <= 0) {
+                                // Remover de seleccionados si el valor es 0
+                                setRemanentesSeleccionados(
+                                  remanentesSeleccionados.filter(r => r.mezcla_id !== mezcla.id)
+                                );
+                              } else {
+                                // Actualizar o agregar
+                                const existe = remanentesSeleccionados.find(r => r.mezcla_id === mezcla.id);
+                                if (existe) {
+                                  setRemanentesSeleccionados(
+                                    remanentesSeleccionados.map(r =>
+                                      r.mezcla_id === mezcla.id ? { ...r, toneladas: valor } : r
+                                    )
+                                  );
+                                } else {
+                                  setRemanentesSeleccionados([
+                                    ...remanentesSeleccionados,
+                                    { mezcla_id: mezcla.id, toneladas: valor }
+                                  ]);
+                                }
+                              }
+                            }}
+                            className="w-24 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm"
+                            placeholder="0.00"
+                          />
+                        </td>
+                        <td className="py-2 px-2 text-center">
+                          <button
+                            onClick={async () => {
+                              if (window.confirm(`¿Estás seguro de marcar ${mezcla.codigo} (${parseFloat(mezcla.toneladas_disponibles).toFixed(2)} t) como descarte?\n\nEsto hará que ya no aparezca en remanentes disponibles.`)) {
+                                try {
+                                  await mezclasService.marcarDescarte(mezcla.id);
+                                  toast.success(
+                                    'Remanente descartado',
+                                    `${mezcla.codigo} marcado como descarte`
+                                  );
+                                  // Recargar remanentes
+                                  const nuevosRemanentes = await mezclasService.getRemanentesDisponibles();
+                                  setRemanentesDisponibles(nuevosRemanentes || []);
+                                  // Remover de seleccionados si estaba
+                                  setRemanentesSeleccionados(remanentesSeleccionados.filter(r => r.mezcla_id !== mezcla.id));
+                                } catch (error) {
+                                  toast.error(
+                                    'Error al descartar',
+                                    error.response?.data?.mensaje || error.message
+                                  );
+                                }
+                              }
+                            }}
+                            className="px-2 py-1 bg-red-500 text-white text-xs rounded hover:bg-red-600 transition-colors"
+                            title="Marcar como descarte (no utilizable)"
+                          >
+                            Descartar
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {remanentesSeleccionados.length > 0 && (
+              <div className="mt-3 bg-orange-50 border border-orange-200 rounded-lg p-3">
+                <p className="text-sm font-semibold text-orange-800">
+                  Total remanentes seleccionados: {remanentesSeleccionados.reduce((sum, r) => sum + parseFloat(r.toneladas), 0).toFixed(2)} t
+                  ({remanentesSeleccionados.length} mezcla{remanentesSeleccionados.length !== 1 ? 's' : ''})
+                </p>
+              </div>
+            )}
+          </Card>
+        )}
+
+        {/* Preview de la Mezcla - Solo aparece cuando hay acopios/dumpadas o remanentes seleccionados */}
+        {((usarSistemaAcopios ? acopiosSeleccionados.length > 0 : dumpadasSeleccionadas.length > 0) || remanentesSeleccionados.length > 0) && (
+          <Card className="mb-6 border-2 border-purple-500 bg-gradient-to-br from-purple-50 via-white to-blue-50 shadow-lg">
+            {/* Header con título y botones */}
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-4 gap-3">
+              <div>
+                <h4 className="text-2xl font-bold text-purple-900 flex items-center gap-2">
+                  <HiBeaker className="w-7 h-7" />
+                  Nueva Mezcla
+                </h4>
+                <p className="text-sm text-gray-600 mt-1">
+                  Fecha: <span className="font-semibold">{new Date().toLocaleDateString('es-CL')}</span>
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="success"
+                  icon={HiBeaker}
+                  disabled={loading || !formDataMezcla.planta_id}
+                  onClick={handleCrearMezcla}
+                  className="shadow-md"
+                >
+                  {loading ? 'Creando...' : 'Crear Mezcla'}
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => {
+                    setAcopiosSeleccionados([]);
+                    setDumpadasSeleccionadas([]);
+                    setRemanentesSeleccionados([]);
+                    setLoteRemanenteSeleccionado('');
+                    setFormDataMezcla({ ...formDataMezcla, planta_id: '', observaciones: '' });
+                  }}
+                >
+                  Limpiar
+                </Button>
+              </div>
+            </div>
+
+            {/* Configuración: Planta y Observaciones */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+              <div className="bg-white rounded-lg p-4 border-2 border-purple-200 shadow-sm">
+                <label className="block text-sm font-bold text-purple-800 mb-2">
+                  🏭 Planta Destino <span className="text-red-500">*</span>
+                </label>
+                <select
+                  value={formDataMezcla.planta_id}
+                  onChange={(e) => setFormDataMezcla({ ...formDataMezcla, planta_id: e.target.value })}
+                  className={`w-full px-4 py-3 border-2 rounded-lg text-sm font-medium transition-colors ${
+                    formDataMezcla.planta_id
+                      ? 'border-green-400 bg-green-50 text-green-800'
+                      : 'border-orange-300 bg-orange-50 text-gray-700'
+                  }`}
+                >
+                  <option value="">⚠️ Seleccionar planta...</option>
+                  {plantas.map((planta) => (
+                    <option key={planta.id} value={planta.id}>
+                      {planta.nombre} {planta.prefijo_codigo && `(${planta.prefijo_codigo})`}
+                    </option>
+                  ))}
+                </select>
+                {!formDataMezcla.planta_id && (
+                  <p className="text-xs text-orange-600 mt-1 font-medium">
+                    Debes seleccionar una planta para crear la mezcla
+                  </p>
+                )}
+              </div>
+              <div className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
+                <label className="block text-sm font-bold text-gray-700 mb-2">
+                  📝 Observaciones (opcional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="Notas adicionales..."
+                  value={formDataMezcla.observaciones}
+                  onChange={(e) => setFormDataMezcla({ ...formDataMezcla, observaciones: e.target.value })}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                />
+              </div>
+            </div>
+
+            {/* Resumen de totales */}
+            <div className="grid grid-cols-2 md:grid-cols-7 gap-3 mb-4">
+              <div className="bg-white rounded-xl p-3 border border-purple-200 text-center shadow-sm">
+                <p className="text-xs text-gray-500 uppercase font-medium">
+                  {usarSistemaAcopios ? 'Dumpadas' : 'Seleccionadas'}
+                </p>
+                <p className="text-2xl font-bold text-purple-700">{calcularTotalesMezcla().cantidadDumpadas}</p>
+              </div>
+              <div className="bg-white rounded-xl p-3 border border-orange-200 text-center shadow-sm">
+                <p className="text-xs text-gray-500 uppercase font-medium">Remanentes</p>
+                <p className="text-2xl font-bold text-orange-700">{calcularTotalesMezcla().cantidadRemanentes}</p>
+              </div>
+              <div className="bg-white rounded-xl p-3 border border-blue-200 text-center shadow-sm">
+                <p className="text-xs text-gray-500 uppercase font-medium">Toneladas</p>
+                <p className="text-2xl font-bold text-blue-700">{calcularTotalesMezcla().totalTon} t</p>
+              </div>
+              <div className="bg-white rounded-xl p-3 border border-amber-200 text-center shadow-sm">
+                <p className="text-xs text-gray-500 uppercase font-medium">Ley Ajustada</p>
+                <p className="text-2xl font-bold text-amber-600">{calcularTotalesMezcla().leyAjustada}%</p>
+              </div>
+              <div className="bg-white rounded-xl p-3 border border-green-200 text-center shadow-sm">
+                <p className="text-xs text-gray-500 uppercase font-medium">Ley Visual</p>
+                <p className="text-2xl font-bold text-green-700">{calcularTotalesMezcla().leyVisual}%</p>
+              </div>
+              <div className="bg-white rounded-xl p-3 border border-indigo-200 text-center shadow-sm">
+                <p className="text-xs text-gray-500 uppercase font-medium">Ley Lote</p>
+                <p className="text-2xl font-bold text-indigo-700">{calcularTotalesMezcla().leyLote}%</p>
+              </div>
+              <div className="bg-white rounded-xl p-3 border border-red-200 text-center shadow-sm">
+                <p className="text-xs text-gray-500 uppercase font-medium">Ley Lab</p>
+                <p className="text-2xl font-bold text-red-700">{calcularTotalesMezcla().leyLab}%</p>
+              </div>
+            </div>
+
+            {/* Tabla de acopios o dumpadas seleccionados */}
+            <div className="bg-white rounded-lg border border-purple-200 overflow-hidden shadow-sm">
+              <div className="bg-gradient-to-r from-purple-100 to-purple-50 px-4 py-2 border-b border-purple-200">
+                <p className="text-sm font-bold text-purple-800">
+                  📦 Composición de la mezcla ({usarSistemaAcopios ? 'Acopios' : 'Dumpadas'})
+                </p>
+              </div>
+              <div className="max-h-48 overflow-y-auto">
+                <table className="w-full text-xs">
+                  <thead className="bg-gray-50 sticky top-0">
+                    <tr>
+                      <th className="text-left py-2 px-3 font-semibold text-gray-700">
+                        {usarSistemaAcopios ? 'Código Acopio' : '# Dumpada'}
+                      </th>
+                      <th className="text-left py-2 px-3 font-semibold text-gray-700">Frente</th>
+                      {usarSistemaAcopios && (
+                        <th className="text-right py-2 px-3 font-semibold text-gray-700">Dumpadas</th>
+                      )}
+                      {!usarSistemaAcopios && (
+                        <th className="text-center py-2 px-3 font-semibold text-gray-700">Jornada</th>
+                      )}
+                      <th className="text-right py-2 px-3 font-semibold text-gray-700">Ton</th>
+                      <th className="text-right py-2 px-3 font-semibold text-gray-700">Ley</th>
+                      <th className="text-center py-2 px-3 font-semibold text-gray-700">Quitar</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {usarSistemaAcopios ? (
+                      // MODO ACOPIOS
+                      calcularTotalesMezcla().acopiosDetalle.map((acopio, idx) => (
+                        <tr key={acopio.id} className={`border-b border-gray-100 hover:bg-purple-50 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                          <td className="py-2 px-3 font-mono font-bold text-purple-700">
+                            {acopio.codigo_acopio}
+                          </td>
+                          <td className="py-2 px-3 text-gray-600">{acopio.frente_trabajo?.codigo_completo || acopio.nombre || 'Manual'}</td>
+                          <td className="py-2 px-3 text-right font-semibold text-purple-600">{acopio.cantidad_dumpadas || 0}</td>
+                          <td className="py-2 px-3 text-right font-semibold">{acopio.total_toneladas ? parseFloat(acopio.total_toneladas).toFixed(2) : '0.00'}</td>
+                          <td className="py-2 px-3 text-right">{acopio.ley_promedio ? `${parseFloat(acopio.ley_promedio).toFixed(2)}%` : '-'}</td>
+                          <td className="py-2 px-3 text-center">
+                            <button
+                              onClick={() => handleSelectAcopio(acopio.id)}
+                              className="text-red-500 hover:text-red-700 hover:bg-red-100 rounded-full p-1 transition-colors"
+                              title="Quitar de la mezcla"
+                            >
+                              <HiXMark className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      // MODO DUMPADAS DIRECTAS
+                      dumpadasDisponibles.filter(d => dumpadasSeleccionadas.includes(d.id)).map((dumpada, idx) => (
+                        <tr key={dumpada.id} className={`border-b border-gray-100 hover:bg-blue-50 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                          <td className="py-2 px-3 font-mono font-bold text-blue-700">
+                            #{dumpada.numero_dumpada}
+                          </td>
+                          <td className="py-2 px-3 text-gray-600">{dumpada.frente_trabajo?.codigo_completo || '-'}</td>
+                          <td className="py-2 px-3 text-center">
+                            <Badge variant={dumpada.jornada === 'AM' ? 'warning' : dumpada.jornada === 'PM' ? 'info' : 'default'} size="sm">
+                              {dumpada.jornada}
+                            </Badge>
+                          </td>
+                          <td className="py-2 px-3 text-right font-semibold">{parseFloat(dumpada.ton || 0).toFixed(2)}</td>
+                          <td className="py-2 px-3 text-right">
+                            {parseFloat(dumpada.ley || dumpada.ley_visual || 0).toFixed(2)}%
+                            {!dumpada.ley && dumpada.ley_visual && (
+                              <span className="text-xs text-gray-500 ml-1">(visual)</span>
+                            )}
+                          </td>
+                          <td className="py-2 px-3 text-center">
+                            <button
+                              onClick={() => handleSelectDumpada(dumpada.id)}
+                              className="text-red-500 hover:text-red-700 hover:bg-red-100 rounded-full p-1 transition-colors"
+                              title="Quitar de la mezcla"
+                            >
+                              <HiXMark className="w-4 h-4" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Tabla de remanentes seleccionados */}
+            {remanentesSeleccionados.length > 0 && (
+              <div className="bg-white rounded-lg border border-orange-200 overflow-hidden shadow-sm mt-4">
+                <div className="bg-gradient-to-r from-orange-100 to-orange-50 px-4 py-2 border-b border-orange-200">
+                  <p className="text-sm font-bold text-orange-800">🔄 Remanentes incluidos</p>
+                </div>
+                <div className="max-h-48 overflow-y-auto">
+                  <table className="w-full text-xs">
+                    <thead className="bg-gray-50 sticky top-0">
+                      <tr>
+                        <th className="text-left py-2 px-3 font-semibold text-gray-700">Código Mezcla</th>
+                        <th className="text-right py-2 px-3 font-semibold text-gray-700">Ton</th>
+                        <th className="text-right py-2 px-3 font-semibold text-gray-700">Ley</th>
+                        <th className="text-center py-2 px-3 font-semibold text-gray-700">Quitar</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {remanentesSeleccionados.map((rem, idx) => {
+                        const mezcla = remanentesDisponibles.find(m => m.id === rem.mezcla_id);
+                        return (
+                          <tr key={rem.mezcla_id} className={`border-b border-gray-100 hover:bg-orange-50 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                            <td className="py-2 px-3 font-mono font-bold text-orange-700">
+                              {mezcla?.codigo || `ID: ${rem.mezcla_id}`}
+                            </td>
+                            <td className="py-2 px-3 text-right font-semibold">{parseFloat(rem.toneladas).toFixed(2)}</td>
+                            <td className="py-2 px-3 text-right">{mezcla?.ley_prom_dump ? `${parseFloat(mezcla.ley_prom_dump).toFixed(2)}%` : '-'}</td>
+                            <td className="py-2 px-3 text-center">
+                              <button
+                                onClick={() => {
+                                  setRemanentesSeleccionados(remanentesSeleccionados.filter(r => r.mezcla_id !== rem.mezcla_id));
+                                }}
+                                className="text-red-500 hover:text-red-700 hover:bg-red-100 rounded-full p-1 transition-colors"
+                                title="Quitar remanente"
+                              >
+                                <HiXMark className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {loteRemanenteSeleccionado && (
+              <div className="mt-3 bg-orange-50 border border-orange-200 rounded-lg p-2 text-sm text-orange-700">
+                + Remanente de lote seleccionado (legacy)
+              </div>
+            )}
+          </Card>
+        )}
+
+      {/* Historial de Mezclas */}
+      <LoadingOverlay isLoading={loading} text="Cargando mezclas...">
+        <Card className="border-l-4 border-purple-400 mt-6">
+          <h3 className="text-2xl font-bold text-gray-900 mb-6">📦 Historial de Mezclas</h3>
+
+          {mezclas.length === 0 ? (
+          <div className="text-center py-12">
+            <HiCube className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+            <p className="text-gray-700 font-medium mb-2">No hay mezclas registradas</p>
+            <p className="text-gray-500 text-sm">Crea tu primera mezcla seleccionando dumpadas arriba</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b-2 border-purple-200 bg-gradient-to-r from-purple-50 to-purple-100">
+                  <th className="text-left py-2 px-2 font-bold text-purple-900 text-xs">Código</th>
+                  <th className="text-left py-2 px-2 font-bold text-purple-900 text-xs">Fecha</th>
+                  <th className="text-left py-2 px-2 font-bold text-purple-900 text-xs">Total Ton</th>
+                  <th className="text-left py-2 px-2 font-bold text-purple-900 text-xs">Ley Prom</th>
+                  <th className="text-left py-2 px-2 font-bold text-purple-900 text-xs">Estado</th>
+                  <th className="text-left py-2 px-2 font-bold text-purple-900 text-xs">Acciones</th>
+                </tr>
+              </thead>
+              <tbody>
+                {mezclas.map((mezcla, index) => (
+                  <tr
+                    key={mezcla.id}
+                    className={`border-b border-gray-200 hover:bg-purple-50 transition-all ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
+                      }`}
+                  >
+                    <td className="py-2 px-2 font-bold text-purple-900">
+                      {mezcla.codigo}
+                    </td>
+                    <td className="py-2 px-2 text-xs">
+                      {formatearFecha(mezcla.fecha)}
+                    </td>
+                    <td className="py-2 px-2 text-xs font-semibold">
+                      {parseFloat(mezcla.total_ton).toFixed(2)} t
+                    </td>
+                    <td className="py-2 px-2 text-xs">
+                      {mezcla.ley_prom_dump ? `${parseFloat(mezcla.ley_prom_dump).toFixed(2)}%` : '-'}
+                    </td>
+                    <td className="py-2 px-2">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                        mezcla.estado === 'Despachado' ? 'bg-green-500 text-white' :
+                        mezcla.estado === 'En Despacho' ? 'bg-yellow-500 text-white' :
+                        'bg-blue-500 text-white'
+                        }`}>
+                        {mezcla.estado}
+                      </span>
+                    </td>
+                    <td className="py-2 px-2">
+                      <div className="flex gap-1">
+                        <button
+                          onClick={() => handleVerDetalleMezcla(mezcla.id)}
+                          className="px-2 py-1 bg-blue-500 hover:bg-blue-600 text-white rounded transition-colors text-xs"
+                          title="Ver Detalle"
+                        >
+                          <HiEye className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleEliminarMezcla(mezcla.id, mezcla.codigo)}
+                          className="px-2 py-1 bg-red-500 hover:bg-red-600 text-white rounded transition-colors text-xs"
+                          title="Eliminar"
+                        >
+                          <HiTrash className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        </Card>
+      </LoadingOverlay>
+
+      {/* Modal de detalle de mezcla */}
+      {mezclaSeleccionada && (
+        <div className="fixed inset-0 bg-transparent bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-6xl w-full max-h-[90vh] overflow-hidden flex flex-col">
+            {/* Header del modal con gradiente */}
+            <div className="bg-gradient-to-r from-purple-600 via-purple-500 to-indigo-600 px-6 py-5 flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <div className="bg-white/20 backdrop-blur-sm rounded-xl p-3">
+                  <HiBeaker className="w-8 h-8 text-white" />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-bold text-white flex items-center gap-2">
+                    Mezcla {mezclaSeleccionada.codigo}
+                  </h3>
+                  <p className="text-purple-100 text-sm mt-1">
+                    {formatearFecha(mezclaSeleccionada.fecha)}
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2 items-center">
+                {mezclaSeleccionada.estado !== 'Despachado' && (
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={handleAbrirAgregarDumpadas}
+                    disabled={loading}
+                    className="bg-white text-purple-600 hover:bg-purple-50 border-2 border-white"
+                  >
+                    + Agregar Dumpadas
+                  </Button>
+                )}
+                {/* Botón de ajuste de toneladas - solo si hay despachos y no se ha aplicado ajuste */}
+                {mezclaSeleccionada.toneladas_despachadas > 0 && !mezclaSeleccionada.ajuste_aplicado && (
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={handleAbrirModalAjuste}
+                    disabled={loading}
+                    className="bg-amber-500 text-white hover:bg-amber-600 border-2 border-amber-400"
+                    title="Ajustar toneladas según inventario real"
+                  >
+                    ⚖️ Ajustar Toneladas
+                  </Button>
+                )}
+                {/* Botón de revertir ajuste - solo si ya se aplicó ajuste */}
+                {mezclaSeleccionada.ajuste_aplicado && (
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    onClick={handleAbrirModalRevertir}
+                    disabled={loading}
+                    className="bg-red-500 text-white hover:bg-red-600 border-2 border-red-400"
+                    title="Revertir el ajuste aplicado"
+                  >
+                    🔄 Revertir Ajuste
+                  </Button>
+                )}
+                <button
+                  onClick={() => setMezclaSeleccionada(null)}
+                  className="text-white/80 hover:text-white hover:bg-white/20 rounded-lg p-2 transition-all"
+                  title="Cerrar"
+                >
+                  <HiXMark className="w-6 h-6" />
+                </button>
+              </div>
+            </div>
+
+            {/* Contenido scrolleable */}
+            <div className="overflow-y-auto flex-1 px-6 py-6 space-y-6 bg-gray-50">
+              {/* Indicador de Remanente */}
+              {mezclaSeleccionada.es_remanente && (
+                <div className="bg-gradient-to-r from-orange-50 to-amber-50 border-l-4 border-orange-500 p-4 rounded-lg shadow-sm">
+                  <p className="text-sm font-semibold text-orange-800 flex items-center gap-2">
+                    <HiCube className="w-5 h-5" />
+                    Esta mezcla es un remanente
+                    {mezclaSeleccionada.mezcla_origen && (
+                      <span className="text-xs"> - Origen: {mezclaSeleccionada.mezcla_origen.codigo}</span>
+                    )}
+                  </p>
+                </div>
+              )}
+
+              {/* Indicador de Ajuste Aplicado */}
+              {mezclaSeleccionada.ajuste_aplicado && (
+                <div className="bg-gradient-to-r from-amber-50 to-yellow-50 border-l-4 border-amber-600 p-4 rounded-lg shadow-sm">
+                  <div className="flex items-start gap-3">
+                    <div className="text-amber-700 mt-0.5">⚖️</div>
+                    <div className="flex-1">
+                      <p className="text-sm font-bold text-amber-900 mb-2">
+                        Ajuste de Toneladas Aplicado
+                      </p>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                        <div>
+                          <span className="text-amber-600 font-semibold">Original:</span>
+                          <p className="font-bold text-amber-900">{parseFloat(mezclaSeleccionada.total_ton_original || 0).toFixed(2)} t</p>
+                        </div>
+                        <div>
+                          <span className="text-amber-600 font-semibold">Ajustado:</span>
+                          <p className="font-bold text-amber-900">{parseFloat(mezclaSeleccionada.total_ton || 0).toFixed(2)} t</p>
+                        </div>
+                        <div>
+                          <span className="text-amber-600 font-semibold">Diferencia:</span>
+                          <p className={`font-bold ${mezclaSeleccionada.ajuste_toneladas >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                            {mezclaSeleccionada.ajuste_toneladas > 0 ? '+' : ''}{parseFloat(mezclaSeleccionada.ajuste_toneladas || 0).toFixed(2)} t
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-amber-600 font-semibold">Fecha:</span>
+                          <p className="font-bold text-amber-900">
+                            {mezclaSeleccionada.fecha_ajuste ? formatearFecha(mezclaSeleccionada.fecha_ajuste) : '-'}
+                          </p>
+                        </div>
+                      </div>
+                      {mezclaSeleccionada.motivo_ajuste && (
+                        <div className="mt-2 text-xs">
+                          <span className="text-amber-600 font-semibold">Motivo:</span>
+                          <p className="text-amber-800 italic mt-1">{mezclaSeleccionada.motivo_ajuste}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Tarjetas de información principal */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Total Toneladas */}
+                <div className="bg-white rounded-xl shadow-md p-5 border-t-4 border-purple-500">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-gray-600 font-medium uppercase tracking-wide">Total</p>
+                      <p className="text-3xl font-bold text-gray-900 mt-1">
+                        {parseFloat(mezclaSeleccionada.total_ton).toFixed(2)}
+                        <span className="text-lg text-gray-500 ml-1">t</span>
+                      </p>
+                    </div>
+                    <div className="bg-purple-100 rounded-full p-3">
+                      <HiCube className="w-8 h-8 text-purple-600" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Disponibles */}
+                <div className="bg-white rounded-xl shadow-md p-5 border-t-4 border-green-500">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-gray-600 font-medium uppercase tracking-wide">Disponibles</p>
+                      <p className="text-3xl font-bold text-green-700 mt-1">
+                        {mezclaSeleccionada.toneladas_disponibles
+                          ? parseFloat(mezclaSeleccionada.toneladas_disponibles).toFixed(2)
+                          : parseFloat(mezclaSeleccionada.total_ton).toFixed(2)}
+                        <span className="text-lg text-gray-500 ml-1">t</span>
+                      </p>
+                    </div>
+                    <div className="bg-green-100 rounded-full p-3">
+                      <HiCheck className="w-8 h-8 text-green-600" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Despachadas */}
+                <div className="bg-white rounded-xl shadow-md p-5 border-t-4 border-blue-500">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-gray-600 font-medium uppercase tracking-wide">Despachadas</p>
+                      <p className="text-3xl font-bold text-blue-700 mt-1">
+                        {mezclaSeleccionada.toneladas_despachadas
+                          ? parseFloat(mezclaSeleccionada.toneladas_despachadas).toFixed(2)
+                          : '0.00'}
+                        <span className="text-lg text-gray-500 ml-1">t</span>
+                      </p>
+                    </div>
+                    <div className="bg-blue-100 rounded-full p-3">
+                      <HiBeaker className="w-8 h-8 text-blue-600" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Información adicional */}
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                <div className="bg-white rounded-lg shadow p-4">
+                  <p className="text-xs text-gray-500 uppercase font-semibold">Ley Promedio</p>
+                  <p className="text-2xl font-bold text-amber-600 mt-1">
+                    {mezclaSeleccionada.ley_prom_dump ? `${parseFloat(mezclaSeleccionada.ley_prom_dump).toFixed(2)}%` : '-'}
+                  </p>
+                </div>
+                <div className="bg-white rounded-lg shadow p-4">
+                  <p className="text-xs text-gray-500 uppercase font-semibold">Estado</p>
+                  <div className="mt-2">
+                    <Badge color={
+                      mezclaSeleccionada.estado === 'Despachado' ? 'green' :
+                      mezclaSeleccionada.estado === 'En Despacho' ? 'yellow' :
+                      'blue'
+                    }>
+                      {mezclaSeleccionada.estado}
+                    </Badge>
+                  </div>
+                </div>
+                <div className="bg-white rounded-lg shadow p-4">
+                  <p className="text-xs text-gray-500 uppercase font-semibold">Fecha</p>
+                  <p className="text-lg font-bold text-gray-700 mt-1">{formatearFecha(mezclaSeleccionada.fecha)}</p>
+                </div>
+              </div>
+
+              {mezclaSeleccionada.detalles && mezclaSeleccionada.detalles.length > 0 && (
+                <div className="bg-white rounded-xl shadow-md -mx-6 sticky top-0 z-10">
+                  <div className="bg-gradient-to-r from-indigo-500 to-purple-600 px-5 py-3">
+                    <h4 className="font-bold text-white text-base flex items-center gap-2">
+                      <HiCube className="w-5 h-5" />
+                      Composición ({mezclaSeleccionada.detalles.length})
+                    </h4>
+                  </div>
+                  <div className="overflow-x-auto bg-gradient-to-r from-indigo-50 to-purple-50 border-b-2 border-indigo-200 shadow-md">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr>
+                          <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs">Tipo</th>
+                          <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs">Acopios / Origen</th>
+                          <th className="text-right py-3 px-3 font-bold text-blue-900 text-xs">Toneladas</th>
+                          <th className="text-right py-3 px-3 font-bold text-blue-900 text-xs">Ley Ajustada</th>
+                          <th className="text-right py-3 px-3 font-bold text-blue-900 text-xs">Ley Visual</th>
+                          <th className="text-right py-3 px-3 font-bold text-blue-900 text-xs">Ley Lote</th>
+                          <th className="text-right py-3 px-3 font-bold text-blue-900 text-xs">Ley Lab</th>
+                          {mezclaSeleccionada.estado !== 'Despachado' && (
+                            <th className="text-center py-3 px-3 font-bold text-blue-900 text-xs">Eliminar</th>
+                          )}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {mezclaSeleccionada.detalles.map((detalle, index) => (
+                          <tr key={detalle.id} className={`border-b border-gray-200 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                            <td className="py-2 px-3">
+                              <span className={`px-2 py-1 rounded-full text-xs font-bold ${detalle.tipo === 'DUMP' ? 'bg-green-500 text-white' : 'bg-orange-500 text-white'
+                                }`}>
+                                {detalle.tipo === 'DUMP' ? 'Dumpada' : 'Remanente'}
+                              </span>
+                            </td>
+                            <td className="py-2 px-3 text-xs font-mono text-blue-700">
+                              {detalle.origen || detalle.dumpada?.acopios || '-'}
+                            </td>
+                            <td className="py-2 px-3 text-xs font-semibold text-right">
+                              {parseFloat(detalle.toneladas).toFixed(2)} t
+                            </td>
+                            <td className="py-2 px-3 text-xs text-right">
+                              {(() => {
+                                // Ley Ajustada = ley_lote / 0.9
+                                const leyLote = parseFloat(detalle.ley_lote || 0);
+                                const leyAjustada = leyLote / factorAjusteLey;
+                                return leyLote > 0 ? `${leyAjustada.toFixed(2)}%` : '-';
+                              })()}
+                            </td>
+                            <td className="py-2 px-3 text-xs text-right">
+                              {detalle.ley_visual ? `${(parseFloat(detalle.ley_visual) * factorAjusteLey).toFixed(2)}%` : '-'}
+                            </td>
+                            <td className="py-2 px-3 text-xs text-right">
+                              {detalle.ley_lote ? `${parseFloat(detalle.ley_lote).toFixed(2)}%` : '-'}
+                            </td>
+                            <td className="py-2 px-3 text-xs text-right">
+                              {(() => {
+                                // Ley Lab = ley_lote / 0.81 = ley_dump original sin ajuste
+                                const leyLote = parseFloat(detalle.ley_lote || 0);
+                                const leyLab = leyLote / (factorAjusteLey * factorAjusteLey); // / 0.81
+                                return leyLote > 0 ? `${leyLab.toFixed(2)}%` : '-';
+                              })()}
+                            </td>
+                            {mezclaSeleccionada.estado !== 'Despachado' && (
+                              <td className="py-2 px-3 text-center">
+                                <button
+                                  onClick={() => handleEliminarDetalleMezcla(detalle.id, detalle.origen || detalle.dumpada?.acopios)}
+                                  disabled={loading}
+                                  className="px-2 py-1 bg-red-500 hover:bg-red-600 text-white rounded transition-colors text-xs disabled:opacity-50"
+                                  title="Eliminar de la mezcla"
+                                >
+                                  <HiTrash className="w-4 h-4" />
+                                </button>
+                              </td>
+                            )}
+                          </tr>
+                        ))}
+                        {/* Fila de totales */}
+                        <tr className="bg-gradient-to-r from-indigo-100 via-purple-100 to-pink-100 border-t-4 border-indigo-400 font-bold">
+                          <td className="py-4 px-4 text-sm text-indigo-900" colSpan="2">
+                            <div className="flex items-center gap-2">
+                              <HiBeaker className="w-5 h-5" />
+                              TOTALES DE LA MEZCLA
+                            </div>
+                          </td>
+                          <td className="py-4 px-4 text-base text-indigo-900 text-right font-extrabold">
+                            {mezclaSeleccionada.detalles.reduce((sum, d) => sum + parseFloat(d.toneladas || 0), 0).toFixed(2)} t
+                          </td>
+                          <td className="py-4 px-4 text-sm text-indigo-900 text-right font-bold">
+                            {(() => {
+                              // Ley Ajustada = ley_lote / 0.9
+                              const totalTon = mezclaSeleccionada.detalles.reduce((sum, d) => sum + parseFloat(d.toneladas || 0), 0);
+                              const sumaPonderadaLote = mezclaSeleccionada.detalles.reduce((sum, d) =>
+                                sum + (parseFloat(d.toneladas || 0) * parseFloat(d.ley_lote || 0)), 0
+                              );
+                              const leyLote = totalTon > 0 ? (sumaPonderadaLote / totalTon) : 0;
+                              const leyAjustada = leyLote / factorAjusteLey;
+                              return totalTon > 0 ? `${leyAjustada.toFixed(2)}%` : '-';
+                            })()}
+                          </td>
+                          <td className="py-4 px-4 text-sm text-indigo-900 text-right font-bold">
+                            {(() => {
+                              // Ley Visual: detalles tienen leyes ORIGINALES, aplicar factor 0.9
+                              const totalTon = mezclaSeleccionada.detalles.reduce((sum, d) => sum + parseFloat(d.toneladas || 0), 0);
+                              const sumaPonderada = mezclaSeleccionada.detalles.reduce((sum, d) =>
+                                sum + (parseFloat(d.toneladas || 0) * parseFloat(d.ley_visual || 0)), 0
+                              );
+                              return totalTon > 0 ? `${((sumaPonderada / totalTon) * factorAjusteLey).toFixed(2)}%` : '-';
+                            })()}
+                          </td>
+                          <td className="py-4 px-4 text-sm text-indigo-900 text-right font-bold">
+                            {(() => {
+                              // Ley Lote: ley_lote ya tiene factor 0.81, NO aplicar factor adicional
+                              const totalTon = mezclaSeleccionada.detalles.reduce((sum, d) => sum + parseFloat(d.toneladas || 0), 0);
+                              const sumaPonderada = mezclaSeleccionada.detalles.reduce((sum, d) =>
+                                sum + (parseFloat(d.toneladas || 0) * parseFloat(d.ley_lote || 0)), 0
+                              );
+                              return totalTon > 0 ? `${(sumaPonderada / totalTon).toFixed(2)}%` : '-';
+                            })()}
+                          </td>
+                          <td className="py-4 px-4 text-sm text-indigo-900 text-right font-bold">
+                            {(() => {
+                              // Ley Lab = ley_lote / 0.81
+                              const totalTon = mezclaSeleccionada.detalles.reduce((sum, d) => sum + parseFloat(d.toneladas || 0), 0);
+                              const sumaPonderadaLote = mezclaSeleccionada.detalles.reduce((sum, d) =>
+                                sum + (parseFloat(d.toneladas || 0) * parseFloat(d.ley_lote || 0)), 0
+                              );
+                              const leyLote = totalTon > 0 ? (sumaPonderadaLote / totalTon) : 0;
+                              const leyLab = leyLote / (factorAjusteLey * factorAjusteLey); // / 0.81
+                              return totalTon > 0 ? `${leyLab.toFixed(2)}%` : '-';
+                            })()}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Footer del modal */}
+            <div className="bg-white border-t border-gray-200 px-6 py-4 flex justify-end gap-3">
+              <Button
+                variant="secondary"
+                onClick={() => setMezclaSeleccionada(null)}
+                className="shadow-sm hover:shadow-md transition-all"
+              >
+                Cerrar
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal para agregar dumpadas a mezcla existente */}
+      {modoAgregarDumpadas && mezclaSeleccionada && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <Card className="max-w-4xl w-full max-h-[80vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-2xl font-bold text-gray-900">
+                Agregar Dumpadas a Mezcla {mezclaSeleccionada.codigo}
+              </h3>
+              <button
+                onClick={handleCerrarAgregarDumpadas}
+                className="text-gray-500 hover:text-gray-700 text-2xl font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="mb-4">
+              <p className="text-sm text-gray-600">
+                Selecciona las dumpadas que deseas agregar a esta mezcla ({dumpadasAgregar.length} seleccionadas)
+              </p>
+            </div>
+
+            {/* Tabla de dumpadas disponibles */}
+            {dumpadasDisponibles.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-gray-600">No hay dumpadas disponibles para agregar</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto mb-4">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b-2 border-green-200 bg-gradient-to-r from-green-50 to-green-100">
+                      <th className="text-center py-2 px-2 font-bold text-green-900 text-xs w-10">
+                        <input
+                          type="checkbox"
+                          onChange={() => {
+                            if (dumpadasAgregar.length === dumpadasDisponibles.length) {
+                              setDumpadasAgregar([]);
+                            } else {
+                              setDumpadasAgregar(dumpadasDisponibles.map(d => d.id));
+                            }
+                          }}
+                          checked={dumpadasAgregar.length === dumpadasDisponibles.length && dumpadasDisponibles.length > 0}
+                          className="w-4 h-4 rounded border-green-300 text-green-600 focus:ring-green-500"
+                        />
+                      </th>
+                      <th className="text-left py-2 px-2 font-bold text-green-900 text-xs">N° Acop</th>
+                      <th className="text-left py-2 px-2 font-bold text-green-900 text-xs">Acopios</th>
+                      <th className="text-left py-2 px-2 font-bold text-green-900 text-xs">Frente</th>
+                      <th className="text-left py-2 px-2 font-bold text-green-900 text-xs">Fecha</th>
+                      <th className="text-left py-2 px-2 font-bold text-green-900 text-xs">Toneladas</th>
+                      <th className="text-left py-2 px-2 font-bold text-green-900 text-xs">Ley</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {dumpadasDisponibles.slice(0, 10).map((dumpada, index) => (
+                      <tr
+                        key={dumpada.id}
+                        className={`border-b border-gray-200 hover:bg-green-50 transition-all ${dumpadasAgregar.includes(dumpada.id) ? 'bg-green-100' : index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
+                          }`}
+                      >
+                        <td className="py-2 px-2 text-center">
+                          <input
+                            type="checkbox"
+                            checked={dumpadasAgregar.includes(dumpada.id)}
+                            onChange={() => handleToggleDumpadaAgregar(dumpada.id)}
+                            className="w-4 h-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
+                          />
+                        </td>
+                        <td className="py-2 px-2 font-mono font-bold text-gray-800 text-xs">
+                          {String(dumpada.n_acop).padStart(3, '0')}
+                        </td>
+                        <td className="py-2 px-2 font-mono text-xs text-blue-700">
+                          {dumpada.acopios}
+                        </td>
+                        <td className="py-2 px-2 text-xs">
+                          {dumpada.frente_trabajo?.codigo_completo || '-'}
+                        </td>
+                        <td className="py-2 px-2 text-xs">
+                          {formatearFecha(dumpada.fecha)}
+                        </td>
+                        <td className="py-2 px-2 text-xs font-semibold">
+                          {parseFloat(dumpada.ton).toFixed(2)} t
+                        </td>
+                        <td className="py-2 px-2 text-xs">
+                          {dumpada.ley ? `${parseFloat(dumpada.ley).toFixed(2)}%` : '-'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {dumpadasDisponibles.length > 10 && (
+                  <p className="text-sm text-gray-500 mt-2 text-center">
+                    Mostrando las primeras 10 de {dumpadasDisponibles.length} dumpadas disponibles
+                  </p>
+                )}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-3 mt-6">
+              <Button
+                variant="secondary"
+                onClick={handleCerrarAgregarDumpadas}
+                disabled={loading}
+              >
+                Cancelar
+              </Button>
+              <Button
+                variant="success"
+                onClick={handleAgregarDumpadasAMezcla}
+                disabled={loading || dumpadasAgregar.length === 0}
+              >
+                {loading ? 'Agregando...' : `Agregar ${dumpadasAgregar.length} Dumpada(s)`}
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Modal de Ajuste de Toneladas */}
+      {mostrarModalAjuste && mezclaSeleccionada && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-amber-500 to-yellow-500 p-6 text-white rounded-t-lg">
+              <h3 className="text-2xl font-bold flex items-center gap-2">
+                ⚖️ Ajustar Toneladas de Remanente
+              </h3>
+              <p className="text-sm text-amber-50 mt-2">
+                Mezcla: <span className="font-bold">{mezclaSeleccionada.codigo}</span>
+              </p>
+            </div>
+
+            <div className="p-6 space-y-6">
+              {/* Información actual */}
+              <div className="bg-gradient-to-r from-gray-50 to-gray-100 rounded-lg p-4 border border-gray-200">
+                <p className="text-sm font-semibold text-gray-700 mb-3">Resumen Actual</p>
+                <div className="grid grid-cols-3 gap-4 text-sm">
+                  <div>
+                    <p className="text-gray-600 font-medium">Total Teórico</p>
+                    <p className="text-lg font-bold text-gray-900">{parseFloat(mezclaSeleccionada.total_ton).toFixed(2)} t</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-600 font-medium">Despachado</p>
+                    <p className="text-lg font-bold text-blue-700">{parseFloat(mezclaSeleccionada.toneladas_despachadas || 0).toFixed(2)} t</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-600 font-medium">Remanente Teórico</p>
+                    <p className="text-lg font-bold text-green-700">{parseFloat(mezclaSeleccionada.toneladas_disponibles || 0).toFixed(2)} t</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Explicación */}
+              <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded">
+                <p className="text-sm text-blue-900">
+                  <span className="font-semibold">💡 Explicación:</span> Este ajuste permite corregir el total de toneladas
+                  basándose en el inventario físico real del remanente. Ingresa el peso real confirmado del material sobrante.
+                </p>
+              </div>
+
+              {/* Formulario */}
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Toneladas Reales del Remanente <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={ajusteForm.toneladas_reales_remanente}
+                    onChange={(e) => setAjusteForm({ ...ajusteForm, toneladas_reales_remanente: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                    placeholder="Ej: 14.50"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Ingresa el peso real confirmado del material sobrante después de los despachos
+                  </p>
+                </div>
+
+                {/* Vista previa del ajuste */}
+                {ajusteForm.toneladas_reales_remanente && !isNaN(ajusteForm.toneladas_reales_remanente) && (
+                  <div className="bg-gradient-to-r from-amber-50 to-yellow-50 border border-amber-200 rounded-lg p-4">
+                    <p className="text-sm font-semibold text-amber-900 mb-2">Vista Previa del Ajuste</p>
+                    <div className="grid grid-cols-3 gap-3 text-sm">
+                      <div>
+                        <p className="text-amber-700">Total Nuevo</p>
+                        <p className="text-lg font-bold text-amber-900">
+                          {(parseFloat(mezclaSeleccionada.toneladas_despachadas || 0) + parseFloat(ajusteForm.toneladas_reales_remanente)).toFixed(2)} t
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-amber-700">Diferencia</p>
+                        <p className={`text-lg font-bold ${
+                          (parseFloat(mezclaSeleccionada.toneladas_despachadas || 0) + parseFloat(ajusteForm.toneladas_reales_remanente) - parseFloat(mezclaSeleccionada.total_ton)) >= 0
+                          ? 'text-green-700'
+                          : 'text-red-700'
+                        }`}>
+                          {((parseFloat(mezclaSeleccionada.toneladas_despachadas || 0) + parseFloat(ajusteForm.toneladas_reales_remanente) - parseFloat(mezclaSeleccionada.total_ton)) > 0 ? '+' : '')}
+                          {(parseFloat(mezclaSeleccionada.toneladas_despachadas || 0) + parseFloat(ajusteForm.toneladas_reales_remanente) - parseFloat(mezclaSeleccionada.total_ton)).toFixed(2)} t
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-amber-700">% Variación</p>
+                        <p className={`text-lg font-bold ${
+                          (((parseFloat(mezclaSeleccionada.toneladas_despachadas || 0) + parseFloat(ajusteForm.toneladas_reales_remanente)) / parseFloat(mezclaSeleccionada.total_ton) - 1) * 100) >= 0
+                          ? 'text-green-700'
+                          : 'text-red-700'
+                        }`}>
+                          {(((parseFloat(mezclaSeleccionada.toneladas_despachadas || 0) + parseFloat(ajusteForm.toneladas_reales_remanente)) / parseFloat(mezclaSeleccionada.total_ton) - 1) * 100) > 0 ? '+' : ''}
+                          {(((parseFloat(mezclaSeleccionada.toneladas_despachadas || 0) + parseFloat(ajusteForm.toneladas_reales_remanente)) / parseFloat(mezclaSeleccionada.total_ton) - 1) * 100).toFixed(1)}%
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Motivo del Ajuste <span className="text-red-500">*</span>
+                  </label>
+                  <textarea
+                    value={ajusteForm.motivo}
+                    onChange={(e) => setAjusteForm({ ...ajusteForm, motivo: e.target.value })}
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500"
+                    placeholder="Ej: Inventario físico confirma más material del calculado teóricamente"
+                    rows="3"
+                    minLength="10"
+                    maxLength="500"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Mínimo 10 caracteres. Describe por qué se realiza este ajuste.
+                  </p>
+                </div>
+              </div>
+
+              {/* Advertencia */}
+              <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded">
+                <p className="text-sm text-red-900">
+                  <span className="font-semibold">⚠️ Advertencia:</span> Esta acción es irreversible. Una vez aplicado el ajuste,
+                  no se podrán agregar más dumpadas ni modificar la composición de la mezcla.
+                </p>
+              </div>
+
+              {/* Botones */}
+              <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setMostrarModalAjuste(false);
+                    setAjusteForm({ toneladas_reales_remanente: '', motivo: '' });
+                  }}
+                  disabled={loading}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={handleAplicarAjuste}
+                  disabled={
+                    loading ||
+                    !ajusteForm.toneladas_reales_remanente ||
+                    isNaN(ajusteForm.toneladas_reales_remanente) ||
+                    parseFloat(ajusteForm.toneladas_reales_remanente) < 0 ||
+                    !ajusteForm.motivo ||
+                    ajusteForm.motivo.length < 10
+                  }
+                  className="bg-amber-500 hover:bg-amber-600"
+                >
+                  {loading ? 'Aplicando...' : 'Aplicar Ajuste'}
+                </Button>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Modal de Revertir Ajuste */}
+      {mostrarModalRevertir && mezclaSeleccionada && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-red-500 to-red-600 p-6 text-white rounded-t-lg">
+              <h3 className="text-2xl font-bold flex items-center gap-2">
+                🔄 Revertir Ajuste de Toneladas
+              </h3>
+              <p className="text-sm text-red-50 mt-2">
+                Mezcla: <span className="font-bold">{mezclaSeleccionada.codigo}</span>
+              </p>
+            </div>
+
+            <div className="p-6 space-y-6">
+              {/* Información actual del ajuste */}
+              <div className="bg-gradient-to-r from-gray-50 to-gray-100 rounded-lg p-4 border border-gray-200">
+                <p className="text-sm font-semibold text-gray-700 mb-3">Ajuste Actual</p>
+                <div className="grid grid-cols-3 gap-4 text-sm">
+                  <div>
+                    <p className="text-gray-600 font-medium">Total Original</p>
+                    <p className="text-lg font-bold text-gray-900">{parseFloat(mezclaSeleccionada.total_ton_original || 0).toFixed(2)} t</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-600 font-medium">Total Ajustado</p>
+                    <p className="text-lg font-bold text-blue-700">{parseFloat(mezclaSeleccionada.total_ton).toFixed(2)} t</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-600 font-medium">Diferencia</p>
+                    <p className={`text-lg font-bold ${mezclaSeleccionada.ajuste_toneladas >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                      {mezclaSeleccionada.ajuste_toneladas > 0 ? '+' : ''}{parseFloat(mezclaSeleccionada.ajuste_toneladas || 0).toFixed(2)} t
+                    </p>
+                  </div>
+                </div>
+                {mezclaSeleccionada.motivo_ajuste && (
+                  <div className="mt-3 text-xs">
+                    <p className="text-gray-600 font-medium">Motivo del ajuste original:</p>
+                    <p className="text-gray-700 italic mt-1">{mezclaSeleccionada.motivo_ajuste}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Explicación */}
+              <div className="bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded">
+                <p className="text-sm text-yellow-900">
+                  <span className="font-semibold">⚠️ Atención:</span> Al revertir el ajuste se restaurarán los valores originales
+                  antes del ajuste. Los valores despachados no cambiarán, solo el total y disponible.
+                </p>
+              </div>
+
+              {/* Vista previa de la reversión */}
+              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-4">
+                <p className="text-sm font-semibold text-blue-900 mb-2">Resultado Después de Revertir</p>
+                <div className="grid grid-cols-3 gap-3 text-sm">
+                  <div>
+                    <p className="text-blue-700">Total</p>
+                    <p className="text-lg font-bold text-blue-900">
+                      {parseFloat(mezclaSeleccionada.total_ton_original || 0).toFixed(2)} t
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-blue-700">Despachado</p>
+                    <p className="text-lg font-bold text-blue-900">
+                      {parseFloat(mezclaSeleccionada.toneladas_despachadas || 0).toFixed(2)} t
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-blue-700">Disponible</p>
+                    <p className="text-lg font-bold text-blue-900">
+                      {(parseFloat(mezclaSeleccionada.total_ton_original || 0) - parseFloat(mezclaSeleccionada.toneladas_despachadas || 0)).toFixed(2)} t
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Formulario */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Motivo de la Reversión <span className="text-red-500">*</span>
+                </label>
+                <textarea
+                  value={revertirForm.motivo}
+                  onChange={(e) => setRevertirForm({ ...revertirForm, motivo: e.target.value })}
+                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
+                  placeholder="Ej: Error en la medición inicial, se corrige según nuevo inventario"
+                  rows="3"
+                  minLength="10"
+                  maxLength="500"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Mínimo 10 caracteres. Explica por qué necesitas revertir el ajuste.
+                </p>
+              </div>
+
+              {/* Advertencia */}
+              <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded">
+                <p className="text-sm text-red-900">
+                  <span className="font-semibold">⚠️ Importante:</span> Esta acción guardará un registro en las observaciones
+                  de la mezcla con el historial completo del ajuste y su reversión. Después de revertir podrás
+                  aplicar un nuevo ajuste si es necesario.
+                </p>
+              </div>
+
+              {/* Botones */}
+              <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setMostrarModalRevertir(false);
+                    setRevertirForm({ motivo: '' });
+                  }}
+                  disabled={loading}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  variant="danger"
+                  onClick={handleRevertirAjuste}
+                  disabled={
+                    loading ||
+                    !revertirForm.motivo ||
+                    revertirForm.motivo.length < 10
+                  }
+                  className="bg-red-500 hover:bg-red-600"
+                >
+                  {loading ? 'Revirtiendo...' : 'Confirmar Reversión'}
+                </Button>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Diálogo de Confirmación */}
+      <ConfirmDialog
+        isOpen={confirmDialog.isOpen}
+        onClose={() => setConfirmDialog({ ...confirmDialog, isOpen: false })}
+        onConfirm={confirmDialog.onConfirm}
+        title={confirmDialog.title}
+        message={confirmDialog.message}
+        type={confirmDialog.type}
+        confirmText="Eliminar"
+        cancelText="Cancelar"
+      />
+    </>
+  );
+}

@@ -12,6 +12,16 @@ class IngenieriaService {
     return response.data;
   }
 
+  async updateTipoFrente(id, data) {
+    const response = await api.put(`/ingenieria/tipos-frente/${id}`, data);
+    return response.data;
+  }
+
+  async deleteTipoFrente(id) {
+    const response = await api.delete(`/ingenieria/tipos-frente/${id}`);
+    return response.data;
+  }
+
   // Frentes de Trabajo
   async getFrentesTrabajo(params = {}) {
     const response = await api.get('/ingenieria/frentes-trabajo', { params });

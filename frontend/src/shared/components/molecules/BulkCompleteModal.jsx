@@ -1,9 +1,18 @@
 import { useState, useEffect } from 'react';
-import { HiCheckCircle, HiXMark, HiExclamationCircle } from 'react-icons/hi2';
+import { HiCheckCircle, HiXMark, HiExclamationCircle, HiCalculator, HiDocumentText } from 'react-icons/hi2';
 import Button from '../atoms/Button';
 
 /**
  * BulkCompleteModal - Modal con tabla editable para completar múltiples dumpadas
+ *
+ * Campos de entrada:
+ * - Cu Total (ley): Ingresado manualmente
+ * - Cu Soluble: Ingresado manualmente
+ *
+ * Campos automáticos:
+ * - Cu Insoluble: Calculado (Cu Total - Cu Soluble)
+ * - Ley Cup (capping): Calculado en el backend
+ * - Certificado: Se genera al crear el PDF (NO aquí)
  *
  * @param {boolean} show - Mostrar/ocultar modal
  * @param {array} dumpadas - Array de dumpadas seleccionadas a completar
@@ -20,8 +29,7 @@ export default function BulkCompleteModal({ show, dumpadas = [], onConfirm, onCa
       dumpadas.forEach(dumpada => {
         initialData[dumpada.id] = {
           ley: dumpada.ley || '',
-          ley_cup: dumpada.ley_cup || '',
-          certificado: dumpada.certificado || ''
+          cu_soluble: dumpada.cu_soluble || ''
         };
       });
       setFormData(initialData);
@@ -32,18 +40,34 @@ export default function BulkCompleteModal({ show, dumpadas = [], onConfirm, onCa
 
   const totalDumpadas = dumpadas.length;
 
-  // Validar si una fila está completa
+  // Calcular Cu Insoluble automáticamente
+  const calcularCuInsoluble = (dumpadaId) => {
+    const data = formData[dumpadaId];
+    if (!data || !data.ley || !data.cu_soluble) return null;
+
+    const ley = parseFloat(data.ley);
+    const cuSoluble = parseFloat(data.cu_soluble);
+
+    if (isNaN(ley) || isNaN(cuSoluble)) return null;
+
+    const cuInsoluble = ley - cuSoluble;
+    return cuInsoluble >= 0 ? cuInsoluble.toFixed(2) : null;
+  };
+
+  // Validar si una fila está completa (solo ley y cu_soluble requeridos)
   const isRowComplete = (dumpadaId) => {
     const data = formData[dumpadaId];
     if (!data) return false;
-    return data.ley && data.ley_cup && data.certificado;
+
+    const hasLey = data.ley && parseFloat(data.ley) > 0;
+    const hasCuSoluble = data.cu_soluble && parseFloat(data.cu_soluble) >= 0;
+    const cuInsoluble = calcularCuInsoluble(dumpadaId);
+
+    return hasLey && hasCuSoluble && cuInsoluble !== null && parseFloat(cuInsoluble) >= 0;
   };
 
   // Contar cuántas están completas
   const completedCount = Object.keys(formData).filter(id => isRowComplete(id)).length;
-
-  // Validar si todas están completas
-  const allComplete = completedCount === totalDumpadas;
 
   // Manejar cambio en input
   const handleInputChange = (dumpadaId, field, value) => {
@@ -56,23 +80,38 @@ export default function BulkCompleteModal({ show, dumpadas = [], onConfirm, onCa
     }));
   };
 
-  // Manejar tecla Tab para navegación rápida
+  // Manejar tecla Enter para navegación rápida
   const handleKeyDown = (e, dumpadaId, field) => {
     if (e.key === 'Enter') {
       e.preventDefault();
+      // Buscar el siguiente input en la misma fila o la siguiente
+      const currentRow = e.target.closest('tr');
       const nextInput = e.target.closest('td').nextElementSibling?.querySelector('input');
+
       if (nextInput) {
         nextInput.focus();
+      } else {
+        // Si no hay más inputs en la fila, ir a la primera celda de la siguiente fila
+        const nextRow = currentRow?.nextElementSibling;
+        const firstInputNextRow = nextRow?.querySelector('input');
+        if (firstInputNextRow) {
+          firstInputNextRow.focus();
+        }
       }
     }
   };
 
   const handleConfirm = () => {
-    // Filtrar solo las completas
+    // Filtrar solo las completas y agregar cu_insoluble calculado
     const completedData = {};
     Object.entries(formData).forEach(([id, data]) => {
       if (isRowComplete(id)) {
-        completedData[id] = data;
+        completedData[id] = {
+          ley: data.ley,
+          cu_soluble: data.cu_soluble,
+          cu_insoluble: calcularCuInsoluble(id)
+          // certificado NO se envía - se genera al crear el PDF
+        };
       }
     });
 
@@ -85,7 +124,7 @@ export default function BulkCompleteModal({ show, dumpadas = [], onConfirm, onCa
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-2xl max-w-6xl w-full max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-xl shadow-2xl max-w-5xl w-full max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="bg-gradient-to-r from-green-600 to-green-500 text-white p-6 flex items-center justify-between rounded-t-xl sticky top-0 z-10">
           <div>
@@ -94,7 +133,7 @@ export default function BulkCompleteModal({ show, dumpadas = [], onConfirm, onCa
               Completar {totalDumpadas} dumpadas seleccionadas
             </h3>
             <p className="text-green-100 mt-1">
-              Completa los campos de cada registro en la tabla
+              Ingresa Cu Total y Cu Soluble. El Cu Insoluble se calcula automáticamente.
             </p>
           </div>
           <button
@@ -131,15 +170,18 @@ export default function BulkCompleteModal({ show, dumpadas = [], onConfirm, onCa
           {/* Info Helper */}
           <div className="mb-4 bg-blue-50 border-l-4 border-blue-500 p-4 rounded">
             <div className="flex items-start gap-3">
-              <HiExclamationCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+              <HiCalculator className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
               <div className="text-sm text-blue-800">
-                <p className="font-semibold mb-1">💡 Tips para completar rápido:</p>
+                <p className="font-semibold mb-1">Ingreso de leyes:</p>
                 <ul className="list-disc list-inside space-y-1 text-xs">
-                  <li>Usa <kbd className="px-2 py-1 bg-blue-200 rounded">Tab</kbd> para moverte entre campos</li>
-                  <li>Usa <kbd className="px-2 py-1 bg-blue-200 rounded">Enter</kbd> para saltar al siguiente campo</li>
-                  <li>Las filas completas se marcan en verde ✓</li>
-                  <li>Solo se guardarán las filas completas</li>
+                  <li><strong>Cu Total (%):</strong> Ingresar manualmente</li>
+                  <li><strong>Cu Soluble (%):</strong> Ingresar manualmente</li>
+                  <li className="text-green-700"><strong>Cu Insoluble (%):</strong> Se calcula automáticamente (Cu Total - Cu Soluble)</li>
                 </ul>
+                <p className="mt-2 text-purple-700 flex items-center gap-1">
+                  <HiDocumentText className="w-4 h-4" />
+                  <strong>Nota:</strong> El número de certificado se asignará al generar el PDF.
+                </p>
               </div>
             </div>
           </div>
@@ -149,29 +191,37 @@ export default function BulkCompleteModal({ show, dumpadas = [], onConfirm, onCa
             <table className="w-full">
               <thead>
                 <tr className="bg-gradient-to-r from-gray-50 to-gray-100 border-b-2">
-                  <th className="text-center py-3 px-3 font-bold text-gray-700 text-sm w-12">✓</th>
-                  <th className="text-left py-3 px-3 font-bold text-gray-700 text-sm">Acopio</th>
-                  <th className="text-left py-3 px-3 font-bold text-gray-700 text-sm">Frente</th>
-                  <th className="text-left py-3 px-3 font-bold text-gray-700 text-sm">Jornada</th>
-                  <th className="text-left py-3 px-3 font-bold text-gray-700 text-sm">
-                    Ley (%) <span className="text-red-500">*</span>
+                  <th className="text-center py-3 px-2 font-bold text-gray-700 text-xs w-10">✓</th>
+                  <th className="text-left py-3 px-3 font-bold text-gray-700 text-xs">N° Dump</th>
+                  <th className="text-left py-3 px-3 font-bold text-gray-700 text-xs">Frente</th>
+                  <th className="text-left py-3 px-3 font-bold text-gray-700 text-xs">Jornada</th>
+                  <th className="text-left py-3 px-3 font-bold text-gray-700 text-xs min-w-[120px]">
+                    Cu Total (%) <span className="text-red-500">*</span>
                   </th>
-                  <th className="text-left py-3 px-3 font-bold text-gray-700 text-sm">
-                    Ley Cup (%) <span className="text-red-500">*</span>
+                  <th className="text-left py-3 px-3 font-bold text-gray-700 text-xs min-w-[120px]">
+                    Cu Soluble (%) <span className="text-red-500">*</span>
                   </th>
-                  <th className="text-left py-3 px-3 font-bold text-gray-700 text-sm">
-                    Certificado <span className="text-red-500">*</span>
+                  <th className="text-left py-3 px-3 font-bold text-gray-700 text-xs">
+                    <span className="flex items-center gap-1">
+                      <HiCalculator className="w-4 h-4 text-green-600" />
+                      Cu Insoluble (%)
+                    </span>
                   </th>
                 </tr>
               </thead>
               <tbody>
                 {dumpadas.map((dumpada, index) => {
                   const isComplete = isRowComplete(dumpada.id);
+                  const cuInsoluble = calcularCuInsoluble(dumpada.id);
+                  const hasError = formData[dumpada.id]?.ley && formData[dumpada.id]?.cu_soluble && cuInsoluble !== null && parseFloat(cuInsoluble) < 0;
+
                   return (
                     <tr
                       key={dumpada.id}
                       className={`border-b transition-colors ${
-                        isComplete
+                        hasError
+                          ? 'bg-red-50 hover:bg-red-100'
+                          : isComplete
                           ? 'bg-green-50 hover:bg-green-100'
                           : index % 2 === 0
                           ? 'bg-white hover:bg-gray-50'
@@ -179,71 +229,84 @@ export default function BulkCompleteModal({ show, dumpadas = [], onConfirm, onCa
                       }`}
                     >
                       {/* Check Icon */}
-                      <td className="py-2 px-3 text-center">
-                        {isComplete ? (
+                      <td className="py-2 px-2 text-center">
+                        {hasError ? (
+                          <span className="text-red-600 text-xl font-bold">✗</span>
+                        ) : isComplete ? (
                           <span className="text-green-600 text-xl font-bold">✓</span>
                         ) : (
                           <span className="text-gray-300 text-xl">○</span>
                         )}
                       </td>
 
-                      {/* Acopio */}
+                      {/* N° Dump */}
                       <td className="py-2 px-3">
                         <span className="font-mono font-bold text-gray-800 text-sm">
-                          {dumpada.n_acop ? String(dumpada.n_acop).padStart(3, '0') : '-'}
+                          {dumpada.numero_dumpada ? String(dumpada.numero_dumpada) : '-'}
                         </span>
                       </td>
 
                       {/* Frente */}
                       <td className="py-2 px-3">
-                        <span className="bg-blue-100 text-blue-900 px-2 py-1 rounded text-xs font-semibold">
+                        <span className="bg-blue-100 text-blue-900 px-2 py-1 rounded text-xs font-semibold whitespace-nowrap">
                           {dumpada.frente_trabajo?.codigo_completo || '-'}
                         </span>
                       </td>
 
                       {/* Jornada */}
                       <td className="py-2 px-3">
-                        <span className="bg-purple-100 text-purple-900 px-2 py-1 rounded text-xs font-semibold">
-                          {dumpada.jornada}
+                        <span className="bg-purple-100 text-purple-900 px-2 py-1 rounded text-xs font-semibold whitespace-nowrap">
+                          {dumpada.jornada}{dumpada.numero_jornada ? `-${dumpada.numero_jornada}` : ''}
                         </span>
                       </td>
 
-                      {/* Ley */}
+                      {/* Cu Total (ley) */}
                       <td className="py-2 px-3">
                         <input
                           type="number"
-                          step="0.001"
+                          step="0.01"
+                          min="0"
                           value={formData[dumpada.id]?.ley || ''}
                           onChange={(e) => handleInputChange(dumpada.id, 'ley', e.target.value)}
                           onKeyDown={(e) => handleKeyDown(e, dumpada.id, 'ley')}
-                          placeholder="2.500"
-                          className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm"
+                          placeholder="2.22"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm font-mono"
                         />
                       </td>
 
-                      {/* Ley Cup */}
+                      {/* Cu Soluble */}
                       <td className="py-2 px-3">
                         <input
                           type="number"
-                          step="0.001"
-                          value={formData[dumpada.id]?.ley_cup || ''}
-                          onChange={(e) => handleInputChange(dumpada.id, 'ley_cup', e.target.value)}
-                          onKeyDown={(e) => handleKeyDown(e, dumpada.id, 'ley_cup')}
-                          placeholder="0.850"
-                          className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm"
+                          step="0.01"
+                          min="0"
+                          value={formData[dumpada.id]?.cu_soluble || ''}
+                          onChange={(e) => handleInputChange(dumpada.id, 'cu_soluble', e.target.value)}
+                          onKeyDown={(e) => handleKeyDown(e, dumpada.id, 'cu_soluble')}
+                          placeholder="0.14"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm font-mono"
                         />
                       </td>
 
-                      {/* Certificado */}
+                      {/* Cu Insoluble (Calculado) */}
                       <td className="py-2 px-3">
-                        <input
-                          type="text"
-                          value={formData[dumpada.id]?.certificado || ''}
-                          onChange={(e) => handleInputChange(dumpada.id, 'certificado', e.target.value)}
-                          onKeyDown={(e) => handleKeyDown(e, dumpada.id, 'certificado')}
-                          placeholder="C-001"
-                          className="w-full px-3 py-2 border border-gray-300 rounded focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm"
-                        />
+                        {cuInsoluble !== null ? (
+                          <div>
+                            <span className={`inline-flex items-center gap-1 px-3 py-2 rounded-lg text-sm font-mono font-semibold ${
+                              parseFloat(cuInsoluble) < 0
+                                ? 'bg-red-100 text-red-700 border border-red-300'
+                                : 'bg-green-100 text-green-700 border border-green-300'
+                            }`}>
+                              <HiCalculator className="w-4 h-4" />
+                              {cuInsoluble}%
+                            </span>
+                            {hasError && (
+                              <p className="text-red-600 text-[10px] mt-1">Cu Soluble &gt; Cu Total</p>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-gray-400 text-xs italic">Ingrese datos...</span>
+                        )}
                       </td>
                     </tr>
                   );
@@ -264,7 +327,7 @@ export default function BulkCompleteModal({ show, dumpadas = [], onConfirm, onCa
                 <span className="text-gray-700">
                   Se guardarán <strong className="text-green-600">{completedCount}</strong> dumpada{completedCount !== 1 ? 's' : ''}.
                   <span className="text-orange-600 ml-2">
-                    ({totalDumpadas - completedCount} incompleta{totalDumpadas - completedCount !== 1 ? 's' : ''} será{totalDumpadas - completedCount !== 1 ? 'n' : ''} ignorada{totalDumpadas - completedCount !== 1 ? 's' : ''})
+                    ({totalDumpadas - completedCount} incompleta{totalDumpadas - completedCount !== 1 ? 's' : ''})
                   </span>
                 </span>
               ) : (

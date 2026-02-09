@@ -5,14 +5,17 @@ namespace App\Http\Controllers\Api\Dispatch;
 use App\Http\Controllers\Controller;
 use App\Models\Dispatch\Dumpada;
 use App\Models\Ingenieria\FrenteTrabajo;
+use App\Traits\MultiTenancy;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
 
 class DumpadaController extends Controller
 {
+    use MultiTenancy;
     /**
      * Convertir fecha de formato DD-MM-YYYY a Y-m-d
      */
@@ -46,16 +49,49 @@ class DumpadaController extends Controller
         $fechaInicio = $request->get('fecha_inicio');
         $fechaFin = $request->get('fecha_fin');
         $idFrenteTrabajo = $request->get('id_frente_trabajo');
+        $idFaena = $request->get('id_faena');
 
-        $query = Dumpada::with('frenteTrabajo.tipoFrente')
+        $query = Dumpada::with(['frenteTrabajo.tipoFrente'])
             ->orderBy('id', 'desc'); // Ordenar por ID descendente (los más recientes primero)
 
-        // Búsqueda general (busca en código de acopios, certificado, número de acopio)
+        // ✅ MULTI-FAENA: Respeta roles de usuario
+        Log::info('🔍 [DUMPADAS] Filtro de faena', [
+            'es_usuario_global' => $this->esUsuarioGlobal($request),
+            'auth_faena' => $request->auth_faena,
+            'id_faena_param' => $idFaena,
+            'roles' => $request->auth_roles ?? []
+        ]);
+
+        if (!$this->esUsuarioGlobal($request)) {
+            // OPERADOR DISPATCH: Solo su faena
+            $query->where('id_faena', $request->auth_faena);
+            Log::info('🔒 [DUMPADAS] Filtrando por faena de operador', ['id_faena' => $request->auth_faena]);
+        } else {
+            // ENCARGADO DISPATCH: Permite filtrar por múltiples faenas
+            if ($idFaena) {
+                // Si contiene comas, es una lista de faenas
+                if (strpos($idFaena, ',') !== false) {
+                    $faenasArray = array_map('trim', explode(',', $idFaena));
+                    $query->whereIn('id_faena', $faenasArray);
+                    Log::info('🌐 [DUMPADAS] Filtrando por múltiples faenas', ['faenas' => $faenasArray]);
+                } else {
+                    // Una sola faena
+                    $query->where('id_faena', $idFaena);
+                    Log::info('🌐 [DUMPADAS] Filtrando por faena única', ['id_faena' => $idFaena]);
+                }
+            } else {
+                Log::info('🌐 [DUMPADAS] Sin filtro de faena - mostrando TODAS');
+            }
+            // Si no viene id_faena y es global: muestra TODAS las faenas
+        }
+
+        // Búsqueda general (busca en código de acopios, certificado, número de dumpada, certificado PDF)
         if ($search) {
             $query->where(function ($q) use ($search) {
                 $q->where('acopios', 'like', '%' . $search . '%')
                     ->orWhere('certificado', 'like', '%' . $search . '%')
-                    ->orWhere('n_acop', 'like', '%' . $search . '%')
+                    ->orWhere('numero_dumpada', 'like', '%' . $search . '%')
+                    ->orWhere('numero_certificado_pdf', 'like', '%' . $search . '%')
                     ->orWhereHas('frenteTrabajo', function ($fq) use ($search) {
                         $fq->where('codigo_completo', 'like', '%' . $search . '%');
                     });
@@ -87,6 +123,12 @@ class DumpadaController extends Controller
 
         $dumpadas = $query->paginate($perPage, ['*'], 'page', $page);
 
+        Log::info('📊 [DUMPADAS] Resultados obtenidos', [
+            'total' => $dumpadas->total(),
+            'pagina_actual' => $dumpadas->currentPage(),
+            'registros_en_pagina' => $dumpadas->count()
+        ]);
+
         // Cargar datos de faenas desde el sistema central
         $dumpadasConFaenas = $this->cargarFaenasDesdeApiCentral($dumpadas->items(), $request->bearerToken());
 
@@ -117,7 +159,7 @@ class DumpadaController extends Controller
             'ley' => 'nullable|numeric|min:0',
             'ley_cup' => 'nullable|numeric|min:0',
             'certificado' => 'nullable|string|max:100',
-            'ley_visual' => 'nullable|string|max:100',
+            'ley_visual' => 'required|numeric|min:0',
         ]);
 
         if ($validator->fails()) {
@@ -130,19 +172,25 @@ class DumpadaController extends Controller
         // Obtener el frente de trabajo
         $frente = FrenteTrabajo::find($request->id_frente_trabajo);
 
-        // Generar número de acopio automáticamente
-        $nAcopio = Dumpada::generarNumeroAcopio($request->id_frente_trabajo);
+        // MULTI-FAENA: Validar acceso a la faena del frente
+        $this->validarAccesoFaena($request, $frente->id_faena);
+
+        // Generar número de dumpada automáticamente (consecutivo único)
+        $numeroDumpada = Dumpada::generarNumeroDumpada();
 
         // Usar la fecha proporcionada o la fecha actual, convertida al formato correcto
         $fecha = $this->convertirFecha($request->fecha) ?? now()->format('Y-m-d');
 
-        // Generar código de acopios automáticamente
-        $acopios = Dumpada::generarCodigoAcopios(
-            $frente->codigo_completo,
+        // Generar número de jornada (secuencial por frente+jornada+fecha)
+        $numeroJornada = Dumpada::generarNumeroJornada(
+            $request->id_frente_trabajo,
             $request->jornada,
-            $nAcopio,
             $fecha
         );
+
+        // El campo 'acopios' se deja NULL por ahora
+        // Se asignará cuando la dumpada se agregue a un acopio
+        $acopios = null;
 
         // Determinar el rango automáticamente basado en la ley
         $rango = $request->ley ? Dumpada::determinarRango($request->ley) : null;
@@ -156,23 +204,27 @@ class DumpadaController extends Controller
             $estado = Dumpada::ESTADO_COMPLETADO;
         }
 
+        // Obtener el nombre de la faena desde el sistema central
+        $nombreFaena = $this->obtenerNombreFaena($frente->id_faena, $request->bearerToken());
+
         // Crear la dumpada con los datos generados
         $data = [
             'id_frente_trabajo' => $request->id_frente_trabajo,
             'jornada' => $request->jornada,
+            'numero_jornada' => $numeroJornada,
             'ley_visual' => $request->ley_visual,
             'ton' => $request->ton,
             'ley' => $request->ley,
             'ley_cup' => $request->ley_cup,
             'certificado' => $request->certificado,
-            'n_acop' => $nAcopio,
+            'numero_dumpada' => $numeroDumpada,
             'acopios' => $acopios,
             'fecha' => $fecha,
             'rango' => $rango,
             'estado' => $estado,
             'user_id' => $request->auth_user_id,
-            'id_faena' => $frente->id_faena, // Obtener id_faena del frente de trabajo
-            'faena' => $request->auth_faena, // Deprecated: mantener por compatibilidad
+            'id_faena' => $frente->id_faena, // ID numérico de la faena
+            'faena' => $nombreFaena, // Nombre de la faena
         ];
 
         $dumpada = Dumpada::create($data);
@@ -183,6 +235,145 @@ class DumpadaController extends Controller
             'message' => 'Dumpada creada exitosamente',
             'data' => $dumpada
         ], 201);
+    }
+
+    /**
+     * Crear múltiples dumpadas en una sola transacción (BULK)
+     */
+    public function bulkStore(Request $request)
+    {
+        // Validar que venga un array de dumpadas
+        $validator = Validator::make($request->all(), [
+            'dumpadas' => 'required|array|min:1|max:100',
+            'dumpadas.*.id_frente_trabajo' => 'required|exists:frentes_trabajo,id',
+            'dumpadas.*.jornada' => 'required|in:AM,PM,Madrugada,Noche',
+            'dumpadas.*.fecha' => 'nullable|date',
+            'dumpadas.*.ton' => 'nullable|numeric|min:0',
+            'dumpadas.*.ley' => 'nullable|numeric|min:0',
+            'dumpadas.*.ley_cup' => 'nullable|numeric|min:0',
+            'dumpadas.*.certificado' => 'nullable|string|max:100',
+            'dumpadas.*.ley_visual' => 'required|numeric|min:0',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $dumpadasCreadas = [];
+
+        try {
+            // MULTI-FAENA: Validar acceso a todos los frentes antes de crear
+            $frentesIds = collect($request->dumpadas)->pluck('id_frente_trabajo')->unique();
+            $frentes = FrenteTrabajo::whereIn('id', $frentesIds)->get();
+
+            foreach ($frentes as $frente) {
+                $this->validarAccesoFaena($request, $frente->id_faena);
+            }
+
+            // Usar transacción de BD: todo o nada
+            DB::beginTransaction();
+
+            foreach ($request->dumpadas as $dumpadaData) {
+                // Obtener el frente de trabajo
+                $frente = FrenteTrabajo::find($dumpadaData['id_frente_trabajo']);
+
+                // Generar número de dumpada automáticamente (consecutivo único)
+                $numeroDumpada = Dumpada::generarNumeroDumpada();
+
+                // Usar la fecha proporcionada o la fecha actual
+                $fecha = isset($dumpadaData['fecha'])
+                    ? $this->convertirFecha($dumpadaData['fecha'])
+                    : now()->format('Y-m-d');
+
+                // Generar número de jornada (secuencial por frente+jornada+fecha)
+                $numeroJornada = Dumpada::generarNumeroJornada(
+                    $dumpadaData['id_frente_trabajo'],
+                    $dumpadaData['jornada'],
+                    $fecha
+                );
+
+                // El campo 'acopios' se deja NULL por ahora
+                $acopios = null;
+
+                // Determinar el rango automáticamente basado en la ley
+                $rango = isset($dumpadaData['ley'])
+                    ? Dumpada::determinarRango($dumpadaData['ley'])
+                    : null;
+
+                // Determinar el estado
+                $estado = Dumpada::ESTADO_INGRESADO;
+
+                if (isset($dumpadaData['ley']) && isset($dumpadaData['ley_cup']) && isset($dumpadaData['certificado'])) {
+                    $estado = Dumpada::ESTADO_COMPLETADO;
+                }
+
+                // Obtener el nombre de la faena
+                $nombreFaena = $this->obtenerNombreFaena($frente->id_faena, $request->bearerToken());
+
+                // Crear la dumpada
+                $data = [
+                    'id_frente_trabajo' => $dumpadaData['id_frente_trabajo'],
+                    'jornada' => $dumpadaData['jornada'],
+                    'numero_jornada' => $numeroJornada,
+                    'ley_visual' => $dumpadaData['ley_visual'] ?? null,
+                    'ton' => $dumpadaData['ton'] ?? null,
+                    'ley' => $dumpadaData['ley'] ?? null,
+                    'ley_cup' => $dumpadaData['ley_cup'] ?? null,
+                    'certificado' => $dumpadaData['certificado'] ?? null,
+                    'numero_dumpada' => $numeroDumpada,
+                    'acopios' => $acopios,
+                    'fecha' => $fecha,
+                    'rango' => $rango,
+                    'estado' => $estado,
+                    'user_id' => $request->auth_user_id,
+                    'id_faena' => $frente->id_faena,
+                    'faena' => $nombreFaena,
+                ];
+
+                $dumpada = Dumpada::create($data);
+                $dumpada->load('frenteTrabajo.tipoFrente');
+
+                $dumpadasCreadas[] = $dumpada;
+            }
+
+            // Confirmar transacción
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => count($dumpadasCreadas) . ' dumpada(s) creadas exitosamente',
+                'data' => $dumpadasCreadas
+            ], 201);
+
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpException $e) {
+            // Revertir transacción
+            DB::rollBack();
+
+            // Propagar excepciones HTTP (403, 404, etc.) con su código correcto
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage(),
+                'error' => $e->getMessage()
+            ], $e->getStatusCode());
+
+        } catch (\Exception $e) {
+            // Revertir transacción en caso de error
+            DB::rollBack();
+
+            Log::error('Error en creación masiva de dumpadas', [
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al crear dumpadas en bloque',
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
     /**
@@ -227,7 +418,7 @@ class DumpadaController extends Controller
             'ley' => 'nullable|numeric|min:0',
             'ley_cup' => 'nullable|numeric|min:0',
             'certificado' => 'nullable|string|max:100',
-            'ley_visual' => 'nullable|string|max:100',
+            'ley_visual' => 'required|numeric|min:0',
         ]);
 
         if ($validator->fails()) {
@@ -240,21 +431,24 @@ class DumpadaController extends Controller
         // Obtener el frente de trabajo
         $frente = FrenteTrabajo::find($request->id_frente_trabajo);
 
-        // Regenerar código de acopios si cambiaron datos relevantes
+        // Regenerar numero_jornada si cambiaron datos relevantes (frente, jornada o fecha)
+        $fecha = $this->convertirFecha($request->fecha) ?? $dumpada->fecha;
+        $numeroJornada = $dumpada->numero_jornada;
+
         if ($request->id_frente_trabajo != $dumpada->id_frente_trabajo ||
             $request->jornada != $dumpada->jornada ||
-            $request->fecha != $dumpada->fecha) {
+            $this->convertirFecha($request->fecha) != $dumpada->getRawOriginal('fecha')) {
 
-            $fecha = $this->convertirFecha($request->fecha) ?? $dumpada->fecha;
-            $acopios = Dumpada::generarCodigoAcopios(
-                $frente->codigo_completo,
+            // Regenerar el número de jornada para la nueva combinación
+            $numeroJornada = Dumpada::generarNumeroJornada(
+                $request->id_frente_trabajo,
                 $request->jornada,
-                $dumpada->n_acop,
                 $fecha
             );
-        } else {
-            $acopios = $dumpada->acopios;
         }
+
+        // El campo acopios se mantiene (se usa para el código del acopio asignado)
+        $acopios = $dumpada->acopios;
 
         // Determinar el rango automáticamente si cambió la ley
         $rango = $request->ley ? Dumpada::determinarRango($request->ley) : $dumpada->rango;
@@ -275,7 +469,8 @@ class DumpadaController extends Controller
         $data = [
             'id_frente_trabajo' => $request->id_frente_trabajo,
             'jornada' => $request->jornada,
-            'fecha' => $this->convertirFecha($request->fecha) ?? $dumpada->fecha,
+            'numero_jornada' => $numeroJornada,
+            'fecha' => $fecha,
             'ton' => $request->ton ?? $dumpada->ton,
             'ley' => $request->ley ?? $dumpada->ley,
             'ley_cup' => $request->ley_cup ?? $dumpada->ley_cup,
@@ -319,7 +514,9 @@ class DumpadaController extends Controller
     }
 
     /**
-     * Previsualizar próximo número de acopio y código completo
+     * Previsualizar próximo número de dumpada y código completo
+     * Formato del código: "{codigo_frente} {fecha} {jornada} {numero_jornada}"
+     * Ejemplo: "M3 -11N 29.09.2025 PM 1"
      */
     public function previsualizarAcopio(Request $request)
     {
@@ -339,25 +536,30 @@ class DumpadaController extends Controller
         // Obtener el frente de trabajo
         $frente = FrenteTrabajo::find($request->id_frente_trabajo);
 
-        // Generar número de acopio automáticamente
-        $nAcopio = Dumpada::generarNumeroAcopio($request->id_frente_trabajo);
+        // Generar número de dumpada automáticamente (consecutivo único global)
+        $numeroDumpada = Dumpada::generarNumeroDumpada();
 
         // Usar la fecha proporcionada o la fecha actual, convertida al formato correcto
         $fecha = $this->convertirFecha($request->fecha) ?? now()->format('Y-m-d');
 
-        // Generar código de acopios automáticamente
-        $acopios = Dumpada::generarCodigoAcopios(
-            $frente->codigo_completo,
+        // Generar número de jornada (secuencial por frente+jornada+fecha)
+        $numeroJornada = Dumpada::generarNumeroJornada(
+            $request->id_frente_trabajo,
             $request->jornada,
-            $nAcopio,
             $fecha
         );
+
+        // Generar código completo de la dumpada
+        // Formato: "{codigo_frente} {fecha} {jornada} {numero_jornada}"
+        $fechaFormateada = Carbon::parse($fecha)->format('d.m.Y');
+        $codigoCompleto = trim("{$frente->codigo_completo} {$fechaFormateada} {$request->jornada} {$numeroJornada}");
 
         return response()->json([
             'success' => true,
             'data' => [
-                'n_acop' => $nAcopio,
-                'acopios' => $acopios,
+                'numero_dumpada' => $numeroDumpada,
+                'numero_jornada' => $numeroJornada,
+                'codigo_completo' => $codigoCompleto,
                 'codigo_frente' => $frente->codigo_completo,
                 'jornada' => $request->jornada,
                 'fecha' => $fecha
@@ -401,18 +603,47 @@ class DumpadaController extends Controller
             if ($response->successful()) {
                 $todasLasFaenas = $response->json('data', []);
 
+                Log::info('🏭 [DUMPADAS] Faenas obtenidas del sistema central', [
+                    'total_faenas' => count($todasLasFaenas),
+                    'ids_faenas' => collect($todasLasFaenas)->pluck('id')->toArray(),
+                    'ids_necesarios' => $idsFaena
+                ]);
+
                 // Crear mapa de faenas por ID para búsqueda rápida
                 $faenasMap = collect($todasLasFaenas)->keyBy('id');
 
                 // Mapear faenas a dumpadas usando id_faena directo o del frente de trabajo
+                $dumpadasSinFaena = 0;
                 foreach ($dumpadas as $dumpada) {
                     $idFaena = $dumpada->id_faena ?? $dumpada->frenteTrabajo?->id_faena;
 
                     if ($idFaena && isset($faenasMap[$idFaena])) {
-                        $dumpada->faena_info = $faenasMap[$idFaena];
+                        // Asignar el objeto completo de la faena
+                        $faenaData = $faenasMap[$idFaena];
+                        $dumpada->faena_info = [
+                            'id' => $faenaData['id'] ?? null,
+                            'nombre' => $faenaData['ubicacion'] ?? $faenaData['nombre'] ?? null,
+                        ];
                     } else {
                         $dumpada->faena_info = null;
+                        $dumpadasSinFaena++;
+
+                        // Log para las primeras 5 dumpadas sin faena
+                        if ($dumpadasSinFaena <= 5) {
+                            Log::warning('⚠️ [DUMPADAS] Dumpada sin faena_info', [
+                                'dumpada_id' => $dumpada->id,
+                                'id_faena_dumpada' => $dumpada->id_faena,
+                                'id_faena_frente' => $dumpada->frenteTrabajo?->id_faena,
+                                'existe_en_mapa' => isset($faenasMap[$idFaena])
+                            ]);
+                        }
                     }
+                }
+
+                if ($dumpadasSinFaena > 0) {
+                    Log::warning('⚠️ [DUMPADAS] Total de dumpadas sin faena_info', [
+                        'total' => $dumpadasSinFaena
+                    ]);
                 }
             } else {
                 Log::warning('No se pudieron cargar faenas del sistema central para dumpadas', [
@@ -426,5 +657,36 @@ class DumpadaController extends Controller
         }
 
         return $dumpadas;
+    }
+
+    /**
+     * Obtener el nombre de una faena desde el sistema central
+     */
+    private function obtenerNombreFaena($idFaena, $token)
+    {
+        if (!$idFaena) {
+            return null;
+        }
+
+        try {
+            $response = Http::withToken($token)
+                ->get(env('SISTEMA_CENTRAL_API') . '/faenas');
+
+            if ($response->successful()) {
+                $faenas = $response->json('data', []);
+                $faena = collect($faenas)->firstWhere('id', $idFaena);
+
+                if ($faena) {
+                    return $faena['ubicacion'] ?? $faena['nombre'] ?? null;
+                }
+            }
+        } catch (\Exception $e) {
+            Log::error('Error al obtener nombre de faena', [
+                'id_faena' => $idFaena,
+                'message' => $e->getMessage()
+            ]);
+        }
+
+        return null;
     }
 }

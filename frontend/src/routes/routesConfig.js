@@ -15,8 +15,12 @@
 // Importaciones de páginas
 import FrentesTrabajo from '../modules/ingenieria/pages/FrentesTrabajo';
 import FrentesTrabajoHistorial from '../modules/ingenieria/pages/FrentesTrabajoHistorial';
+import TiposFrente from '../modules/ingenieria/pages/TiposFrente';
 import Dumpadas from '../modules/dispatch/pages/Dispatch';
-// import Muestras from '../modules/laboratorio/pages/Muestras';
+import Laboratorio from '../modules/laboratorio/pages/Laboratorio';
+import Muestreo from '../modules/laboratorio/pages/Muestreo';
+import HistorialAnalisis from '../modules/laboratorio/pages/HistorialAnalisis';
+import Explosivos from '../modules/explosivos/pages/Explosivos';
 
 export const routesConfig = [
   // ========================================
@@ -25,22 +29,27 @@ export const routesConfig = [
   {
     path: '/ingenieria/frentes-trabajo',
     component: FrentesTrabajo,
-    requiredPermission: 'ingreso_frentes', // Debe coincidir con BD
+    // ✅ SIN requiredPermission - Sistema con ROLES INTERNOS no valida permisos
+    // El acceso ya fue validado por el Sistema de Autenticación Centralizado
     label: 'Frentes de Trabajo',
     module: 'ingenieria',
   },
   {
     path: '/ingenieria/frentes-trabajo/historial',
     component: FrentesTrabajoHistorial,
-    requiredPermission: 'ingreso_frentes', // Mismo permiso que frentes de trabajo
     label: 'Historial de Frentes',
+    module: 'ingenieria',
+  },
+  {
+    path: '/ingenieria/tipos-frente',
+    component: TiposFrente,
+    label: 'Tipos de Frente',
     module: 'ingenieria',
   },
   // Agregar más rutas de ingeniería aquí:
   // {
   //   path: '/ingenieria/planificacion',
   //   component: Planificacion,
-  //   requiredPermission: 'ver_planificacion',
   //   label: 'Planificación',
   //   module: 'ingenieria',
   // },
@@ -51,14 +60,13 @@ export const routesConfig = [
    {
      path: '/dispatch/dumpadas',
      component: Dumpadas,
-     requiredPermission: 'ingreso_dumpadas', // Debe coincidir con el código del SAC
+     // ✅ SIN requiredPermission - La URL específica ya indica el acceso permitido
      label: 'Dumpadas',
      module: 'dispatch',
   },
   // {
   //   path: '/dispatch/vehiculos',
   //   component: Vehiculos,
-  //   requiredPermission: 'gestionar_vehiculos',
   //   label: 'Vehículos',
   //   module: 'dispatch',
   // },
@@ -66,20 +74,38 @@ export const routesConfig = [
   // ========================================
   // MÓDULO: LABORATORIO
   // ========================================
-  // {
-  //   path: '/laboratorio/muestras',
-  //   component: Muestras,
-  //   requiredPermission: 'ingreso_muestras',
-  //   label: 'Muestras',
-  //   module: 'laboratorio',
-  // },
-  // {
-  //   path: '/laboratorio/analisis',
-  //   component: Analisis,
-  //   requiredPermission: 'ver_analisis',
-  //   label: 'Análisis',
-  //   module: 'laboratorio',
-  // },
+  {
+    path: '/laboratorio/muestreo',
+    component: Muestreo,
+    requiredRole: 'Muestreo', // Requiere rol "Muestreo" del SAC
+    label: 'Muestreo',
+    module: 'laboratorio',
+  },
+  {
+    path: '/laboratorio/analisis',
+    component: Laboratorio,
+    // SIN requiredRole - El acceso ya fue validado por el SAC
+    label: 'Análisis de Muestras',
+    module: 'laboratorio',
+  },
+  {
+    path: '/laboratorio/historial',
+    component: HistorialAnalisis,
+    label: 'Historial de Análisis',
+    module: 'laboratorio',
+  },
+
+  // ========================================
+  // MÓDULO: EXPLOSIVOS (Inventario Polvorín)
+  // ========================================
+  {
+    path: '/explosivos/inventario',
+    component: Explosivos,
+    // Roles permitidos: polvorinero, supervisor_explosivos, admin_explosivos, visualizador_explosivos
+    // El SAC valida el acceso según los roles asignados al usuario
+    label: 'Inventario de Explosivos',
+    module: 'explosivos',
+  },
 ];
 
 /**

@@ -188,6 +188,7 @@ class SecureStorage {
         apellido: user.apellido || '',
         email: user.email,
         rut: user.rut || '',
+        faena: user.faena?.id || user.faena || null,
         roles: normalizedRoles,
         permisos: normalizedPermisos
       };
@@ -195,6 +196,7 @@ class SecureStorage {
       sessionStorage.setItem(SESSION_KEY, JSON.stringify(minimalUserData));
 
       console.log('✅ Datos de sesión guardados:', {
+        faena: minimalUserData.faena,
         roles: normalizedRoles,
         permisos: normalizedPermisos
       });

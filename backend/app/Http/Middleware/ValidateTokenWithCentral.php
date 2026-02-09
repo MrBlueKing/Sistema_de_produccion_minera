@@ -43,12 +43,12 @@ class ValidateTokenWithCentral
                     'tiene_faena' => isset($userData['faena']),
                 ]);
 
-                // Extraer faena como string (puede ser un array u objeto)
+                // Extraer faena como ID (puede ser un array u objeto)
                 $faena = null;
                 if (isset($userData['faena'])) {
                     if (is_array($userData['faena'])) {
-                        // Si es array, intentar obtener ubicacion, nombre o ID
-                        $faena = $userData['faena']['ubicacion'] ?? $userData['faena']['nombre'] ?? $userData['faena']['id'] ?? null;
+                        // Si es array, intentar obtener ID primero (para comparaciones con id_faena)
+                        $faena = $userData['faena']['id'] ?? $userData['faena']['ubicacion'] ?? $userData['faena']['nombre'] ?? null;
                     } else {
                         // Si ya es un valor simple (string/número), usarlo directamente
                         $faena = $userData['faena'];
@@ -60,6 +60,13 @@ class ValidateTokenWithCentral
                     'faena_original' => $userData['faena'] ?? 'NO EXISTE',
                     'faena_procesada' => $faena,
                     'es_array' => isset($userData['faena']) ? is_array($userData['faena']) : 'N/A',
+                ]);
+
+                // MULTI-FAENA: Log de roles para debugging
+                Log::info('Roles del usuario:', [
+                    'rut' => $userData['rut'] ?? 'N/A',
+                    'nombre' => $userData['nombre'] ?? 'N/A',
+                    'roles' => $response->json('roles'),
                 ]);
 
                 $request->merge([

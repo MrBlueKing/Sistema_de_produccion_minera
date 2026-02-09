@@ -155,6 +155,7 @@ export default function EditDumpadaModal({ show, dumpada, frentes, jornadas, onC
               value={formData.ley_visual}
               onChange={(e) => handleChange('ley_visual', e.target.value)}
               placeholder="Ej: 2.300"
+              required
             />
 
             {/* Ley */}

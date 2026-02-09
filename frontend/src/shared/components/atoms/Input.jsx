@@ -1,14 +1,15 @@
-export default function Input({ 
-  label, 
-  error, 
+export default function Input({
+  label,
+  error,
   icon: Icon,
-  ...props 
+  required,
+  ...props
 }) {
   return (
     <div className="w-full">
       {label && (
         <label className="block text-sm font-medium text-gray-700 mb-2">
-          {label}
+          {label} {required && <span className="text-red-500">*</span>}
         </label>
       )}
       <div className="relative">
@@ -17,6 +18,7 @@ export default function Input({
         )}
         <input
           {...props}
+          required={required}
           className={`
             w-full px-3 py-2 border rounded-lg transition-all
             focus:ring-2 focus:ring-orange-500 focus:border-orange-500 focus:shadow-md

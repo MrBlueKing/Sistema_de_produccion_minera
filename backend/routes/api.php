@@ -2,6 +2,8 @@
 
 use App\Http\Controllers\Api\RegistroProduccionController;
 use App\Http\Controllers\Api\FaenaController;
+use App\Http\Controllers\Api\ConfiguracionController;
+use App\Http\Controllers\Api\PetroleController;
 use Illuminate\Support\Facades\Route;
 
 // Ruta de prueba pública
@@ -24,6 +26,17 @@ Route::middleware(['validate.token'])->group(function () {
     Route::get('/faenas', [FaenaController::class, 'index']);
     Route::get('/faenas/{id}', [FaenaController::class, 'show']);
 
+    // Configuraciones del sistema
+    Route::get('/configuraciones', [ConfiguracionController::class, 'index']);
+    Route::get('/configuraciones/{clave}/faenas', [ConfiguracionController::class, 'getByKey']);
+    Route::get('/configuraciones/{clave}', [ConfiguracionController::class, 'show']);
+    Route::put('/configuraciones/{clave}', [ConfiguracionController::class, 'update']);
+
+    // Integración con Sistema de Petróleo
+    Route::prefix('petroleo')->group(function () {
+        Route::get('/maquinas', [PetroleController::class, 'maquinas']);
+    });
+
     // ========================================
     // CARGAR RUTAS DE SUB-MÓDULOS
     // ========================================
@@ -41,5 +54,10 @@ Route::middleware(['validate.token'])->group(function () {
     // Sub-módulo: Laboratorio
     Route::prefix('laboratorio')->group(function () {
         require __DIR__ . '/api/laboratorio.php';
+    });
+
+    // Sub-módulo: Explosivos (Inventario de Polvorín)
+    Route::prefix('explosivos')->group(function () {
+        require __DIR__ . '/api/explosivos.php';
     });
 });

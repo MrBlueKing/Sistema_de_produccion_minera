@@ -30,12 +30,29 @@ export default function Header() {
     return `${nombre.charAt(0)}${apellido.charAt(0)}`.toUpperCase();
   };
 
-  // Obtener rol principal (primer rol del array)
+  // Obtener rol principal con prioridad
   const getRolPrincipal = () => {
-    if (user?.roles && user.roles.length > 0) {
-      return user.roles[0];
+    if (!user?.roles || user.roles.length === 0) {
+      return 'Usuario';
     }
-    return 'Usuario';
+
+    // Prioridad de roles para mostrar
+    const prioridad = [
+      'Encargado Dispatch',
+      'Operador Dispatch',
+      'Laboratorio',
+      'ingeniero'
+    ];
+
+    // Buscar el rol de mayor prioridad que el usuario tenga
+    for (const rolPrioridad of prioridad) {
+      if (user.roles.some(rol => rol === rolPrioridad || rol.toLowerCase() === rolPrioridad.toLowerCase())) {
+        return rolPrioridad;
+      }
+    }
+
+    // Si no coincide con ninguno de la prioridad, devolver el primero
+    return user.roles[0];
   };
 
   return (

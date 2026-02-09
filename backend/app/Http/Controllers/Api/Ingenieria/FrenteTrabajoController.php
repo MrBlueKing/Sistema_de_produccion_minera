@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Ingenieria;
 use App\Http\Controllers\Controller;
 use App\Models\Ingenieria\FrenteTrabajo;
 use App\Models\Ingenieria\AuditoriaFrenteTrabajo;
+use App\Traits\MultiTenancy;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -12,6 +13,7 @@ use Illuminate\Support\Facades\Validator;
 
 class FrenteTrabajoController extends Controller
 {
+    use MultiTenancy;
     /**
      * Listar todos los frentes de trabajo con paginación y filtros
      */
@@ -40,9 +42,25 @@ class FrenteTrabajoController extends Controller
             $query->activos();
         }
 
-        // Filtro por faena
-        if ($idFaena) {
-            $query->porFaena($idFaena);
+        // ✅ MULTI-FAENA: En ingeniería, todos los usuarios ven todas las faenas
+        // Esto es independiente del rol de dispatch
+        if (!$this->esUsuarioGlobalIngenieria($request)) {
+            // Este caso ya no debería ocurrir porque esUsuarioGlobalIngenieria siempre retorna true
+            // Se deja por compatibilidad futura
+            $query->porFaena($request->auth_faena);
+        } else {
+            // Permite filtrar por múltiples faenas (para el selector de faenas)
+            if ($idFaena) {
+                // Si contiene comas, es una lista de faenas
+                if (strpos($idFaena, ',') !== false) {
+                    $faenasArray = array_map('trim', explode(',', $idFaena));
+                    $query->whereIn('id_faena', $faenasArray);
+                } else {
+                    // Una sola faena
+                    $query->porFaena($idFaena);
+                }
+            }
+            // Si no viene id_faena: muestra TODAS las faenas
         }
 
         // Filtro por estado específico
@@ -115,6 +133,10 @@ class FrenteTrabajoController extends Controller
             ], 422);
         }
 
+        // ✅ MULTI-FAENA: En ingeniería, usar la faena del request o la del usuario
+        // Como todos son globales en ingeniería, usar la faena especificada
+        $idFaenaAsignar = $request->id_faena ?? $request->auth_faena;
+
         // Generar código completo automáticamente
         $codigo = $this->generarCodigoCompleto(
             $request->manto,
@@ -140,7 +162,7 @@ class FrenteTrabajoController extends Controller
             'numero_frente' => $request->numero_frente,
             'codigo_completo' => $codigo,
             'id_tipo_frente' => $request->id_tipo_frente,
-            'id_faena' => $request->id_faena,
+            'id_faena' => $idFaenaAsignar,
             'estado' => $request->estado ?? 'activo',
         ]);
 
@@ -197,6 +219,12 @@ class FrenteTrabajoController extends Controller
             ], 404);
         }
 
+        // ✅ MULTI-FAENA: En ingeniería, todos pueden editar todos los frentes
+        // No se valida acceso por faena en este módulo
+        // if (!$this->esUsuarioGlobalIngenieria($request)) {
+        //     $this->validarAccesoFaena($request, $frente->id_faena);
+        // }
+
         $validator = Validator::make($request->all(), [
             'manto' => 'required|string|max:10',
             'calle' => 'nullable|string|max:20',
@@ -216,6 +244,17 @@ class FrenteTrabajoController extends Controller
 
         // Guardar estado anterior para auditoría
         $datosAnteriores = $frente->toArray();
+
+        // ✅ MULTI-FAENA: En ingeniería, todos pueden cambiar la faena de un frente
+        // No se restringe por rol de dispatch
+        // if ($request->has('id_faena') && $request->id_faena != $frente->id_faena) {
+        //     if (!$this->esUsuarioGlobalIngenieria($request)) {
+        //         return response()->json([
+        //             'success' => false,
+        //             'message' => 'No puedes cambiar la faena de un frente'
+        //         ], 403);
+        //     }
+        // }
 
         // Generar código completo automáticamente
         $codigo = $this->generarCodigoCompleto(

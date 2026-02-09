@@ -31,8 +31,9 @@ export default function TableFilters({
   onClear,
   showSearch = true,
   showClearButton = true,
+  alwaysExpanded = false,
 }) {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(alwaysExpanded);
 
   const hasActiveFilters = () => {
     if (searchValue) return true;
@@ -143,7 +144,7 @@ export default function TableFilters({
 
         {/* Botones de acción */}
         <div className="flex gap-2">
-          {filters.length > 0 && (
+          {filters.length > 0 && !alwaysExpanded && (
             <Button
               variant={isExpanded ? 'primary' : 'outline'}
               onClick={() => setIsExpanded(!isExpanded)}
@@ -167,7 +168,7 @@ export default function TableFilters({
       </div>
 
       {/* Panel de filtros expandible */}
-      {isExpanded && filters.length > 0 && (
+      {(isExpanded || alwaysExpanded) && filters.length > 0 && (
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {filters.map((filter) => (
@@ -253,4 +254,5 @@ TableFilters.propTypes = {
   onClear: PropTypes.func,
   showSearch: PropTypes.bool,
   showClearButton: PropTypes.bool,
+  alwaysExpanded: PropTypes.bool,
 };

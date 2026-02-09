@@ -12,7 +12,7 @@ import authService from './auth';
  */
 
 const api = axios.create({
-  baseURL: 'http://127.0.0.1:8000/api',
+  baseURL: 'http://127.0.0.1:8002/api', // ✅ Puerto 8002 para Sistema de Producción
   headers: {
     'Content-Type': 'application/json',
   },
@@ -44,6 +44,18 @@ api.interceptors.request.use(
 
     if (moduloId) {
       config.headers['X-Modulo-ID'] = moduloId;
+    }
+
+    // MULTI-FAENA: Si es usuario global, enviar faena seleccionada
+    const session = JSON.parse(sessionStorage.getItem('sisprod_session') || '{}');
+    const roles = session.roles || [];
+    const esGlobal = roles.includes('Encargado Dispatch');
+
+    if (esGlobal) {
+      const faenaSeleccionada = localStorage.getItem('faenaSeleccionada');
+      if (faenaSeleccionada) {
+        config.headers['X-Faena-ID'] = faenaSeleccionada;
+      }
     }
 
     // Renovar expiración de sesión en cada request (keep-alive)
