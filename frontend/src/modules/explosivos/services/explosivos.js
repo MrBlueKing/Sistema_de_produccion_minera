@@ -171,6 +171,11 @@ class ExplosivosService {
     return response.data;
   }
 
+  async registrarEntradaGuia(data) {
+    const response = await api.post('/explosivos/movimientos/entrada-guia', data);
+    return response.data;
+  }
+
   async registrarSalida(data) {
     const response = await api.post('/explosivos/movimientos/salida', data);
     return response.data;
@@ -216,6 +221,120 @@ class ExplosivosService {
 
   async reactivarPersonal(id) {
     const response = await api.put(`/explosivos/personal-autorizado/${id}/reactivar`);
+    return response.data;
+  }
+
+  // =============================================
+  // FÓRMULAS DE EXPLOSIVOS
+  // =============================================
+  async getFormulas(params = {}) {
+    const response = await api.get('/explosivos/formulas', { params });
+    return response.data;
+  }
+
+  async guardarFormulas(data) {
+    const response = await api.post('/explosivos/formulas', data);
+    return response.data;
+  }
+
+  // =============================================
+  // REPORTES DE PERFORACIÓN Y TRONADURA
+  // =============================================
+  async getReportes(params = {}) {
+    const response = await api.get('/explosivos/reportes-perforacion', { params });
+    return response.data;
+  }
+
+  async createReporte(data) {
+    const response = await api.post('/explosivos/reportes-perforacion', data);
+    return response.data;
+  }
+
+  async getReporte(id) {
+    const response = await api.get(`/explosivos/reportes-perforacion/${id}`);
+    return response.data;
+  }
+
+  async updateReporte(id, data) {
+    const response = await api.put(`/explosivos/reportes-perforacion/${id}`, data);
+    return response.data;
+  }
+
+  async deleteReporte(id) {
+    const response = await api.delete(`/explosivos/reportes-perforacion/${id}`);
+    return response.data;
+  }
+
+  async agregarLinea(reporteId, data) {
+    const response = await api.post(`/explosivos/reportes-perforacion/${reporteId}/lineas`, data);
+    return response.data;
+  }
+
+  async actualizarLinea(reporteId, lineaId, data) {
+    const response = await api.put(`/explosivos/reportes-perforacion/${reporteId}/lineas/${lineaId}`, data);
+    return response.data;
+  }
+
+  async eliminarLinea(reporteId, lineaId) {
+    const response = await api.delete(`/explosivos/reportes-perforacion/${reporteId}/lineas/${lineaId}`);
+    return response.data;
+  }
+
+  async calcularExplosivos(data) {
+    const response = await api.post('/explosivos/reportes-perforacion/calcular', data);
+    return response.data;
+  }
+
+  async confirmarReporte(id, data = {}) {
+    const response = await api.post(`/explosivos/reportes-perforacion/${id}/confirmar`, data);
+    return response.data;
+  }
+
+  async registrarDevoluciones(id, devoluciones) {
+    const response = await api.post(`/explosivos/reportes-perforacion/${id}/devoluciones`, { devoluciones });
+    return response.data;
+  }
+
+  async cerrarReporte(id) {
+    const response = await api.post(`/explosivos/reportes-perforacion/${id}/cerrar`);
+    return response.data;
+  }
+
+  async anularReporte(id) {
+    const response = await api.post(`/explosivos/reportes-perforacion/${id}/anular`);
+    return response.data;
+  }
+
+  async getEstadisticasReportes(params = {}) {
+    const response = await api.get('/explosivos/reportes-perforacion/estadisticas', { params });
+    return response.data;
+  }
+
+  async getHistorialReporte(id) {
+    const response = await api.get(`/explosivos/reportes-perforacion/${id}/historial`);
+    return response.data;
+  }
+
+  // =============================================
+  // PROVEEDORES DE EXPLOSIVOS
+  // =============================================
+  async getProveedores(params = {}) {
+    const response = await api.get('/explosivos/proveedores', { params });
+    return response.data;
+  }
+
+  async createProveedor(data) {
+    const response = await api.post('/explosivos/proveedores', data);
+    return response.data;
+  }
+
+  async updateProveedor(id, data) {
+    const response = await api.put(`/explosivos/proveedores/${id}`, data);
+    return response.data;
+  }
+
+  async deleteProveedor(id) {
+    const response = await api.delete(`/explosivos/proveedores/${id}`);
     return response.data;
   }
 }

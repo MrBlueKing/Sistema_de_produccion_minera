@@ -71,9 +71,12 @@ class MezclasService {
   }
 
   /**
-   * Agregar dumpadas a una mezcla existente
+   * Agregar dumpadas a una mezcla existente.
+   * Soporta dumpadas completas o uso parcial por paladas.
    * @param {number} id - ID de la mezcla
-   * @param {Array} dumpadas - Array de IDs de dumpadas
+   * @param {Array} dumpadas - Array de objetos: [{id: number, numero_paladas: number|null}, ...]
+   *                           numero_paladas = null → dumpada completa
+   *                           numero_paladas > 0   → solo esas paladas de la dumpada
    */
   async agregarDumpadas(id, dumpadas) {
     const response = await api.post(`/dispatch/mezclas/${id}/agregar-dumpadas`, { dumpadas });
@@ -124,16 +127,10 @@ class MezclasService {
    * @param {Object} params - Parámetros de filtrado
    */
   async getDumpadasDisponibles(params = {}) {
-    console.log('🔍 [MEZCLAS SERVICE] Solicitando dumpadas disponibles', params);
     try {
       const response = await api.get('/dispatch/mezclas/dumpadas-disponibles', { params });
-      console.log('✅ [MEZCLAS SERVICE] Respuesta recibida:', {
-        cantidad: response.data?.length || 0,
-        data: response.data
-      });
       return response.data;
     } catch (error) {
-      console.error('❌ [MEZCLAS SERVICE] Error al obtener dumpadas:', error);
       throw error;
     }
   }
@@ -143,16 +140,10 @@ class MezclasService {
    * @returns {Array} Lista de mezclas con toneladas disponibles
    */
   async getRemanentesDisponibles() {
-    console.log('🔍 [MEZCLAS SERVICE] Solicitando remanentes disponibles');
     try {
       const response = await api.get('/dispatch/mezclas/remanentes-disponibles');
-      console.log('✅ [MEZCLAS SERVICE] Remanentes recibidos:', {
-        cantidad: response.data?.length || 0,
-        data: response.data
-      });
       return response.data;
     } catch (error) {
-      console.error('❌ [MEZCLAS SERVICE] Error al obtener remanentes:', error);
       throw error;
     }
   }

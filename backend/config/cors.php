@@ -22,6 +22,8 @@ return [
     'allowed_origins' => [
         env('FRONTEND_URL', 'http://localhost:5174'),
         env('MODULE_PRODUCCION_URL', 'http://localhost:5174'),
+        'http://localhost:3000', // Frontend Petróleo (Dashboard Gerencial)
+        'http://127.0.0.1:3000',
     ],
 
     'allowed_origins_patterns' => [],

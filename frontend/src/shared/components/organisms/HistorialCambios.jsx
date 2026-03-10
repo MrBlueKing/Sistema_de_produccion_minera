@@ -324,7 +324,7 @@ export default function HistorialCambios({ show, onClose, frenteId, loadHistoria
                             <div className="mt-3 space-y-2">
                               <div className="flex items-center justify-between">
                                 <p className="text-xs font-semibold text-gray-700 uppercase">Cambios realizados:</p>
-                                {item.accion === 'actualizado' && (
+                                {item.accion === 'actualizado' && onRevertir && (
                                   <button
                                     onClick={() => handleRevertir(item)}
                                     className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-white bg-gradient-to-r from-yellow-500 to-yellow-600 hover:from-yellow-600 hover:to-yellow-700 rounded-lg transition-all shadow-sm hover:shadow-md"
@@ -380,7 +380,7 @@ HistorialCambios.propTypes = {
   onClose: PropTypes.func.isRequired,
   frenteId: PropTypes.number,
   loadHistorial: PropTypes.func.isRequired,
-  onRevertir: PropTypes.func.isRequired,
+  onRevertir: PropTypes.func,
   onSuccess: PropTypes.func,
   title: PropTypes.string,
 };

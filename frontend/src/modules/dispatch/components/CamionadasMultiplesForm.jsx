@@ -7,18 +7,22 @@ import mezclasService from '../services/mezclas';
 import configuracionService from '../../../services/configuracion';
 import Button from '../../../shared/components/atoms/Button';
 
-const CamionadasMultiplesForm = ({ onSuccess, onCancel }) => {
+const CamionadasMultiplesForm = ({ onSuccess, onCancel, loteIdPreseleccionado = null }) => {
   const toast = useToast();
   const [loading, setLoading] = useState(false);
   const [mezclas, setMezclas] = useState([]);
+  const [plantas, setPlantas] = useState([]);
   const [empresas, setEmpresas] = useState([]);
   const [maquinas, setMaquinas] = useState([]);
+  const [lotesAbiertos, setLotesAbiertos] = useState([]);
   const [cargandoMaquinas, setCargandoMaquinas] = useState(false);
   const [mezclaSeleccionada, setMezclaSeleccionada] = useState(null);
   const [pesoCamionDefault, setPesoCamionDefault] = useState(29);
 
   const [formGeneral, setFormGeneral] = useState({
     mezcla_id: '',
+    lote_id: loteIdPreseleccionado ? String(loteIdPreseleccionado) : '',
+    planta_id: '',
     empresa_id: '',
     fecha_despacho: new Date().toISOString().split('T')[0],
   });
@@ -35,6 +39,10 @@ const CamionadasMultiplesForm = ({ onSuccess, onCancel }) => {
     if (formGeneral.mezcla_id) {
       const mezcla = mezclas.find(m => m.id === parseInt(formGeneral.mezcla_id));
       setMezclaSeleccionada(mezcla);
+      // Solo auto-completar planta si no viene de un lote
+      if (mezcla && mezcla.planta_id && !formGeneral.lote_id) {
+        setFormGeneral(prev => ({ ...prev, planta_id: String(mezcla.planta_id) }));
+      }
     } else {
       setMezclaSeleccionada(null);
     }
@@ -44,31 +52,41 @@ const CamionadasMultiplesForm = ({ onSuccess, onCancel }) => {
     try {
       setCargandoMaquinas(true);
 
-      const [mezclasRes, empresasRes, configRes, maquinasRes] = await Promise.all([
-        mezclasService.getMezclas(), // Usar servicio de mezclas que trae relaciones
+      const [mezclasRes, plantasRes, empresasRes, configRes, camionesRes, lotesRes] = await Promise.all([
+        mezclasService.getMezclas(),
+        laboratorioService.getPlantas({ activas: true }),
         laboratorioService.getEmpresas({ activas: true }),
         configuracionService.getAll(),
-        laboratorioService.getMaquinasDisponibles().catch(err => {
-          console.error('Error cargando máquinas:', err);
-          toast.error('No se pueden cargar los camiones del sistema de petróleo. No se puede crear camionada.');
-          return { data: [] };
-        })
+        laboratorioService.getCamiones({ activos: true }),
+        laboratorioService.getLotesAbiertos()
       ]);
-
-      console.log('📦 Mezclas cargadas:', mezclasRes);
-      console.log('🚛 Máquinas cargadas:', maquinasRes);
 
       // Obtener data o data.data dependiendo de la respuesta
       const mezclasData = mezclasRes.data?.data || mezclasRes.data || mezclasRes || [];
       setMezclas(mezclasData);
+      setPlantas(plantasRes || []);
       setEmpresas(empresasRes || []);
-      setMaquinas(maquinasRes.data || []);
+      setMaquinas(camionesRes || []);
+      setLotesAbiertos(lotesRes || []);
 
       const pesoDefault = configRes.peso_camion_default || 29;
       setPesoCamionDefault(pesoDefault);
 
       // Actualizar peso en camionadas existentes
       setCamionadas(prev => prev.map(c => ({ ...c, peso: c.peso || pesoDefault })));
+
+      // Si hay lote preseleccionado, auto-completar planta y empresa
+      if (loteIdPreseleccionado && lotesRes) {
+        const lotePresel = lotesRes.find(l => l.id === parseInt(loteIdPreseleccionado));
+        if (lotePresel) {
+          setFormGeneral(prev => ({
+            ...prev,
+            lote_id: String(lotePresel.id),
+            planta_id: String(lotePresel.planta_id),
+            empresa_id: String(lotePresel.empresa_id),
+          }));
+        }
+      }
 
     } catch (error) {
       console.error('Error cargando datos:', error);
@@ -100,13 +118,13 @@ const CamionadasMultiplesForm = ({ onSuccess, onCancel }) => {
   };
 
   const validarFormulario = () => {
-    if (!formGeneral.mezcla_id) {
-      toast.warning('Selecciona una mezcla');
+    if (!formGeneral.lote_id) {
+      toast.warning('Selecciona un lote');
       return false;
     }
 
-    if (!formGeneral.empresa_id) {
-      toast.warning('Selecciona una empresa');
+    if (!formGeneral.mezcla_id) {
+      toast.warning('Selecciona una mezcla');
       return false;
     }
 
@@ -148,8 +166,9 @@ const CamionadasMultiplesForm = ({ onSuccess, onCancel }) => {
       const promesas = camionadasValidas.map(camionada =>
         laboratorioService.createCamionada({
           mezcla_id: parseInt(formGeneral.mezcla_id),
-          empresa_id: parseInt(formGeneral.empresa_id),
-          // planta_id se toma automáticamente de la mezcla en el backend
+          lote_id: parseInt(formGeneral.lote_id),
+          planta_id: formGeneral.planta_id ? parseInt(formGeneral.planta_id) : null,
+          empresa_id: formGeneral.empresa_id ? parseInt(formGeneral.empresa_id) : null,
           patente: camionada.patente,
           peso: parseFloat(camionada.peso),
           fecha_despacho: formGeneral.fecha_despacho,
@@ -205,6 +224,44 @@ const CamionadasMultiplesForm = ({ onSuccess, onCancel }) => {
           <h3 className="font-bold text-blue-900 mb-3">📋 Datos Generales</h3>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {/* Lote */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Lote *
+              </label>
+              <select
+                value={formGeneral.lote_id}
+                onChange={(e) => {
+                  const loteId = e.target.value;
+                  const lote = lotesAbiertos.find(l => l.id === parseInt(loteId));
+                  setFormGeneral({
+                    ...formGeneral,
+                    lote_id: loteId,
+                    planta_id: lote ? String(lote.planta_id) : '',
+                    empresa_id: lote ? String(lote.empresa_id) : '',
+                  });
+                }}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                disabled={!!loteIdPreseleccionado}
+                required
+              >
+                <option value="">Seleccionar lote...</option>
+                {lotesAbiertos.map(lote => (
+                  <option key={lote.id} value={lote.id}>
+                    {lote.numero_lote} - {lote.planta?.nombre || ''} ({lote.empresa?.nombre || ''})
+                  </option>
+                ))}
+              </select>
+              {formGeneral.lote_id && (() => {
+                const lote = lotesAbiertos.find(l => l.id === parseInt(formGeneral.lote_id));
+                return lote ? (
+                  <p className="text-xs text-blue-600 mt-1">
+                    Planta: {lote.planta?.nombre} | Empresa: {lote.empresa?.nombre}
+                  </p>
+                ) : null;
+              })()}
+            </div>
+
             {/* Mezcla */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -220,26 +277,6 @@ const CamionadasMultiplesForm = ({ onSuccess, onCancel }) => {
                 {mezclas.map(mezcla => (
                   <option key={mezcla.id} value={mezcla.id}>
                     {mezcla.codigo} - {parseFloat(mezcla.toneladas_disponibles ?? mezcla.total_ton ?? 0).toFixed(2)} t
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Empresa */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Empresa *
-              </label>
-              <select
-                value={formGeneral.empresa_id}
-                onChange={(e) => setFormGeneral({ ...formGeneral, empresa_id: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                required
-              >
-                <option value="">Seleccionar empresa...</option>
-                {empresas.map(empresa => (
-                  <option key={empresa.id} value={empresa.id}>
-                    {empresa.nombre}
                   </option>
                 ))}
               </select>
@@ -266,13 +303,7 @@ const CamionadasMultiplesForm = ({ onSuccess, onCancel }) => {
               <div className="p-4 bg-gradient-to-r from-white to-blue-50 rounded-lg border-2 border-blue-300 shadow-sm">
                 <div className="flex items-center gap-3">
                   <HiOfficeBuilding className="w-6 h-6 text-blue-600" />
-                  <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <div>
-                      <p className="text-xs text-gray-600 font-medium uppercase">Planta Destino (automático)</p>
-                      <p className="text-lg font-bold text-blue-900">
-                        {mezclaSeleccionada.planta?.nombre || mezclaSeleccionada.planta_nombre || 'Sin planta asignada'}
-                      </p>
-                    </div>
+                  <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div>
                       <p className="text-xs text-gray-600 font-medium uppercase">Total Mezcla (Estimado)</p>
                       <p className="text-lg font-bold text-gray-900">
@@ -365,9 +396,9 @@ const CamionadasMultiplesForm = ({ onSuccess, onCancel }) => {
                       <option value="">
                         {cargandoMaquinas ? 'Cargando camiones...' : 'Seleccione un camión...'}
                       </option>
-                      {maquinas.map((maquina) => (
-                        <option key={maquina.id_maquina} value={maquina.patente}>
-                          {maquina.nombre_maquina} ({maquina.patente}) - {maquina.nombre_categoria || 'Tolva'}
+                      {maquinas.map((camion) => (
+                        <option key={camion.id} value={camion.patente}>
+                          {camion.nombre} ({camion.patente}){camion.categoria ? ` - ${camion.categoria}` : ''}
                         </option>
                       ))}
                     </select>
@@ -463,14 +494,14 @@ const CamionadasMultiplesForm = ({ onSuccess, onCancel }) => {
               className="px-8 py-3 text-lg bg-blue-600 hover:bg-blue-700"
             >
               {loading ? 'Creando...' :
-               maquinas.length === 0 ? 'Esperando camiones...' :
+               maquinas.length === 0 ? 'Sin camiones disponibles' :
                `Crear ${camionadas.filter(c => c.patente && c.peso > 0).length} Camionada(s)`}
             </Button>
           </div>
 
           {maquinas.length === 0 && !loading && (
             <p className="text-center text-red-600 text-sm font-semibold bg-red-50 p-3 rounded-md border border-red-200">
-              ⚠️ No se puede crear camionada sin conexión al sistema de petróleo
+              No hay camiones registrados. Registre camiones en la pestaña Plantas &gt; Camiones.
             </p>
           )}
         </div>

@@ -23,7 +23,7 @@ class CamionadaController extends Controller
      */
     public function index(Request $request)
     {
-        $query = Camionada::with(['mezcla']);
+        $query = Camionada::with(['mezcla', 'lote.planta', 'lote.empresa']);
 
         // Filtros
         if ($request->has('mezcla_id')) {
@@ -79,9 +79,9 @@ class CamionadaController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'mezcla_id' => 'required|integer|exists:mezclas,id',
-            'planta_id' => 'nullable|integer|exists:plantas,id', // Nullable, se toma de la mezcla si no viene
-            'empresa_id' => 'required|integer|exists:empresas,id',
-            'lote_id' => 'nullable|integer|exists:lotes,id',
+            'planta_id' => 'nullable|integer|exists:plantas,id',
+            'empresa_id' => 'nullable|integer|exists:empresas,id',
+            'lote_id' => 'required|integer|exists:lotes,id',
             'patente' => 'required|string|max:20',
             'cliente' => 'nullable|string|max:150',
             'planta' => 'nullable|string|max:100',
@@ -268,9 +268,10 @@ class CamionadaController extends Controller
         $validator = Validator::make($request->all(), [
             'peso_real' => 'required|numeric|min:0.01',
             'fecha_recepcion' => 'nullable|date',
-            'hora_recepcion' => 'nullable|date_format:H:i', // ✅ Formato H:i (23:59)
+            'hora_recepcion' => 'nullable|date_format:H:i',
             'ley_lab_camion' => 'nullable|numeric|min:0',
             'ticket' => 'nullable|string|max:100',
+            'numero_lote' => 'nullable|string|max:50',
         ]);
 
         if ($validator->fails()) {
@@ -362,6 +363,79 @@ class CamionadaController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'error' => 'Error al obtener resumen',
+                'mensaje' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Reordenar camionadas dentro de un lote
+     * POST /api/dispatch/camionadas/reordenar
+     *
+     * Body: { camionada_id: int, direccion: 'subir'|'bajar' }
+     */
+    public function reordenar(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'camionada_id' => 'required|integer|exists:camionadas,id',
+            'direccion' => 'required|in:subir,bajar',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'error' => 'Datos inválidos',
+                'detalles' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            $camionada = Camionada::findOrFail($request->camionada_id);
+
+            if (!$camionada->lote_id) {
+                return response()->json(['error' => 'La camionada no tiene lote asignado'], 400);
+            }
+
+            // Obtener camionadas del mismo lote ordenadas
+            $camionadasLote = Camionada::where('lote_id', $camionada->lote_id)
+                ->orderBy('numero_camionada', 'asc')
+                ->get();
+
+            if ($camionadasLote->count() < 2) {
+                return response()->json(['mensaje' => 'No hay suficientes camionadas para reordenar']);
+            }
+
+            // Encontrar la vecina para intercambiar
+            if ($request->direccion === 'subir') {
+                $vecina = Camionada::where('lote_id', $camionada->lote_id)
+                    ->where('numero_camionada', '<', $camionada->numero_camionada)
+                    ->orderBy('numero_camionada', 'desc')
+                    ->first();
+            } else {
+                $vecina = Camionada::where('lote_id', $camionada->lote_id)
+                    ->where('numero_camionada', '>', $camionada->numero_camionada)
+                    ->orderBy('numero_camionada', 'asc')
+                    ->first();
+            }
+
+            if (!$vecina) {
+                return response()->json(['mensaje' => 'Ya está en el límite, no se puede mover más']);
+            }
+
+            // Intercambiar numero_camionada
+            $numTemp = $camionada->numero_camionada;
+            $camionada->numero_camionada = $vecina->numero_camionada;
+            $vecina->numero_camionada = $numTemp;
+
+            $camionada->save();
+            $vecina->save();
+
+            return response()->json([
+                'mensaje' => 'Orden actualizado',
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Error al reordenar',
                 'mensaje' => $e->getMessage()
             ], 500);
         }

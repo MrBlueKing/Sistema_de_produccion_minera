@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { HiBeaker, HiCube, HiEye, HiTrash, HiPencil, HiCheck, HiXMark } from 'react-icons/hi2';
+import { HiBeaker, HiCube, HiEye, HiTrash, HiPencil, HiCheck, HiXMark, HiChevronDown, HiChevronUp } from 'react-icons/hi2';
 import Button from '../../../shared/components/atoms/Button';
 import Input from '../../../shared/components/atoms/Input';
 import Card from '../../../shared/components/atoms/Card';
@@ -26,16 +26,15 @@ export default function MezclasView({
   frentes = [],
   jornadas = ['AM', 'PM', 'Madrugada', 'Noche']
 }) {
-  console.log('🎨 [MEZCLAS VIEW] Renderizando con:', {
-    mezclas: mezclas.length
-  });
-
   // Obtener configuraciones desde BD
-  const { factorAjusteLey, factorRemanenteVisual, usarSistemaAcopios } = useConfig();
+  const { factorAjusteLey, factorRemanenteVisual, leyCappingMaximo, usarSistemaAcopios, toneladas_por_palada } = useConfig();
 
   // Cambiar de dumpadas a acopios
   const [acopiosDisponibles, setAcopiosDisponibles] = useState([]);
   const [acopiosSeleccionados, setAcopiosSeleccionados] = useState([]);
+
+  // Estado para toggle de composición en modal detalle
+  const [mostrarComposicion, setMostrarComposicion] = useState(false);
 
   // Estados para dumpadas directas (cuando NO se usan acopios)
   const [dumpadasSeleccionadas, setDumpadasSeleccionadas] = useState([]);
@@ -55,7 +54,11 @@ export default function MezclasView({
 
   // Estados para edición de mezcla (agregar/quitar dumpadas)
   const [modoAgregarDumpadas, setModoAgregarDumpadas] = useState(false);
+  // dumpadasAgregar: array de {id, numero_paladas}
+  // numero_paladas = null → dumpada completa; > 0 → paladas parciales
   const [dumpadasAgregar, setDumpadasAgregar] = useState([]);
+  const [searchAgregar, setSearchAgregar] = useState('');
+  const [pageAgregar, setPageAgregar] = useState(1);
 
   // Estados para diálogo de confirmación
   const [confirmDialog, setConfirmDialog] = useState({
@@ -171,8 +174,8 @@ export default function MezclasView({
 
   // Filtrar acopios
   const acopiosFiltrados = acopiosDisponibles.filter(a => {
-    if (!busquedaDumpada) return true;
-    const busqueda = busquedaDumpada.toLowerCase();
+    if (!searchDumpada) return true;
+    const busqueda = searchDumpada.toLowerCase();
     return (
       a.codigo_acopio?.toLowerCase().includes(busqueda) ||
       a.nombre?.toLowerCase().includes(busqueda) ||
@@ -193,19 +196,28 @@ export default function MezclasView({
   };
 
   // Funciones para dumpadas directas (cuando NO se usan acopios)
-  const handleSelectDumpada = (id) => {
-    if (dumpadasSeleccionadas.includes(id)) {
-      setDumpadasSeleccionadas(dumpadasSeleccionadas.filter(d => d !== id));
+  // dumpadasSeleccionadas: [{id, numero_paladas}]
+  // numero_paladas = null → dumpada completa; > 0 → paladas parciales
+  const handleSelectDumpada = (dumpada) => {
+    const existe = dumpadasSeleccionadas.some(d => d.id === dumpada.id);
+    if (existe) {
+      setDumpadasSeleccionadas(dumpadasSeleccionadas.filter(d => d.id !== dumpada.id));
     } else {
-      setDumpadasSeleccionadas([...dumpadasSeleccionadas, id]);
+      setDumpadasSeleccionadas([...dumpadasSeleccionadas, { id: dumpada.id, numero_paladas: null }]);
     }
+  };
+
+  const handleSetPaladasCrear = (dumpadaId, numeroPaladas) => {
+    setDumpadasSeleccionadas(dumpadasSeleccionadas.map(d =>
+      d.id === dumpadaId ? { ...d, numero_paladas: numeroPaladas } : d
+    ));
   };
 
   const handleSelectAllDumpadas = () => {
     if (dumpadasSeleccionadas.length === dumpadasDisponibles.length) {
       setDumpadasSeleccionadas([]);
     } else {
-      setDumpadasSeleccionadas(dumpadasDisponibles.map(d => d.id));
+      setDumpadasSeleccionadas(dumpadasDisponibles.map(d => ({ id: d.id, numero_paladas: null })));
     }
   };
 
@@ -336,22 +348,29 @@ export default function MezclasView({
     let detallesOrigen = [];
 
     if (usandoDumpadasDirectas) {
-      // MODO DUMPADAS DIRECTAS
-      const dumpadasSel = dumpadasDisponibles.filter(d => dumpadasSeleccionadas.includes(d.id));
-      totalToneladas = dumpadasSel.reduce((sum, d) => sum + parseFloat(d.ton || 0), 0);
+      // MODO DUMPADAS DIRECTAS — soporta paladas parciales
+      const dumpadasSel = dumpadasSeleccionadas.map(sel => {
+        const d = dumpadasDisponibles.find(x => x.id === sel.id);
+        if (!d) return null;
+        const tonAUsar = sel.numero_paladas != null
+          ? sel.numero_paladas * (d.ton_por_palada || toneladas_por_palada)
+          : parseFloat(d.ton || 0);
+        return { ...d, _tonAUsar: tonAUsar };
+      }).filter(Boolean);
+
+      totalToneladas = dumpadasSel.reduce((sum, d) => sum + d._tonAUsar, 0);
       cantidadDumpadas = dumpadasSel.length;
 
-      // Calcular promedios ponderados
-      // Para ley: usar ley de laboratorio si existe, sino usar ley_visual
+      // Calcular promedios ponderados usando toneladas reales a usar
       sumaPonderadaLey = dumpadasSel.reduce((sum, d) => {
-        const ton = parseFloat(d.ton || 0);
-        const ley = parseFloat(d.ley || d.ley_visual || 0); // Fallback a ley_visual
+        const ton = d._tonAUsar;
+        const ley = parseFloat(d.ley || d.ley_visual || 0);
         return sum + (ton * ley);
       }, 0);
 
       sumaPonderadaLeyVisual = dumpadasSel.reduce((sum, d) => {
-        const ton = parseFloat(d.ton || 0);
-        const leyVisual = parseFloat(d.ley_visual || d.ley || 0); // Fallback a ley
+        const ton = d._tonAUsar;
+        const leyVisual = parseFloat(d.ley_visual || d.ley || 0);
         return sum + (ton * leyVisual);
       }, 0);
 
@@ -386,65 +405,68 @@ export default function MezclasView({
     // Para compatibilidad con código existente
     const acopiosSel = usandoDumpadasDirectas ? [] : acopiosDisponibles.filter(a => acopiosSeleccionados.includes(a.id));
 
-    // ============ LEY LOTE ============
-    // IMPORTANTE: LEY LOTE se calcula PRIMERO porque ley_dump depende de ella
-    // Para ACOPIOS: usar ley_lote_promedio que ya viene con factor 0.81
-    // Para DUMPADAS DIRECTAS: usar ley cruda y aplicar factor 0.81
+    // ============ LEY LOTE y LEY DUMP AJUSTADA ============
+    // REGLA: ley_lab → ley_dump = lab×0.9, ley_lote = lab×0.81
+    //        ley_visual → ley_dump = visual (sin descuento), ley_lote = visual×0.9
     let sumaPonderadaLoteOrigen = 0;
+    let sumaPonderadaDumpOrigen = 0;
 
     if (usandoDumpadasDirectas) {
-      // DUMPADAS: ley cruda × factor 0.81 (0.9 × 0.9)
-      sumaPonderadaLoteOrigen = sumaPonderadaLey * 0.81;
+      // DUMPADAS: calcular por cada dumpada según si tiene ley lab o visual
+      const dumpadasSel = dumpadasSeleccionadas.map(sel => {
+        const d = dumpadasDisponibles.find(x => x.id === sel.id);
+        if (!d) return null;
+        const tonAUsar = sel.numero_paladas != null
+          ? sel.numero_paladas * (d.ton_por_palada || toneladas_por_palada)
+          : parseFloat(d.ton || 0);
+        return { ...d, _tonAUsar: tonAUsar };
+      }).filter(Boolean);
+      dumpadasSel.forEach(d => {
+        const ton = d._tonAUsar;
+        // Aplicar capping a la ley de laboratorio
+        const leyLabRaw = d.ley ? parseFloat(d.ley) : null;
+        const leyLab = leyLabRaw ? Math.min(leyLabRaw, leyCappingMaximo) : null;
+        const leyVisual = d.ley_visual ? parseFloat(d.ley_visual) : null;
+
+        if (leyLab) {
+          sumaPonderadaDumpOrigen += ton * leyLab * factorAjusteLey;       // lab × 0.9
+          sumaPonderadaLoteOrigen += ton * leyLab * factorAjusteLey * factorAjusteLey; // lab × 0.81
+        } else if (leyVisual) {
+          sumaPonderadaDumpOrigen += ton * leyVisual;                       // visual directo
+          sumaPonderadaLoteOrigen += ton * leyVisual * factorAjusteLey;    // visual × 0.9
+        }
+      });
     } else {
-      // ACOPIOS: usar ley_lote_promedio que YA tiene factor 0.81
+      // ACOPIOS: ley_lote_promedio ya viene con factores correctos del backend
       sumaPonderadaLoteOrigen = acopiosSel.reduce((sum, a) => {
         const ton = parseFloat(a.total_toneladas || 0);
         const leyLote = parseFloat(a.ley_lote_promedio || 0);
         return sum + (ton * leyLote);
       }, 0);
+      // ley_dump para acopios: ley_lote / 0.9 sigue siendo válido como aproximación
+      // porque el acopio ya calcula ley_lote con los factores correctos por dumpada
+      sumaPonderadaDumpOrigen = sumaPonderadaLoteOrigen / factorAjusteLey;
     }
 
-    // REMANENTES: ley_prom_lote viene CON factor 0.81, usar directamente
+    // REMANENTES: ley_prom_lote y ley_prom_dump ya vienen con factores correctos
     let sumaPonderadaLoteRemanentes = 0;
+    let sumaPonderadaDumpRemanentes = 0;
     remanentesSeleccionados.forEach(rem => {
       const mezcla = remanentesDisponibles.find(m => m.id === rem.mezcla_id);
       if (mezcla) {
         const ton = parseFloat(rem.toneladas || 0);
-        const leyLote = parseFloat(mezcla.ley_prom_lote || 0); // YA tiene factor 0.81
-        sumaPonderadaLoteRemanentes += (ton * leyLote);
+        sumaPonderadaLoteRemanentes += ton * parseFloat(mezcla.ley_prom_lote || 0);
+        sumaPonderadaDumpRemanentes += ton * parseFloat(mezcla.ley_prom_dump || 0);
       }
     });
 
-    // Combinar: ambos ya tienen factor 0.81 aplicado
+    // Combinar
     const sumaTotalLote = sumaPonderadaLoteOrigen + sumaPonderadaLoteRemanentes;
     const leyLote = totalTon > 0 ? (sumaTotalLote / totalTon) : 0;
 
-    console.log('🔍 [PREVIEW] Cálculo Ley Lote:', {
-      modo: usandoDumpadasDirectas ? 'DUMPADAS_DIRECTAS' : 'ACOPIOS',
-      origen: usandoDumpadasDirectas ? detallesOrigen.length : acopiosSel.length,
-      remanentes: remanentesSeleccionados.length,
-      sumaPonderadaOrigen: sumaPonderadaLoteOrigen,
-      sumaPonderadaRemanentes: sumaPonderadaLoteRemanentes,
-      sumaTotalLote: sumaTotalLote,
-      totalTon: totalTon,
-      leyLote: leyLote,
-      calculo: `${sumaTotalLote.toFixed(3)} / ${totalTon} = ${leyLote.toFixed(3)}`
-    });
+    const sumaTotalDump = sumaPonderadaDumpOrigen + sumaPonderadaDumpRemanentes;
+    const leyAjustada = totalTon > 0 ? (sumaTotalDump / totalTon) : 0;
 
-    // ============ LEY DUMP AJUSTADA ============
-    // FÓRMULA CORRECTA: ley_dump_mezcla = ley_lote / 0.9
-    // EXPLICACIÓN:
-    // - ley_dump en BD está cruda (sin ajustar)
-    // - ley_lote = ley_dump_cruda × 0.81 (doble ajuste: 0.9 × 0.9)
-    // - ley_dump_cruda = ley_lote / 0.81
-    // - ley_dump_mezcla = ley_dump_cruda × 0.9 = (ley_lote / 0.81) × 0.9 = ley_lote / 0.9
-    const leyAjustada = leyLote / factorAjusteLey;
-
-    console.log("Cálculo Ley Dump Ajustada:", {
-      leyLote: leyLote,
-      factorAjuste: factorAjusteLey,
-      leyDump: leyAjustada
-    });
 
     // ============ LEY VISUAL ============
     // LÓGICA: Sumar todas las contribuciones SIN factor, luego aplicar 0.9 al final
@@ -483,10 +505,8 @@ export default function MezclasView({
     const leyVisual = leyVisualPromedio * factorAjusteLey; // Aplicar factor 0.9 al final
 
     // ============ LEY LAB ============
-    // FÓRMULA: ley_lab = ley_dump_ajustada / 0.9
-    // También se puede expresar como: ley_lab = ley_lote / 0.81
-    // Representa el promedio ponderado de las leyes dump crudas (sin ajuste)
-    const leyLab = leyAjustada / factorAjusteLey;
+    // Representa la ley original sin descuentos = ley_lote / 0.81
+    const leyLab = leyLote > 0 ? leyLote / (factorAjusteLey * factorAjusteLey) : 0;
 
     return {
       totalTon: totalTon.toFixed(2),
@@ -585,6 +605,7 @@ export default function MezclasView({
   const handleVerDetalleMezcla = async (mezclaId) => {
     try {
       const mezcla = await mezclasService.getMezcla(mezclaId);
+      setMostrarComposicion(false);
       setMezclaSeleccionada(mezcla);
     } catch (error) {
       console.error('Error cargando detalle:', error);
@@ -620,19 +641,33 @@ export default function MezclasView({
   const handleAbrirAgregarDumpadas = () => {
     setModoAgregarDumpadas(true);
     setDumpadasAgregar([]);
+    setSearchAgregar('');
+    setPageAgregar(1);
   };
 
   const handleCerrarAgregarDumpadas = () => {
     setModoAgregarDumpadas(false);
     setDumpadasAgregar([]);
+    setSearchAgregar('');
+    setPageAgregar(1);
   };
 
-  const handleToggleDumpadaAgregar = (id) => {
-    if (dumpadasAgregar.includes(id)) {
-      setDumpadasAgregar(dumpadasAgregar.filter(d => d !== id));
+  // Toggle de dumpada en el modal de agregar: añade con numero_paladas = null (dumpada completa por defecto)
+  const handleToggleDumpadaAgregar = (dumpada) => {
+    const existe = dumpadasAgregar.some(d => d.id === dumpada.id);
+    if (existe) {
+      setDumpadasAgregar(dumpadasAgregar.filter(d => d.id !== dumpada.id));
     } else {
-      setDumpadasAgregar([...dumpadasAgregar, id]);
+      // Por defecto: dumpada completa (null). El usuario puede ingresar paladas manualmente si quiere uso parcial.
+      setDumpadasAgregar([...dumpadasAgregar, { id: dumpada.id, numero_paladas: null }]);
     }
+  };
+
+  // Actualizar número de paladas de una dumpada ya seleccionada
+  const handleSetPaladasAgregar = (dumpadaId, numeroPaladas) => {
+    setDumpadasAgregar(dumpadasAgregar.map(d =>
+      d.id === dumpadaId ? { ...d, numero_paladas: numeroPaladas } : d
+    ));
   };
 
   const handleAgregarDumpadasAMezcla = async () => {
@@ -861,9 +896,9 @@ export default function MezclasView({
               <input
                 type="text"
                 placeholder="Buscar por código de acopio, frente..."
-                value={busquedaDumpada}
+                value={searchDumpada}
                 onChange={(e) => {
-                  setBusquedaDumpada(e.target.value);
+                  setSearchDumpada(e.target.value);
                   setCurrentPageDumpadas(1); // Resetear a página 1 al buscar
                 }}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm"
@@ -965,7 +1000,12 @@ export default function MezclasView({
                   ✅ Seleccionar Dumpadas ({dumpadasSeleccionadas.length} seleccionadas)
                 </h3>
                 <p className="text-sm text-gray-600 mt-1">
-                  Mostrando: {dumpadasDisponibles.length} dumpadas disponibles • Total seleccionado: {dumpadasSeleccionadas.reduce((sum, id) => sum + parseFloat(dumpadasDisponibles.find(d => d.id === id)?.ton || 0), 0).toFixed(2)} t
+                  Mostrando: {dumpadasDisponibles.length} dumpadas disponibles • Total seleccionado: {dumpadasSeleccionadas.reduce((sum, sel) => {
+                    const d = dumpadasDisponibles.find(x => x.id === sel.id);
+                    if (!d) return sum;
+                    const ton = sel.numero_paladas != null ? sel.numero_paladas * (d.ton_por_palada || toneladas_por_palada) : parseFloat(d.ton || 0);
+                    return sum + ton;
+                  }, 0).toFixed(2)} t
                 </p>
                 {dumpadasDisponibles.length > 0 && (
                   <p className="text-xs text-gray-500 mt-1">
@@ -980,15 +1020,18 @@ export default function MezclasView({
                   size="sm"
                   onClick={() => {
                     const paginadosIds = dumpadasPaginadas.map(d => d.id);
-                    const todosSeleccionados = paginadosIds.every(id => dumpadasSeleccionadas.includes(id));
+                    const todosSeleccionados = paginadosIds.every(id => dumpadasSeleccionadas.some(d => d.id === id));
                     if (todosSeleccionados) {
-                      setDumpadasSeleccionadas(dumpadasSeleccionadas.filter(id => !paginadosIds.includes(id)));
+                      setDumpadasSeleccionadas(dumpadasSeleccionadas.filter(d => !paginadosIds.includes(d.id)));
                     } else {
-                      setDumpadasSeleccionadas([...new Set([...dumpadasSeleccionadas, ...paginadosIds])]);
+                      const nuevas = dumpadasPaginadas
+                        .filter(d => !dumpadasSeleccionadas.some(s => s.id === d.id))
+                        .map(d => ({ id: d.id, numero_paladas: null }));
+                      setDumpadasSeleccionadas([...dumpadasSeleccionadas, ...nuevas]);
                     }
                   }}
                 >
-                  {dumpadasPaginadas.every(d => dumpadasSeleccionadas.includes(d.id)) && dumpadasPaginadas.length > 0
+                  {dumpadasPaginadas.every(d => dumpadasSeleccionadas.some(s => s.id === d.id)) && dumpadasPaginadas.length > 0
                     ? 'Deseleccionar Página'
                     : 'Seleccionar Página'}
                 </Button>
@@ -1055,14 +1098,17 @@ export default function MezclasView({
                           type="checkbox"
                           onChange={() => {
                             const paginadosIds = dumpadasPaginadas.map(d => d.id);
-                            const todosSeleccionados = paginadosIds.every(id => dumpadasSeleccionadas.includes(id));
+                            const todosSeleccionados = paginadosIds.every(id => dumpadasSeleccionadas.some(d => d.id === id));
                             if (todosSeleccionados) {
-                              setDumpadasSeleccionadas(dumpadasSeleccionadas.filter(id => !paginadosIds.includes(id)));
+                              setDumpadasSeleccionadas(dumpadasSeleccionadas.filter(d => !paginadosIds.includes(d.id)));
                             } else {
-                              setDumpadasSeleccionadas([...new Set([...dumpadasSeleccionadas, ...paginadosIds])]);
+                              const nuevas = dumpadasPaginadas
+                                .filter(d => !dumpadasSeleccionadas.some(s => s.id === d.id))
+                                .map(d => ({ id: d.id, numero_paladas: null }));
+                              setDumpadasSeleccionadas([...dumpadasSeleccionadas, ...nuevas]);
                             }
                           }}
-                          checked={dumpadasPaginadas.length > 0 && dumpadasPaginadas.every(d => dumpadasSeleccionadas.includes(d.id))}
+                          checked={dumpadasPaginadas.length > 0 && dumpadasPaginadas.every(d => dumpadasSeleccionadas.some(s => s.id === d.id))}
                           className="w-4 h-4 rounded border-blue-300 text-blue-600 focus:ring-blue-500"
                         />
                       </th>
@@ -1070,7 +1116,9 @@ export default function MezclasView({
                       <th className="py-2 px-3 text-left font-bold text-gray-700">Frente</th>
                       <th className="py-2 px-3 text-left font-bold text-gray-700">Jornada</th>
                       <th className="py-2 px-3 text-left font-bold text-gray-700">Fecha</th>
-                      <th className="py-2 px-3 text-right font-bold text-gray-700">Ton</th>
+                      <th className="py-2 px-3 text-right font-bold text-gray-700">Ton total</th>
+                      <th className="py-2 px-3 text-center font-bold text-gray-700">Paladas disp.</th>
+                      <th className="py-2 px-3 text-center font-bold text-gray-700">Paladas a usar</th>
                       <th className="py-2 px-3 text-right font-bold text-gray-700">Ley</th>
                       <th className="py-2 px-3 text-right font-bold text-gray-700">Ley Visual</th>
                     </tr>
@@ -1079,43 +1127,80 @@ export default function MezclasView({
                     {dumpadasPaginadas.map((dumpada, index) => {
                       // Obtener el color según grupo (frente + jornada + fecha)
                       const backgroundColor = getBackgroundColorByGroup(dumpadasFiltradas, dumpadasFiltradas.indexOf(dumpada));
+                      const seleccion = dumpadasSeleccionadas.find(s => s.id === dumpada.id);
+                      const estaSeleccionada = !!seleccion;
+                      const tonPalada = dumpada.ton_por_palada || toneladas_por_palada;
+                      const paladasDisp = dumpada.paladas_disponibles ?? (dumpada.ton / tonPalada);
 
                       return (
-                        <tr
-                          key={dumpada.id}
-                          style={{ backgroundColor: dumpadasSeleccionadas.includes(dumpada.id) ? '#dbeafe' : backgroundColor }}
-                          className={`border-b border-gray-200 hover:opacity-90 transition-all ${dumpadasSeleccionadas.includes(dumpada.id) ? 'ring-2 ring-blue-400' : ''}`}
-                        >
-                          <td className="py-2 px-3">
-                            <input
-                              type="checkbox"
-                              checked={dumpadasSeleccionadas.includes(dumpada.id)}
-                              onChange={() => handleSelectDumpada(dumpada.id)}
-                              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                            />
-                          </td>
-                          <td className="py-2 px-3 font-bold text-blue-700">{dumpada.numero_dumpada}</td>
-                          <td className="py-2 px-3">
-                            <span className="font-bold text-blue-900 bg-gradient-to-r from-blue-100 to-blue-200 px-1.5 py-0.5 rounded-lg shadow-sm border border-blue-300 inline-block text-xs whitespace-nowrap">
-                              {dumpada.frente_trabajo?.codigo_completo || '-'}
-                            </span>
-                          </td>
-                          <td className="py-2 px-3">
-                            <Badge variant={dumpada.jornada === 'AM' ? 'warning' : dumpada.jornada === 'PM' ? 'info' : 'default'}>
-                              {dumpada.jornada}
-                            </Badge>
-                          </td>
-                          <td className="py-2 px-3 text-xs text-gray-600">
-                            {dumpada.fecha ? formatearFecha(dumpada.fecha) : '-'}
-                          </td>
-                          <td className="py-2 px-3 text-right font-semibold">{parseFloat(dumpada.ton || 0).toFixed(2)}</td>
-                          <td className="py-2 px-3 text-right font-semibold">
-                            {dumpada.ley ? `${parseFloat(dumpada.ley).toFixed(2)}%` : <span className="text-gray-400">-</span>}
-                          </td>
-                          <td className="py-2 px-3 text-right font-semibold">
-                            {dumpada.ley_visual ? `${parseFloat(dumpada.ley_visual).toFixed(2)}%` : <span className="text-gray-400">-</span>}
-                          </td>
-                        </tr>
+                            <tr
+                              key={dumpada.id}
+                              onClick={() => handleSelectDumpada(dumpada)}
+                              style={{ backgroundColor: estaSeleccionada ? '#dbeafe' : backgroundColor }}
+                              className={`border-b border-gray-200 hover:opacity-90 transition-all cursor-pointer ${estaSeleccionada ? 'ring-2 ring-blue-400' : ''}`}
+                            >
+                              <td className="py-2 px-3">
+                                <input
+                                  type="checkbox"
+                                  checked={estaSeleccionada}
+                                  onChange={() => handleSelectDumpada(dumpada)}
+                                  className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                />
+                              </td>
+                              <td className="py-2 px-3 font-bold text-blue-700">{dumpada.numero_dumpada}</td>
+                              <td className="py-2 px-3">
+                                <span className="font-bold text-blue-900 bg-gradient-to-r from-blue-100 to-blue-200 px-1.5 py-0.5 rounded-lg shadow-sm border border-blue-300 inline-block text-xs whitespace-nowrap">
+                                  {dumpada.frente_trabajo?.codigo_completo || '-'}
+                                </span>
+                              </td>
+                              <td className="py-2 px-3">
+                                <Badge variant={dumpada.jornada === 'AM' ? 'warning' : dumpada.jornada === 'PM' ? 'info' : 'default'}>
+                                  {dumpada.jornada}
+                                </Badge>
+                              </td>
+                              <td className="py-2 px-3 text-xs text-gray-600">
+                                {dumpada.fecha ? formatearFecha(dumpada.fecha) : '-'}
+                              </td>
+                              <td className="py-2 px-3 text-right font-semibold">{parseFloat(dumpada.ton || 0).toFixed(2)}</td>
+                              <td className="py-2 px-3 text-center text-xs">
+                                {dumpada.paladas_disponibles != null ? (
+                                  <span className={`font-semibold ${dumpada.tiene_uso_parcial ? 'text-amber-600' : 'text-green-700'}`}>
+                                    {parseFloat(dumpada.paladas_disponibles).toFixed(1)}/{dumpada.paladas_totales}
+                                    {dumpada.tiene_uso_parcial && <span className="ml-1 text-[9px] text-amber-500">(parcial)</span>}
+                                  </span>
+                                ) : <span className="text-gray-400">-</span>}
+                              </td>
+                              {/* Paladas a usar — solo editable cuando está seleccionada */}
+                              <td className="py-2 px-3 text-center" onClick={(e) => e.stopPropagation()}>
+                                {estaSeleccionada ? (
+                                  <input
+                                    type="number"
+                                    min="0.5"
+                                    max={parseFloat(paladasDisp)}
+                                    step="0.5"
+                                    value={seleccion.numero_paladas ?? ''}
+                                    placeholder="Todas"
+                                    onChange={(e) => {
+                                      const val = e.target.value === '' ? null : parseFloat(e.target.value);
+                                      if (val !== null && val > parseFloat(paladasDisp)) {
+                                        toast.warning('Paladas excedidas', `Máximo ${parseFloat(paladasDisp).toFixed(1)} paladas disponibles`);
+                                        return;
+                                      }
+                                      handleSetPaladasCrear(dumpada.id, val);
+                                    }}
+                                    className="w-20 px-1 py-1 border border-blue-300 rounded text-xs text-center focus:ring-1 focus:ring-blue-500"
+                                  />
+                                ) : (
+                                  <span className="text-gray-300 text-xs">-</span>
+                                )}
+                              </td>
+                              <td className="py-2 px-3 text-right font-semibold">
+                                {dumpada.ley ? `${parseFloat(dumpada.ley).toFixed(2)}%` : <span className="text-gray-400">-</span>}
+                              </td>
+                              <td className="py-2 px-3 text-right font-semibold">
+                                {dumpada.ley_visual ? `${parseFloat(dumpada.ley_visual).toFixed(2)}%` : <span className="text-gray-400">-</span>}
+                              </td>
+                            </tr>
                       );
                     })}
                   </tbody>
@@ -1407,7 +1492,7 @@ export default function MezclasView({
                 <p className="text-2xl font-bold text-blue-700">{calcularTotalesMezcla().totalTon} t</p>
               </div>
               <div className="bg-white rounded-xl p-3 border border-amber-200 text-center shadow-sm">
-                <p className="text-xs text-gray-500 uppercase font-medium">Ley Ajustada</p>
+                <p className="text-xs text-gray-500 uppercase font-medium">Ley Dumpada</p>
                 <p className="text-2xl font-bold text-amber-600">{calcularTotalesMezcla().leyAjustada}%</p>
               </div>
               <div className="bg-white rounded-xl p-3 border border-green-200 text-center shadow-sm">
@@ -1446,7 +1531,13 @@ export default function MezclasView({
                         <th className="text-center py-2 px-3 font-semibold text-gray-700">Jornada</th>
                       )}
                       <th className="text-right py-2 px-3 font-semibold text-gray-700">Ton</th>
-                      <th className="text-right py-2 px-3 font-semibold text-gray-700">Ley</th>
+                      <th className="text-right py-2 px-3 font-semibold text-gray-700">Ley Lab</th>
+                      {!usarSistemaAcopios && (
+                        <>
+                          <th className="text-right py-2 px-3 font-semibold text-gray-700">Ley Dump</th>
+                          <th className="text-right py-2 px-3 font-semibold text-gray-700">Ley Lote</th>
+                        </>
+                      )}
                       <th className="text-center py-2 px-3 font-semibold text-gray-700">Quitar</th>
                     </tr>
                   </thead>
@@ -1475,10 +1566,20 @@ export default function MezclasView({
                       ))
                     ) : (
                       // MODO DUMPADAS DIRECTAS
-                      dumpadasDisponibles.filter(d => dumpadasSeleccionadas.includes(d.id)).map((dumpada, idx) => (
+                      dumpadasSeleccionadas.map(sel => {
+                        const d = dumpadasDisponibles.find(x => x.id === sel.id);
+                        if (!d) return null;
+                        const tonAUsar = sel.numero_paladas != null
+                          ? (sel.numero_paladas * (d.ton_por_palada || toneladas_por_palada)).toFixed(2)
+                          : parseFloat(d.ton || 0).toFixed(2);
+                        return { ...d, _tonAUsar: tonAUsar, _paladas: sel.numero_paladas };
+                      }).filter(Boolean).map((dumpada, idx) => (
                         <tr key={dumpada.id} className={`border-b border-gray-100 hover:bg-blue-50 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
                           <td className="py-2 px-3 font-mono font-bold text-blue-700">
                             #{dumpada.numero_dumpada}
+                            {dumpada._paladas != null && (
+                              <span className="ml-1 text-[10px] text-blue-500 font-normal">({dumpada._paladas} pal.)</span>
+                            )}
                           </td>
                           <td className="py-2 px-3 text-gray-600">{dumpada.frente_trabajo?.codigo_completo || '-'}</td>
                           <td className="py-2 px-3 text-center">
@@ -1486,16 +1587,39 @@ export default function MezclasView({
                               {dumpada.jornada}
                             </Badge>
                           </td>
-                          <td className="py-2 px-3 text-right font-semibold">{parseFloat(dumpada.ton || 0).toFixed(2)}</td>
+                          <td className="py-2 px-3 text-right font-semibold">{dumpada._tonAUsar}</td>
                           <td className="py-2 px-3 text-right">
                             {parseFloat(dumpada.ley || dumpada.ley_visual || 0).toFixed(2)}%
                             {!dumpada.ley && dumpada.ley_visual && (
-                              <span className="text-xs text-gray-500 ml-1">(visual)</span>
+                              <span className="text-xs text-gray-500 ml-1">(vis)</span>
                             )}
                           </td>
+                          {(() => {
+                            const leyLabRaw = dumpada.ley ? parseFloat(dumpada.ley) : null;
+                            const leyLab = leyLabRaw ? Math.min(leyLabRaw, leyCappingMaximo) : null;
+                            const leyVisual = dumpada.ley_visual ? parseFloat(dumpada.ley_visual) : null;
+                            let leyDump, leyLote;
+                            if (leyLab) {
+                              leyDump = leyLab * factorAjusteLey;
+                              leyLote = leyLab * factorAjusteLey * factorAjusteLey;
+                            } else if (leyVisual) {
+                              leyDump = leyVisual;
+                              leyLote = leyVisual * factorAjusteLey;
+                            }
+                            return (
+                              <>
+                                <td className="py-2 px-3 text-right text-orange-600 font-medium">
+                                  {leyDump ? `${leyDump.toFixed(2)}%` : '-'}
+                                </td>
+                                <td className="py-2 px-3 text-right text-indigo-600 font-medium">
+                                  {leyLote ? `${leyLote.toFixed(2)}%` : '-'}
+                                </td>
+                              </>
+                            );
+                          })()}
                           <td className="py-2 px-3 text-center">
                             <button
-                              onClick={() => handleSelectDumpada(dumpada.id)}
+                              onClick={() => handleSelectDumpada(dumpada)}
                               className="text-red-500 hover:text-red-700 hover:bg-red-100 rounded-full p-1 transition-colors"
                               title="Quitar de la mezcla"
                             >
@@ -1567,7 +1691,7 @@ export default function MezclasView({
       {/* Historial de Mezclas */}
       <LoadingOverlay isLoading={loading} text="Cargando mezclas...">
         <Card className="border-l-4 border-purple-400 mt-6">
-          <h3 className="text-2xl font-bold text-gray-900 mb-6">📦 Historial de Mezclas</h3>
+          <h3 className="text-2xl font-bold text-gray-900 mb-6">📦 Historial de Mezclas (Lote Interno)</h3>
 
           {mezclas.length === 0 ? (
           <div className="text-center py-12">
@@ -1767,103 +1891,105 @@ export default function MezclasView({
                 </div>
               )}
 
-              {/* Tarjetas de información principal */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Tarjetas de resumen principal */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {/* Total Toneladas */}
-                <div className="bg-white rounded-xl shadow-md p-5 border-t-4 border-purple-500">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-gray-600 font-medium uppercase tracking-wide">Total</p>
-                      <p className="text-3xl font-bold text-gray-900 mt-1">
-                        {parseFloat(mezclaSeleccionada.total_ton).toFixed(2)}
-                        <span className="text-lg text-gray-500 ml-1">t</span>
-                      </p>
-                    </div>
-                    <div className="bg-purple-100 rounded-full p-3">
-                      <HiCube className="w-8 h-8 text-purple-600" />
-                    </div>
-                  </div>
+                <div className="bg-white rounded-xl shadow-md p-4 border-t-4 border-purple-500">
+                  <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Total</p>
+                  <p className="text-2xl font-bold text-gray-900 mt-1">
+                    {parseFloat(mezclaSeleccionada.total_ton).toFixed(2)}
+                    <span className="text-sm text-gray-500 ml-1">t</span>
+                  </p>
                 </div>
 
                 {/* Disponibles */}
-                <div className="bg-white rounded-xl shadow-md p-5 border-t-4 border-green-500">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-gray-600 font-medium uppercase tracking-wide">Disponibles</p>
-                      <p className="text-3xl font-bold text-green-700 mt-1">
-                        {mezclaSeleccionada.toneladas_disponibles
-                          ? parseFloat(mezclaSeleccionada.toneladas_disponibles).toFixed(2)
-                          : parseFloat(mezclaSeleccionada.total_ton).toFixed(2)}
-                        <span className="text-lg text-gray-500 ml-1">t</span>
-                      </p>
-                    </div>
-                    <div className="bg-green-100 rounded-full p-3">
-                      <HiCheck className="w-8 h-8 text-green-600" />
-                    </div>
-                  </div>
+                <div className="bg-white rounded-xl shadow-md p-4 border-t-4 border-green-500">
+                  <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Disponibles</p>
+                  <p className="text-2xl font-bold text-green-700 mt-1">
+                    {mezclaSeleccionada.toneladas_disponibles
+                      ? parseFloat(mezclaSeleccionada.toneladas_disponibles).toFixed(2)
+                      : parseFloat(mezclaSeleccionada.total_ton).toFixed(2)}
+                    <span className="text-sm text-gray-500 ml-1">t</span>
+                  </p>
                 </div>
 
                 {/* Despachadas */}
-                <div className="bg-white rounded-xl shadow-md p-5 border-t-4 border-blue-500">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <p className="text-sm text-gray-600 font-medium uppercase tracking-wide">Despachadas</p>
-                      <p className="text-3xl font-bold text-blue-700 mt-1">
-                        {mezclaSeleccionada.toneladas_despachadas
-                          ? parseFloat(mezclaSeleccionada.toneladas_despachadas).toFixed(2)
-                          : '0.00'}
-                        <span className="text-lg text-gray-500 ml-1">t</span>
-                      </p>
-                    </div>
-                    <div className="bg-blue-100 rounded-full p-3">
-                      <HiBeaker className="w-8 h-8 text-blue-600" />
-                    </div>
-                  </div>
+                <div className="bg-white rounded-xl shadow-md p-4 border-t-4 border-blue-500">
+                  <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Despachadas</p>
+                  <p className="text-2xl font-bold text-blue-700 mt-1">
+                    {mezclaSeleccionada.toneladas_despachadas
+                      ? parseFloat(mezclaSeleccionada.toneladas_despachadas).toFixed(2)
+                      : '0.00'}
+                    <span className="text-sm text-gray-500 ml-1">t</span>
+                  </p>
+                </div>
+
+                {/* Dumpadas */}
+                <div className="bg-white rounded-xl shadow-md p-4 border-t-4 border-indigo-500">
+                  <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Componentes</p>
+                  <p className="text-2xl font-bold text-indigo-700 mt-1">
+                    {mezclaSeleccionada.detalles?.length || 0}
+                  </p>
                 </div>
               </div>
 
-              {/* Información adicional */}
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                <div className="bg-white rounded-lg shadow p-4">
-                  <p className="text-xs text-gray-500 uppercase font-semibold">Ley Promedio</p>
-                  <p className="text-2xl font-bold text-amber-600 mt-1">
+              {/* Tarjetas de leyes */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <div className="bg-white rounded-lg shadow p-3">
+                  <p className="text-xs text-gray-500 uppercase font-semibold">Ley Dump</p>
+                  <p className="text-xl font-bold text-amber-600 mt-1">
                     {mezclaSeleccionada.ley_prom_dump ? `${parseFloat(mezclaSeleccionada.ley_prom_dump).toFixed(2)}%` : '-'}
                   </p>
                 </div>
-                <div className="bg-white rounded-lg shadow p-4">
-                  <p className="text-xs text-gray-500 uppercase font-semibold">Estado</p>
-                  <div className="mt-2">
-                    <Badge color={
-                      mezclaSeleccionada.estado === 'Despachado' ? 'green' :
-                      mezclaSeleccionada.estado === 'En Despacho' ? 'yellow' :
-                      'blue'
-                    }>
-                      {mezclaSeleccionada.estado}
-                    </Badge>
-                  </div>
+                <div className="bg-white rounded-lg shadow p-3">
+                  <p className="text-xs text-gray-500 uppercase font-semibold">Ley Visual</p>
+                  <p className="text-xl font-bold text-cyan-600 mt-1">
+                    {mezclaSeleccionada.ley_prom_visual ? `${parseFloat(mezclaSeleccionada.ley_prom_visual).toFixed(2)}%` : '-'}
+                  </p>
                 </div>
-                <div className="bg-white rounded-lg shadow p-4">
-                  <p className="text-xs text-gray-500 uppercase font-semibold">Fecha</p>
-                  <p className="text-lg font-bold text-gray-700 mt-1">{formatearFecha(mezclaSeleccionada.fecha)}</p>
+                <div className="bg-white rounded-lg shadow p-3">
+                  <p className="text-xs text-gray-500 uppercase font-semibold">Ley Lote</p>
+                  <p className="text-xl font-bold text-indigo-600 mt-1">
+                    {mezclaSeleccionada.ley_prom_lote ? `${parseFloat(mezclaSeleccionada.ley_prom_lote).toFixed(2)}%` : '-'}
+                  </p>
+                </div>
+                <div className="bg-white rounded-lg shadow p-3">
+                  <p className="text-xs text-gray-500 uppercase font-semibold">Ley Lab</p>
+                  <p className="text-xl font-bold text-rose-600 mt-1">
+                    {mezclaSeleccionada.ley_prom_lote
+                      ? `${(parseFloat(mezclaSeleccionada.ley_prom_lote) / (factorAjusteLey * factorAjusteLey)).toFixed(2)}%`
+                      : '-'}
+                  </p>
                 </div>
               </div>
 
               {mezclaSeleccionada.detalles && mezclaSeleccionada.detalles.length > 0 && (
-                <div className="bg-white rounded-xl shadow-md -mx-6 sticky top-0 z-10">
-                  <div className="bg-gradient-to-r from-indigo-500 to-purple-600 px-5 py-3">
+                <div className="bg-white rounded-xl shadow-md">
+                  {/* Header colapsable */}
+                  <button
+                    onClick={() => setMostrarComposicion(!mostrarComposicion)}
+                    className="w-full bg-gradient-to-r from-indigo-500 to-purple-600 px-5 py-3 flex items-center justify-between rounded-t-xl hover:from-indigo-600 hover:to-purple-700 transition-all"
+                  >
                     <h4 className="font-bold text-white text-base flex items-center gap-2">
                       <HiCube className="w-5 h-5" />
-                      Composición ({mezclaSeleccionada.detalles.length})
+                      Composición ({mezclaSeleccionada.detalles.length} componentes)
                     </h4>
-                  </div>
-                  <div className="overflow-x-auto bg-gradient-to-r from-indigo-50 to-purple-50 border-b-2 border-indigo-200 shadow-md">
+                    {mostrarComposicion
+                      ? <HiChevronUp className="w-5 h-5 text-white" />
+                      : <HiChevronDown className="w-5 h-5 text-white" />
+                    }
+                  </button>
+
+                  {/* Tabla colapsable */}
+                  {mostrarComposicion && (
+                  <div className="overflow-x-auto max-h-[400px] overflow-y-auto bg-gradient-to-r from-indigo-50 to-purple-50 border-b-2 border-indigo-200">
                     <table className="w-full text-sm">
-                      <thead>
-                        <tr>
+                      <thead className="sticky top-0 z-10">
+                        <tr className="bg-indigo-100 shadow-sm">
                           <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs">Tipo</th>
                           <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs">Acopios / Origen</th>
                           <th className="text-right py-3 px-3 font-bold text-blue-900 text-xs">Toneladas</th>
-                          <th className="text-right py-3 px-3 font-bold text-blue-900 text-xs">Ley Ajustada</th>
+                          <th className="text-right py-3 px-3 font-bold text-blue-900 text-xs">Ley Dump</th>
                           <th className="text-right py-3 px-3 font-bold text-blue-900 text-xs">Ley Visual</th>
                           <th className="text-right py-3 px-3 font-bold text-blue-900 text-xs">Ley Lote</th>
                           <th className="text-right py-3 px-3 font-bold text-blue-900 text-xs">Ley Lab</th>
@@ -1888,12 +2014,7 @@ export default function MezclasView({
                               {parseFloat(detalle.toneladas).toFixed(2)} t
                             </td>
                             <td className="py-2 px-3 text-xs text-right">
-                              {(() => {
-                                // Ley Ajustada = ley_lote / 0.9
-                                const leyLote = parseFloat(detalle.ley_lote || 0);
-                                const leyAjustada = leyLote / factorAjusteLey;
-                                return leyLote > 0 ? `${leyAjustada.toFixed(2)}%` : '-';
-                              })()}
+                              {detalle.ley_dump_ajustada ? `${parseFloat(detalle.ley_dump_ajustada).toFixed(2)}%` : '-'}
                             </td>
                             <td className="py-2 px-3 text-xs text-right">
                               {detalle.ley_visual ? `${(parseFloat(detalle.ley_visual) * factorAjusteLey).toFixed(2)}%` : '-'}
@@ -1903,9 +2024,9 @@ export default function MezclasView({
                             </td>
                             <td className="py-2 px-3 text-xs text-right">
                               {(() => {
-                                // Ley Lab = ley_lote / 0.81 = ley_dump original sin ajuste
+                                // Ley Lab = ley_lote / 0.81 (reversa del camino lab)
                                 const leyLote = parseFloat(detalle.ley_lote || 0);
-                                const leyLab = leyLote / (factorAjusteLey * factorAjusteLey); // / 0.81
+                                const leyLab = leyLote / (factorAjusteLey * factorAjusteLey);
                                 return leyLote > 0 ? `${leyLab.toFixed(2)}%` : '-';
                               })()}
                             </td>
@@ -1936,19 +2057,17 @@ export default function MezclasView({
                           </td>
                           <td className="py-4 px-4 text-sm text-indigo-900 text-right font-bold">
                             {(() => {
-                              // Ley Ajustada = ley_lote / 0.9
+                              // Ley Dump: ley_dump_ajustada ya tiene factor aplicado
                               const totalTon = mezclaSeleccionada.detalles.reduce((sum, d) => sum + parseFloat(d.toneladas || 0), 0);
-                              const sumaPonderadaLote = mezclaSeleccionada.detalles.reduce((sum, d) =>
-                                sum + (parseFloat(d.toneladas || 0) * parseFloat(d.ley_lote || 0)), 0
+                              const sumaPonderada = mezclaSeleccionada.detalles.reduce((sum, d) =>
+                                sum + (parseFloat(d.toneladas || 0) * parseFloat(d.ley_dump_ajustada || 0)), 0
                               );
-                              const leyLote = totalTon > 0 ? (sumaPonderadaLote / totalTon) : 0;
-                              const leyAjustada = leyLote / factorAjusteLey;
-                              return totalTon > 0 ? `${leyAjustada.toFixed(2)}%` : '-';
+                              return totalTon > 0 ? `${(sumaPonderada / totalTon).toFixed(2)}%` : '-';
                             })()}
                           </td>
                           <td className="py-4 px-4 text-sm text-indigo-900 text-right font-bold">
                             {(() => {
-                              // Ley Visual: detalles tienen leyes ORIGINALES, aplicar factor 0.9
+                              // Ley Visual: aplicar factor 0.9
                               const totalTon = mezclaSeleccionada.detalles.reduce((sum, d) => sum + parseFloat(d.toneladas || 0), 0);
                               const sumaPonderada = mezclaSeleccionada.detalles.reduce((sum, d) =>
                                 sum + (parseFloat(d.toneladas || 0) * parseFloat(d.ley_visual || 0)), 0
@@ -1982,6 +2101,7 @@ export default function MezclasView({
                       </tbody>
                     </table>
                   </div>
+                  )}
                 </div>
               )}
             </div>
@@ -2003,11 +2123,16 @@ export default function MezclasView({
       {/* Modal para agregar dumpadas a mezcla existente */}
       {modoAgregarDumpadas && mezclaSeleccionada && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <Card className="max-w-4xl w-full max-h-[80vh] overflow-y-auto">
+          <Card className="max-w-5xl w-full max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-2xl font-bold text-gray-900">
-                Agregar Dumpadas a Mezcla {mezclaSeleccionada.codigo}
-              </h3>
+              <div>
+                <h3 className="text-2xl font-bold text-gray-900">
+                  Agregar Dumpadas a Mezcla {mezclaSeleccionada.codigo}
+                </h3>
+                <p className="text-sm text-gray-500 mt-1">
+                  Selecciona dumpadas e indica cuántas paladas incluir. Las paladas parciales permiten distribuir una dumpada entre varias mezclas.
+                </p>
+              </div>
               <button
                 onClick={handleCerrarAgregarDumpadas}
                 className="text-gray-500 hover:text-gray-700 text-2xl font-bold"
@@ -2016,88 +2141,226 @@ export default function MezclasView({
               </button>
             </div>
 
-            <div className="mb-4">
-              <p className="text-sm text-gray-600">
-                Selecciona las dumpadas que deseas agregar a esta mezcla ({dumpadasAgregar.length} seleccionadas)
-              </p>
-            </div>
-
-            {/* Tabla de dumpadas disponibles */}
-            {dumpadasDisponibles.length === 0 ? (
-              <div className="text-center py-8">
-                <p className="text-gray-600">No hay dumpadas disponibles para agregar</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto mb-4">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b-2 border-green-200 bg-gradient-to-r from-green-50 to-green-100">
-                      <th className="text-center py-2 px-2 font-bold text-green-900 text-xs w-10">
-                        <input
-                          type="checkbox"
-                          onChange={() => {
-                            if (dumpadasAgregar.length === dumpadasDisponibles.length) {
-                              setDumpadasAgregar([]);
-                            } else {
-                              setDumpadasAgregar(dumpadasDisponibles.map(d => d.id));
-                            }
-                          }}
-                          checked={dumpadasAgregar.length === dumpadasDisponibles.length && dumpadasDisponibles.length > 0}
-                          className="w-4 h-4 rounded border-green-300 text-green-600 focus:ring-green-500"
-                        />
-                      </th>
-                      <th className="text-left py-2 px-2 font-bold text-green-900 text-xs">N° Acop</th>
-                      <th className="text-left py-2 px-2 font-bold text-green-900 text-xs">Acopios</th>
-                      <th className="text-left py-2 px-2 font-bold text-green-900 text-xs">Frente</th>
-                      <th className="text-left py-2 px-2 font-bold text-green-900 text-xs">Fecha</th>
-                      <th className="text-left py-2 px-2 font-bold text-green-900 text-xs">Toneladas</th>
-                      <th className="text-left py-2 px-2 font-bold text-green-900 text-xs">Ley</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {dumpadasDisponibles.slice(0, 10).map((dumpada, index) => (
-                      <tr
-                        key={dumpada.id}
-                        className={`border-b border-gray-200 hover:bg-green-50 transition-all ${dumpadasAgregar.includes(dumpada.id) ? 'bg-green-100' : index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
-                          }`}
-                      >
-                        <td className="py-2 px-2 text-center">
-                          <input
-                            type="checkbox"
-                            checked={dumpadasAgregar.includes(dumpada.id)}
-                            onChange={() => handleToggleDumpadaAgregar(dumpada.id)}
-                            className="w-4 h-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
-                          />
-                        </td>
-                        <td className="py-2 px-2 font-mono font-bold text-gray-800 text-xs">
-                          {String(dumpada.n_acop).padStart(3, '0')}
-                        </td>
-                        <td className="py-2 px-2 font-mono text-xs text-blue-700">
-                          {dumpada.acopios}
-                        </td>
-                        <td className="py-2 px-2 text-xs">
-                          {dumpada.frente_trabajo?.codigo_completo || '-'}
-                        </td>
-                        <td className="py-2 px-2 text-xs">
-                          {formatearFecha(dumpada.fecha)}
-                        </td>
-                        <td className="py-2 px-2 text-xs font-semibold">
-                          {parseFloat(dumpada.ton).toFixed(2)} t
-                        </td>
-                        <td className="py-2 px-2 text-xs">
-                          {dumpada.ley ? `${parseFloat(dumpada.ley).toFixed(2)}%` : '-'}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {dumpadasDisponibles.length > 10 && (
-                  <p className="text-sm text-gray-500 mt-2 text-center">
-                    Mostrando las primeras 10 de {dumpadasDisponibles.length} dumpadas disponibles
-                  </p>
-                )}
+            {/* Resumen de selección */}
+            {dumpadasAgregar.length > 0 && (
+              <div className="mb-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+                <p className="text-sm font-semibold text-green-800">
+                  {dumpadasAgregar.length} dumpada(s) seleccionada(s) —{' '}
+                  Toneladas estimadas:{' '}
+                  {dumpadasAgregar.reduce((sum, d) => {
+                    const dump = dumpadasDisponibles.find(x => x.id === d.id);
+                    if (!dump) return sum;
+                    if (d.numero_paladas != null) {
+                      return sum + (d.numero_paladas * (dump.ton_por_palada || toneladas_por_palada));
+                    }
+                    return sum + parseFloat(dump.ton || 0);
+                  }, 0).toFixed(2)} t
+                </p>
               </div>
             )}
+
+            {/* Filtro y contador */}
+            {(() => {
+              const perPageAgregar2 = 20;
+
+              const filtradas = dumpadasDisponibles.filter(d => {
+                if (!searchAgregar) return true;
+                const search = searchAgregar.toLowerCase();
+                return (
+                  String(d.numero_dumpada || '').toLowerCase().includes(search) ||
+                  String(d.acopios || '').toLowerCase().includes(search) ||
+                  String(d.frente_trabajo?.codigo_completo || '').toLowerCase().includes(search) ||
+                  String(d.fecha || '').includes(search)
+                );
+              });
+
+              const totalPages = Math.ceil(filtradas.length / perPageAgregar2);
+              const paginadas = filtradas.slice((pageAgregar - 1) * perPageAgregar2, pageAgregar * perPageAgregar2);
+
+              return (
+                <>
+                  <div className="mb-3 flex items-center gap-3">
+                    <input
+                      type="text"
+                      placeholder="Buscar por N° dumpada, acopio, frente, fecha..."
+                      value={searchAgregar}
+                      onChange={(e) => { setSearchAgregar(e.target.value); setPageAgregar(1); }}
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                    />
+                    <p className="text-sm text-gray-600 whitespace-nowrap">
+                      {dumpadasAgregar.length} seleccionadas de {filtradas.length}
+                    </p>
+                  </div>
+
+                  {filtradas.length === 0 ? (
+                    <div className="text-center py-8">
+                      <p className="text-gray-600">
+                        {searchAgregar ? 'No se encontraron dumpadas con ese filtro' : 'No hay dumpadas disponibles para agregar'}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto mb-4">
+                      <div className="max-h-[420px] overflow-y-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-gradient-to-r from-green-50 to-green-100 sticky top-0">
+                            <tr className="border-b-2 border-green-200">
+                              <th className="text-center py-2 px-2 font-bold text-green-900 text-xs w-10">
+                                <input
+                                  type="checkbox"
+                                  onChange={() => {
+                                    const filtradasIds = filtradas.map(d => d.id);
+                                    const todasSeleccionadas = filtradasIds.every(id => dumpadasAgregar.some(d => d.id === id));
+                                    if (todasSeleccionadas) {
+                                      setDumpadasAgregar(dumpadasAgregar.filter(d => !filtradasIds.includes(d.id)));
+                                    } else {
+                                      const nuevas = filtradas
+                                        .filter(d => !dumpadasAgregar.some(da => da.id === d.id))
+                                        .map(d => ({
+                                          id: d.id,
+                                          numero_paladas: null
+                                        }));
+                                      setDumpadasAgregar([...dumpadasAgregar, ...nuevas]);
+                                    }
+                                  }}
+                                  checked={filtradas.length > 0 && filtradas.every(d => dumpadasAgregar.some(da => da.id === d.id))}
+                                  className="w-4 h-4 rounded border-green-300 text-green-600 focus:ring-green-500"
+                                />
+                              </th>
+                              <th className="text-left py-2 px-2 font-bold text-green-900 text-xs">N° Dump</th>
+                              <th className="text-left py-2 px-2 font-bold text-green-900 text-xs">Acopios</th>
+                              <th className="text-left py-2 px-2 font-bold text-green-900 text-xs">Frente</th>
+                              <th className="text-left py-2 px-2 font-bold text-green-900 text-xs">Fecha</th>
+                              <th className="text-right py-2 px-2 font-bold text-green-900 text-xs">Ton total</th>
+                              <th className="text-center py-2 px-2 font-bold text-green-900 text-xs">Paladas disp.</th>
+                              <th className="text-center py-2 px-2 font-bold text-green-900 text-xs">Paladas a usar</th>
+                              <th className="text-right py-2 px-2 font-bold text-green-900 text-xs">Ton a usar</th>
+                              <th className="text-right py-2 px-2 font-bold text-green-900 text-xs">Ley</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {paginadas.map((dumpada, index) => {
+                              const seleccionada = dumpadasAgregar.find(d => d.id === dumpada.id);
+                              const estaSeleccionada = !!seleccionada;
+                              const tonPalada = dumpada.ton_por_palada || toneladas_por_palada;
+                              const paladasDisp = dumpada.paladas_disponibles ?? (dumpada.ton / tonPalada);
+                              const numeroPaladas = seleccionada?.numero_paladas ?? null;
+                              const tonAUsar = numeroPaladas != null
+                                ? (numeroPaladas * tonPalada).toFixed(2)
+                                : parseFloat(dumpada.ton || 0).toFixed(2);
+
+                              return (
+                                <tr
+                                  key={dumpada.id}
+                                  className={`border-b border-gray-200 hover:bg-green-50 transition-all ${estaSeleccionada ? 'bg-green-100' : index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}
+                                >
+                                  <td className="py-2 px-2 text-center">
+                                    <input
+                                      type="checkbox"
+                                      checked={estaSeleccionada}
+                                      onChange={() => handleToggleDumpadaAgregar(dumpada)}
+                                      className="w-4 h-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
+                                    />
+                                  </td>
+                                  <td
+                                    className="py-2 px-2 font-mono font-bold text-gray-800 text-xs cursor-pointer"
+                                    onClick={() => handleToggleDumpadaAgregar(dumpada)}
+                                  >
+                                    #{dumpada.numero_dumpada}
+                                    {dumpada.tiene_uso_parcial && (
+                                      <span className="ml-1 px-1 py-0.5 bg-amber-100 text-amber-700 text-[9px] rounded border border-amber-300 font-normal">
+                                        parcial
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="py-2 px-2 font-mono text-xs text-blue-700">
+                                    {dumpada.acopios || '-'}
+                                  </td>
+                                  <td className="py-2 px-2 text-xs">
+                                    {dumpada.frente_trabajo?.codigo_completo || '-'}
+                                  </td>
+                                  <td className="py-2 px-2 text-xs">
+                                    {formatearFecha(dumpada.fecha)}
+                                  </td>
+                                  <td className="py-2 px-2 text-xs font-semibold text-right">
+                                    {parseFloat(dumpada.ton).toFixed(2)} t
+                                  </td>
+                                  {/* Paladas disponibles */}
+                                  <td className="py-2 px-2 text-xs text-center">
+                                    {dumpada.paladas_disponibles != null ? (
+                                      <span className={`font-semibold ${dumpada.tiene_uso_parcial ? 'text-amber-600' : 'text-green-700'}`}>
+                                        {parseFloat(dumpada.paladas_disponibles).toFixed(1)} / {dumpada.paladas_totales}
+                                      </span>
+                                    ) : (
+                                      <span className="text-gray-400">-</span>
+                                    )}
+                                  </td>
+                                  {/* Input de paladas a usar */}
+                                  <td className="py-2 px-2 text-center" onClick={(e) => e.stopPropagation()}>
+                                    {estaSeleccionada ? (
+                                      <input
+                                        type="number"
+                                        min="0.5"
+                                        max={parseFloat(paladasDisp)}
+                                        step="0.5"
+                                        value={numeroPaladas ?? ''}
+                                        placeholder="Todas"
+                                        onChange={(e) => {
+                                          const val = e.target.value === '' ? null : parseFloat(e.target.value);
+                                          if (val !== null && val > parseFloat(paladasDisp)) {
+                                            toast.warning('Paladas excedidas', `Máximo ${parseFloat(paladasDisp).toFixed(1)} paladas disponibles`);
+                                            return;
+                                          }
+                                          handleSetPaladasAgregar(dumpada.id, val);
+                                        }}
+                                        className="w-20 px-1 py-1 border border-green-300 rounded text-xs text-center focus:ring-1 focus:ring-green-500"
+                                      />
+                                    ) : (
+                                      <span className="text-gray-300 text-xs">-</span>
+                                    )}
+                                  </td>
+                                  {/* Toneladas a usar */}
+                                  <td className="py-2 px-2 text-xs font-semibold text-right text-green-700">
+                                    {estaSeleccionada ? `${tonAUsar} t` : <span className="text-gray-300">-</span>}
+                                  </td>
+                                  <td className="py-2 px-2 text-xs text-right">
+                                    {dumpada.ley ? `${parseFloat(dumpada.ley).toFixed(2)}%` : dumpada.ley_visual ? `${parseFloat(dumpada.ley_visual).toFixed(2)}% (vis)` : '-'}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Paginacion */}
+                      {totalPages > 1 && (
+                        <div className="flex items-center justify-between mt-3 px-1">
+                          <p className="text-xs text-gray-500">
+                            Pagina {pageAgregar} de {totalPages} ({filtradas.length} dumpadas)
+                          </p>
+                          <div className="flex gap-1">
+                            <button
+                              onClick={() => setPageAgregar(Math.max(1, pageAgregar - 1))}
+                              disabled={pageAgregar === 1}
+                              className="px-3 py-1 text-xs border rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              Anterior
+                            </button>
+                            <button
+                              onClick={() => setPageAgregar(Math.min(totalPages, pageAgregar + 1))}
+                              disabled={pageAgregar === totalPages}
+                              className="px-3 py-1 text-xs border rounded hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              Siguiente
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
 
             <div className="flex justify-end gap-3 mt-6">
               <Button

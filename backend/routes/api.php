@@ -4,6 +4,7 @@ use App\Http\Controllers\Api\RegistroProduccionController;
 use App\Http\Controllers\Api\FaenaController;
 use App\Http\Controllers\Api\ConfiguracionController;
 use App\Http\Controllers\Api\PetroleController;
+use App\Http\Controllers\Api\GerencialController;
 use Illuminate\Support\Facades\Route;
 
 // Ruta de prueba pública
@@ -13,6 +14,12 @@ Route::get('/ping', function () {
         'message' => 'API Sistema de Producción funcionando 🚀',
         'timestamp' => now()->toDateTimeString(),
     ]);
+});
+
+// Dashboard Gerencial (acceso público - solo lectura, consumido por otros sistemas)
+Route::prefix('gerencial')->group(function () {
+    Route::get('/resumen', [GerencialController::class, 'resumen']);
+    Route::get('/faenas', [GerencialController::class, 'faenas']);
 });
 
 // Rutas protegidas

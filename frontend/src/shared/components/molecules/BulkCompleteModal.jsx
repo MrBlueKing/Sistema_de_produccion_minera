@@ -239,25 +239,41 @@ export default function BulkCompleteModal({ show, dumpadas = [], onConfirm, onCa
                         )}
                       </td>
 
-                      {/* N° Dump */}
+                      {/* N° Dump / Nombre */}
                       <td className="py-2 px-3">
-                        <span className="font-mono font-bold text-gray-800 text-sm">
-                          {dumpada.numero_dumpada ? String(dumpada.numero_dumpada) : '-'}
-                        </span>
+                        {dumpada.tipo === 'muestra_libre' ? (
+                          <span className="font-bold text-purple-800 text-xs bg-purple-100 px-2 py-1 rounded">
+                            {dumpada.nombre || 'Muestra'}
+                          </span>
+                        ) : (
+                          <span className="font-mono font-bold text-gray-800 text-sm">
+                            {dumpada.numero_dumpada ? String(dumpada.numero_dumpada) : '-'}
+                          </span>
+                        )}
                       </td>
 
-                      {/* Frente */}
+                      {/* Frente / Solicitante */}
                       <td className="py-2 px-3">
-                        <span className="bg-blue-100 text-blue-900 px-2 py-1 rounded text-xs font-semibold whitespace-nowrap">
-                          {dumpada.frente_trabajo?.codigo_completo || '-'}
-                        </span>
+                        {dumpada.tipo === 'muestra_libre' ? (
+                          <span className="bg-purple-100 text-purple-900 px-2 py-1 rounded text-xs font-semibold whitespace-nowrap">
+                            {dumpada.solicitante || '—'}
+                          </span>
+                        ) : (
+                          <span className="bg-blue-100 text-blue-900 px-2 py-1 rounded text-xs font-semibold whitespace-nowrap">
+                            {dumpada.frente_trabajo?.codigo_completo || '-'}
+                          </span>
+                        )}
                       </td>
 
                       {/* Jornada */}
                       <td className="py-2 px-3">
-                        <span className="bg-purple-100 text-purple-900 px-2 py-1 rounded text-xs font-semibold whitespace-nowrap">
-                          {dumpada.jornada}{dumpada.numero_jornada ? `-${dumpada.numero_jornada}` : ''}
-                        </span>
+                        {dumpada.tipo === 'muestra_libre' ? (
+                          <span className="text-gray-400 text-xs">—</span>
+                        ) : (
+                          <span className="bg-purple-100 text-purple-900 px-2 py-1 rounded text-xs font-semibold whitespace-nowrap">
+                            {dumpada.jornada}{dumpada.numero_jornada ? `-${dumpada.numero_jornada}` : ''}
+                          </span>
+                        )}
                       </td>
 
                       {/* Cu Total (ley) */}

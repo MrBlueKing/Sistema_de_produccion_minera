@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Laboratorio;
 use App\Http\Controllers\Controller;
 use App\Services\CertificadoPdfService;
 use App\Models\Dispatch\Dumpada;
+use App\Models\Dispatch\MuestraLibre;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
@@ -130,67 +131,68 @@ class CertificadoController extends Controller
     }
 
     /**
-     * Generar y descargar certificado PDF
-     * Incluye validación automática de certificados existentes
+     * Generar y descargar certificado PDF.
+     * Acepta dumpada_ids, muestra_libre_ids, o ambos mezclados.
      */
     public function generar(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'dumpada_ids' => 'required|array|min:1',
-            'dumpada_ids.*' => 'required|integer|exists:dumpadas,id',
-            'forzar_regenerar' => 'nullable|boolean',
+            'dumpada_ids'         => 'nullable|array',
+            'dumpada_ids.*'       => 'integer|exists:dumpadas,id',
+            'muestra_libre_ids'   => 'nullable|array',
+            'muestra_libre_ids.*' => 'integer|exists:muestras_libres,id',
+            'forzar_regenerar'    => 'nullable|boolean',
         ]);
 
         if ($validator->fails()) {
-            return response()->json([
-                'success' => false,
-                'errors' => $validator->errors()
-            ], 422);
+            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+        }
+
+        $dumpadaIds      = $request->input('dumpada_ids', []);
+        $muestraLibreIds = $request->input('muestra_libre_ids', []);
+
+        if (empty($dumpadaIds) && empty($muestraLibreIds)) {
+            return response()->json(['success' => false, 'message' => 'Debe seleccionar al menos una muestra.'], 422);
         }
 
         try {
-            $dumpadas = Dumpada::whereIn('id', $request->dumpada_ids)->get();
+            // Recolectar todos los ítems seleccionados
+            $dumpadas       = !empty($dumpadaIds) ? Dumpada::whereIn('id', $dumpadaIds)->get() : collect();
+            $muestrasLibres = !empty($muestraLibreIds) ? MuestraLibre::whereIn('id', $muestraLibreIds)->get() : collect();
 
-            $conCertificado = $dumpadas->whereNotNull('certificado');
-            $sinCertificado = $dumpadas->whereNull('certificado');
+            $conCertificado = $dumpadas->whereNotNull('certificado')
+                ->concat($muestrasLibres->whereNotNull('certificado'));
+            $sinCertificado = $dumpadas->whereNull('certificado')
+                ->concat($muestrasLibres->whereNull('certificado'));
 
-            // Validar mezcla
+            // No se puede mezclar items con y sin certificado
             if ($conCertificado->isNotEmpty() && $sinCertificado->isNotEmpty()) {
-                $certificadosExistentes = $conCertificado->pluck('certificado')->unique()->implode(', ');
+                $certs = $conCertificado->pluck('certificado')->unique()->implode(', ');
                 return response()->json([
                     'success' => false,
-                    'message' => "No puede mezclar dumpadas con y sin certificado. Algunas ya pertenecen a: {$certificadosExistentes}"
+                    'message' => "No puede mezclar muestras con y sin certificado. Algunas ya pertenecen a: {$certs}"
                 ], 400);
             }
 
-            // Validar diferentes certificados
+            // Si todos tienen certificado → regenerar
             if ($conCertificado->isNotEmpty()) {
                 $certificadosUnicos = $conCertificado->pluck('certificado')->unique();
-
                 if ($certificadosUnicos->count() > 1) {
                     return response()->json([
                         'success' => false,
-                        'message' => "No puede mezclar dumpadas de diferentes certificados: " . $certificadosUnicos->implode(', ')
+                        'message' => 'No puede mezclar muestras de diferentes certificados: ' . $certificadosUnicos->implode(', ')
                     ], 400);
                 }
-
-                // Regenerar certificado existente (con TODAS sus dumpadas)
-                $numeroCertificado = $certificadosUnicos->first();
-                $pdf = $this->certificadoService->regenerarCertificado($numeroCertificado);
-                return $pdf->download("certificado_{$numeroCertificado}.pdf");
+                $pdf = $this->certificadoService->regenerarCertificado($certificadosUnicos->first());
+                return $pdf->download("certificado_{$certificadosUnicos->first()}.pdf");
             }
 
-            // Generar nuevo certificado
-            $pdf = $this->certificadoService->generarCertificado($request->dumpada_ids);
+            // Generar nuevo certificado con ambos tipos
+            $pdf = $this->certificadoService->generarCertificado($dumpadaIds, null, true, $muestraLibreIds);
+            return $pdf->download('certificado_' . date('Y-m-d_His') . '.pdf');
 
-            $nombreArchivo = 'certificado_' . date('Y-m-d_His') . '.pdf';
-
-            return $pdf->download($nombreArchivo);
         } catch (\Exception $e) {
-            return response()->json([
-                'success' => false,
-                'message' => $e->getMessage()
-            ], 400);
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 400);
         }
     }
 
@@ -246,16 +248,14 @@ class CertificadoController extends Controller
     }
 
     /**
-     * Regenerar un certificado existente por su número
+     * Regenerar un certificado existente por su número.
+     * Incluye automáticamente todos los tipos (dumpadas + muestras específicas).
      */
     public function regenerar(Request $request, string $numeroCertificado)
     {
         try {
             $pdf = $this->certificadoService->regenerarCertificado($numeroCertificado);
-
-            $nombreArchivo = 'certificado_' . $numeroCertificado . '.pdf';
-
-            return $pdf->download($nombreArchivo);
+            return $pdf->download('certificado_' . $numeroCertificado . '.pdf');
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,

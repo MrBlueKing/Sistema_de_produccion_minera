@@ -107,6 +107,13 @@ export const AuthProvider = ({ children }) => {
     };
 
     /**
+     * Obtiene el rol activo seleccionado en el SAC
+     */
+    const getRolActivo = () => {
+        return authService.getRolActivo();
+    };
+
+    /**
      * Cierra la sesión del usuario
      */
     const logout = () => {
@@ -136,6 +143,7 @@ export const AuthProvider = ({ children }) => {
             getUserInfo,
             hasRole,
             hasPermission,
+            getRolActivo,
             getSessionInfo,
             logout,
         }}>

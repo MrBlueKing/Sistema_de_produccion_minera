@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { HiHome, HiDocumentText, HiInformationCircle, HiArrowPath, HiDocumentArrowDown } from 'react-icons/hi2';
+import { HiHome, HiDocumentText, HiInformationCircle, HiArrowPath, HiDocumentArrowDown, HiPencil, HiXMark, HiCheck } from 'react-icons/hi2';
 import Header from '../../../shared/components/organisms/Header';
 import Button from '../../../shared/components/atoms/Button';
 import Card from '../../../shared/components/atoms/Card';
@@ -180,7 +180,7 @@ export default function HistorialAnalisis() {
   };
 
   const handleGoBack = () => {
-    window.location.href = 'http://localhost:5173';
+    window.location.href = import.meta.env.VITE_CENTRAL_URL;
   };
 
   const getRangoColor = (rango) => {
@@ -191,6 +191,45 @@ export default function HistorialAnalisis() {
       'Esteril': 'bg-red-500',
     };
     return colors[rango] || 'bg-gray-500';
+  };
+
+  // Estado para modal de edición
+  const [editModal, setEditModal] = useState({ show: false, dumpada: null });
+  const [editForm, setEditForm] = useState({ ley: '', cu_soluble: '', cu_insoluble: '' });
+  const [saving, setSaving] = useState(false);
+
+  const handleEditClick = (dumpada) => {
+    setEditForm({
+      ley: dumpada.ley || '',
+      cu_soluble: dumpada.cu_soluble || '',
+      cu_insoluble: dumpada.cu_insoluble || '',
+    });
+    setEditModal({ show: true, dumpada });
+  };
+
+  const handleEditSave = async () => {
+    if (!editModal.dumpada) return;
+
+    if (!editForm.ley || !editForm.cu_soluble) {
+      toast.error('Campos requeridos', 'Ley (Cu Total) y Cu Soluble son obligatorios');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await laboratorioService.editarAnalisis(editModal.dumpada.id, {
+        ley: parseFloat(editForm.ley),
+        cu_soluble: parseFloat(editForm.cu_soluble),
+        cu_insoluble: editForm.cu_insoluble ? parseFloat(editForm.cu_insoluble) : undefined,
+      });
+      toast.success('Actualizado', 'El análisis fue editado correctamente');
+      setEditModal({ show: false, dumpada: null });
+      loadData();
+    } catch (error) {
+      toast.error('Error al guardar', error.response?.data?.message || error.message);
+    } finally {
+      setSaving(false);
+    }
   };
 
   // TODO: Implementar generacion de PDF
@@ -223,7 +262,7 @@ export default function HistorialAnalisis() {
             items={[
               {
                 label: 'Dashboard Central',
-                href: 'http://localhost:5173',
+                href: import.meta.env.VITE_CENTRAL_URL,
                 onClick: (e) => {
                   e.preventDefault();
                   handleGoBack();
@@ -438,6 +477,7 @@ export default function HistorialAnalisis() {
                       <th className="text-left py-3 px-3 font-bold text-emerald-900 text-xs whitespace-nowrap">Ley Cup</th>
                       <th className="text-left py-3 px-3 font-bold text-emerald-900 text-xs">Certificado</th>
                       <th className="text-left py-3 px-3 font-bold text-emerald-900 text-xs">Rango</th>
+                      <th className="text-left py-3 px-3 font-bold text-emerald-900 text-xs">Acciones</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -495,6 +535,15 @@ export default function HistorialAnalisis() {
                               {dumpada.rango || '-'}
                             </span>
                           </td>
+                          <td className="py-3 px-3">
+                            <button
+                              onClick={() => handleEditClick(dumpada)}
+                              className="p-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-700 rounded-lg transition-colors"
+                              title="Editar análisis"
+                            >
+                              <HiPencil className="w-4 h-4" />
+                            </button>
+                          </td>
                         </tr>
                       );
                     })}
@@ -517,6 +566,119 @@ export default function HistorialAnalisis() {
             </>
           )}
         </Card>
+        {/* Modal de Edición */}
+        {editModal.show && editModal.dumpada && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full">
+              {/* Header */}
+              <div className="bg-gradient-to-r from-emerald-600 to-emerald-500 text-white p-5 rounded-t-xl flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
+                    <HiPencil className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold">Editar Análisis</h2>
+                    <p className="text-emerald-100 text-xs">
+                      Dumpada #{editModal.dumpada.numero_dumpada} - {editModal.dumpada.frente_trabajo?.codigo_completo}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setEditModal({ show: false, dumpada: null })}
+                  className="w-8 h-8 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center transition-colors"
+                >
+                  <HiXMark className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Contenido */}
+              <div className="p-5 space-y-4">
+                {/* Info actual */}
+                <div className="bg-gray-50 rounded-lg p-3 text-xs text-gray-600">
+                  <p><strong>Faena:</strong> {editModal.dumpada.faena_info?.ubicacion || editModal.dumpada.faena || '-'}</p>
+                  <p><strong>Fecha:</strong> {formatearFecha(editModal.dumpada.fecha)} | <strong>Jornada:</strong> {editModal.dumpada.jornada}{editModal.dumpada.numero_jornada ? `-${editModal.dumpada.numero_jornada}` : ''}</p>
+                </div>
+
+                {/* Ley (Cu Total) */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">
+                    Ley - Cu Total (%) <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="0.001"
+                    value={editForm.ley}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, ley: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    placeholder="Ej: 1.640"
+                  />
+                </div>
+
+                {/* Cu Soluble */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">
+                    Cu Soluble (%) <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="0.001"
+                    value={editForm.cu_soluble}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, cu_soluble: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    placeholder="Ej: 0.800"
+                  />
+                </div>
+
+                {/* Cu Insoluble */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">
+                    Cu Insoluble (%) <span className="text-gray-400 text-xs font-normal">opcional, se calcula auto</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="0.001"
+                    value={editForm.cu_insoluble}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, cu_insoluble: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    placeholder={editForm.ley && editForm.cu_soluble ? `Auto: ${(parseFloat(editForm.ley || 0) - parseFloat(editForm.cu_soluble || 0)).toFixed(3)}` : 'Se calcula automáticamente'}
+                  />
+                </div>
+
+                {/* Info */}
+                <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-xs text-emerald-800">
+                  <strong>Nota:</strong> El Ley Cup (capping) y el Rango se recalculan automáticamente.
+                </div>
+              </div>
+
+              {/* Botones */}
+              <div className="px-5 pb-5 flex gap-3 justify-end">
+                <button
+                  onClick={() => setEditModal({ show: false, dumpada: null })}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleEditSave}
+                  disabled={saving}
+                  className="px-4 py-2 text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
+                >
+                  {saving ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                      Guardando...
+                    </>
+                  ) : (
+                    <>
+                      <HiCheck className="w-4 h-4" />
+                      Guardar
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );

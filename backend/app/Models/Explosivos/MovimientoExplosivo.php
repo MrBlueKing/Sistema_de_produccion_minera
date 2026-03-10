@@ -31,6 +31,7 @@ class MovimientoExplosivo extends Model
         'guia_despacho',
         'motivo',
         'observaciones',
+        'id_reporte_perforacion',
         'id_faena',
         'user_id',
     ];
@@ -73,6 +74,11 @@ class MovimientoExplosivo extends Model
     public function tronadura()
     {
         return $this->belongsTo(Tronadura::class, 'id_tronadura');
+    }
+
+    public function reportePerforacion()
+    {
+        return $this->belongsTo(ReportePerforacion::class, 'id_reporte_perforacion');
     }
 
     public function usuario()

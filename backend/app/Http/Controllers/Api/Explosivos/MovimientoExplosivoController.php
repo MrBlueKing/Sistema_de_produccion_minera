@@ -23,12 +23,14 @@ class MovimientoExplosivoController extends Controller
     public function index(Request $request)
     {
         $query = MovimientoExplosivo::with([
-            'tipoExplosivo:id,codigo,nombre,unidad_medida',
+            'tipoExplosivo:id,codigo,nombre,unidad_medida,id_categoria',
+            'tipoExplosivo.categoria:id,nombre',
             'polvorinOrigen:id,codigo,nombre',
             'polvorinDestino:id,codigo,nombre',
             'lote:id,numero_lote',
             'tronadura:id,codigo',
-            'usuario:id,name'
+            'usuario:id,name',
+            'reportePerforacion:id,codigo'
         ]);
 
         $this->aplicarFiltroFaena($query, $request);
@@ -65,9 +67,29 @@ class MovimientoExplosivoController extends Controller
             $query->where('codigo', 'like', '%' . $request->codigo . '%');
         }
 
+        // Estadísticas globales con los mismos filtros (sin paginar)
+        $statsQuery = MovimientoExplosivo::query();
+        $this->aplicarFiltroFaena($statsQuery, $request);
+        if ($request->filled('tipo'))              $statsQuery->where('tipo', $request->tipo);
+        if ($request->filled('fecha_desde'))       $statsQuery->where('fecha', '>=', $request->fecha_desde);
+        if ($request->filled('fecha_hasta'))       $statsQuery->where('fecha', '<=', $request->fecha_hasta);
+        if ($request->filled('id_tipo_explosivo')) $statsQuery->where('id_tipo_explosivo', $request->id_tipo_explosivo);
+        if ($request->filled('id_polvorin')) {
+            $statsQuery->where(function ($q) use ($request) {
+                $q->where('id_polvorin_origen', $request->id_polvorin)
+                  ->orWhere('id_polvorin_destino', $request->id_polvorin);
+            });
+        }
+        $resumen = $statsQuery->selectRaw("
+            SUM(CASE WHEN tipo = 'entrada'    THEN 1 ELSE 0 END) as count_entradas,
+            SUM(CASE WHEN tipo = 'salida'     THEN 1 ELSE 0 END) as count_salidas,
+            SUM(CASE WHEN tipo = 'ajuste'     THEN 1 ELSE 0 END) as count_ajustes,
+            SUM(CASE WHEN tipo = 'devolucion' THEN 1 ELSE 0 END) as count_devoluciones
+        ")->first();
+
         $movimientos = $query->orderBy('fecha', 'desc')
             ->orderBy('id', 'desc')
-            ->paginate($request->get('per_page', 20));
+            ->paginate($request->get('per_page', 15));
 
         // Agregar atributos calculados
         $movimientos->getCollection()->transform(function ($mov) {
@@ -76,7 +98,9 @@ class MovimientoExplosivoController extends Controller
             return $mov;
         });
 
-        return response()->json($movimientos);
+        return response()->json(array_merge($movimientos->toArray(), [
+            'resumen' => $resumen,
+        ]));
     }
 
     /**
@@ -119,6 +143,111 @@ class MovimientoExplosivoController extends Controller
         } catch (Exception $e) {
             return response()->json([
                 'error' => 'Error al registrar la entrada',
+                'mensaje' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * POST /api/explosivos/movimientos/entrada-guia
+     * Registrar entrada múltiple por Guía de Despacho
+     */
+    public function registrarEntradaGuia(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'id_polvorin' => 'required|integer|exists:polvorines,id',
+            'fecha' => 'required|date',
+            'hora' => 'nullable|date_format:H:i',
+            'guia_despacho' => 'required|string|max:100',
+            'proveedor' => 'nullable|string|max:200',
+            'rut_proveedor' => 'nullable|string|max:20',
+            'nombre_chofer' => 'nullable|string|max:150',
+            'rut_chofer' => 'nullable|string|max:20',
+            'patente' => 'nullable|string|max:20',
+            'recibido_por' => 'nullable|string|max:150',
+            'autorizado_por' => 'nullable|string|max:150',
+            'observaciones' => 'nullable|string',
+            'id_faena' => 'required|integer',
+            'items' => 'required|array|min:1',
+            'items.*.id_tipo_explosivo' => 'required|integer|exists:tipos_explosivos,id',
+            'items.*.cantidad' => 'required|numeric|min:0.01',
+            'items.*.numero_lote' => 'nullable|string|max:100',
+            'items.*.fecha_vencimiento' => 'nullable|date',
+            'items.*.precio_unitario' => 'nullable|numeric|min:0',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'error' => 'Datos inválidos',
+                'detalles' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            DB::beginTransaction();
+
+            $movimientos = [];
+            $lotes = [];
+            $observacionGuia = trim(implode(' | ', array_filter([
+                $request->proveedor ? "Proveedor: {$request->proveedor}" : null,
+                $request->nombre_chofer ? "Chofer: {$request->nombre_chofer}" : null,
+                $request->patente ? "Patente: {$request->patente}" : null,
+                $request->observaciones,
+            ])));
+
+            foreach ($request->items as $item) {
+                $idLote = null;
+
+                // Si trae número de lote, crear el lote
+                if (!empty($item['numero_lote'])) {
+                    $lote = LoteExplosivo::create([
+                        'numero_lote' => $item['numero_lote'],
+                        'id_tipo_explosivo' => $item['id_tipo_explosivo'],
+                        'id_polvorin' => $request->id_polvorin,
+                        'fecha_vencimiento' => $item['fecha_vencimiento'] ?? null,
+                        'fecha_ingreso' => $request->fecha,
+                        'guia_despacho' => $request->guia_despacho,
+                        'proveedor' => $request->proveedor,
+                        'cantidad_inicial' => $item['cantidad'],
+                        'cantidad_actual' => $item['cantidad'],
+                        'estado' => LoteExplosivo::ESTADO_ACTIVO,
+                        'id_faena' => $request->id_faena,
+                        'user_id' => auth()->id(),
+                    ]);
+                    $idLote = $lote->id;
+                    $lotes[] = $lote;
+                }
+
+                $movimiento = MovimientoExplosivo::registrarEntrada([
+                    'id_polvorin' => $request->id_polvorin,
+                    'id_tipo_explosivo' => $item['id_tipo_explosivo'],
+                    'id_lote' => $idLote,
+                    'cantidad' => $item['cantidad'],
+                    'fecha' => $request->fecha,
+                    'hora' => $request->hora,
+                    'guia_despacho' => $request->guia_despacho,
+                    'recibido_por' => $request->recibido_por,
+                    'autorizado_por' => $request->autorizado_por,
+                    'motivo' => "Ingreso por Guía {$request->guia_despacho}",
+                    'observaciones' => $observacionGuia,
+                    'id_faena' => $request->id_faena,
+                ]);
+
+                $movimientos[] = $movimiento;
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'mensaje' => 'Guía de despacho registrada exitosamente',
+                'movimientos' => count($movimientos),
+                'lotes_creados' => count($lotes),
+            ], 201);
+
+        } catch (Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'error' => 'Error al registrar la guía de despacho',
                 'mensaje' => $e->getMessage()
             ], 500);
         }

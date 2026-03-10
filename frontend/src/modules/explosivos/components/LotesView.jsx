@@ -232,7 +232,7 @@ export default function LotesView({ polvorin, tipos, onRefresh }) {
                 </thead>
                 <tbody>
                   {lotes.map((lote) => (
-                    <tr key={lote.id} className="border-b hover:bg-red-50/50">
+                    <tr key={lote.id} className="border-b hover:bg-red-50/50 even:bg-gray-50/30">
                       <td className="px-4 py-3">
                         <span className="font-mono font-medium">{lote.numero_lote}</span>
                         <div className="text-xs text-gray-500">
@@ -316,11 +316,11 @@ export default function LotesView({ polvorin, tipos, onRefresh }) {
       {showDetalle && loteSeleccionado && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-            <div className="px-6 py-4 border-b bg-gray-50 flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-gray-800">
+            <div className="px-6 py-4 border-b bg-gradient-to-r from-red-600 to-red-500 flex items-center justify-between rounded-t-xl">
+              <h3 className="text-lg font-semibold text-white">
                 Detalle del Lote: {loteSeleccionado.numero_lote}
               </h3>
-              <button onClick={() => setShowDetalle(false)} className="text-gray-500 hover:text-gray-700">
+              <button onClick={() => setShowDetalle(false)} className="text-white/80 hover:text-white">
                 <HiXMark className="w-6 h-6" />
               </button>
             </div>

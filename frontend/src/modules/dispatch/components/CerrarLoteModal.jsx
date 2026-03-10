@@ -1,18 +1,50 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { HiX, HiCheckCircle } from 'react-icons/hi';
 import Button from '../../../shared/components/atoms/Button';
 import { useConfig } from '../../../hooks/useConfig';
 
 const CerrarLoteModal = ({ lote, onConfirm, onCancel }) => {
-  const { config, loading: loadingConfig } = useConfig();
+  const { config } = useConfig();
+  const [cerrando, setCerrando] = useState(false);
   const [formData, setFormData] = useState({
-    metodo: 'paladas', // 'paladas', 'toneladas', o 'ninguno'
+    metodo: 'ninguno', // 'ninguno', 'paladas', o 'toneladas'
     numero_paladas: '',
     toneladas_remanente: '',
     observaciones_remanente: ''
   });
 
   const toneladasPorPalada = config?.toneladas_por_palada || 1.82;
+
+  // Calcular resumen de remanentes por mezcla
+  const resumenMezclas = useMemo(() => {
+    if (!lote?.camionadas || lote.camionadas.length === 0) return [];
+
+    // Agrupar camionadas por mezcla
+    const mezclasMap = {};
+    lote.camionadas.forEach((cam) => {
+      const mezclaId = cam.mezcla_id;
+      if (!mezclaId) return;
+
+      if (!mezclasMap[mezclaId]) {
+        mezclasMap[mezclaId] = {
+          mezcla_id: mezclaId,
+          codigo: cam.mezcla?.codigo || `Mezcla #${mezclaId}`,
+          total_ton: cam.mezcla?.total_ton || 0,
+          toneladas_disponibles: cam.mezcla?.toneladas_disponibles || 0,
+          peso_real_lote: 0,
+          camionadas: 0,
+        };
+      }
+
+      mezclasMap[mezclaId].peso_real_lote += parseFloat(cam.peso_real || 0);
+      mezclasMap[mezclaId].camionadas += 1;
+    });
+
+    return Object.values(mezclasMap);
+  }, [lote]);
+
+  const totalPesoRealLote = resumenMezclas.reduce((sum, m) => sum + m.peso_real_lote, 0);
+  const totalRemanente = resumenMezclas.reduce((sum, m) => sum + parseFloat(m.toneladas_disponibles || 0), 0);
 
   const calcularToneladas = () => {
     if (formData.metodo === 'paladas' && formData.numero_paladas) {
@@ -24,7 +56,7 @@ const CerrarLoteModal = ({ lote, onConfirm, onCancel }) => {
     return 0;
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
 
     const datos = {};
@@ -39,7 +71,12 @@ const CerrarLoteModal = ({ lote, onConfirm, onCancel }) => {
       datos.observaciones_remanente = formData.observaciones_remanente;
     }
 
-    onConfirm(datos);
+    setCerrando(true);
+    try {
+      await onConfirm(datos);
+    } finally {
+      setCerrando(false);
+    }
   };
 
   const toneladasCalculadas = calcularToneladas();
@@ -72,18 +109,69 @@ const CerrarLoteModal = ({ lote, onConfirm, onCancel }) => {
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
-          {/* Información */}
-          <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded">
-            <p className="text-sm text-blue-900">
-              <strong>Nota:</strong> Al cerrar el lote, las mezclas con toneladas disponibles quedarán como remanentes.
-              Opcionalmente, puedes crear un remanente adicional basado en material recogido del suelo.
-            </p>
-          </div>
+          {/* Resumen de remanentes por mezcla */}
+          {resumenMezclas.length > 0 && (
+            <div>
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">Resumen de mezclas en este lote</h3>
+              <div className="border border-gray-200 rounded-lg overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="text-left px-4 py-2 text-gray-600 font-medium">Mezcla</th>
+                      <th className="text-right px-4 py-2 text-gray-600 font-medium">Total Mezcla</th>
+                      <th className="text-right px-4 py-2 text-gray-600 font-medium">Despachado (Lote)</th>
+                      <th className="text-right px-4 py-2 text-gray-600 font-medium">Disponible</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {resumenMezclas.map((m) => (
+                      <tr key={m.mezcla_id}>
+                        <td className="px-4 py-2 font-medium text-gray-900">{m.codigo}</td>
+                        <td className="px-4 py-2 text-right text-gray-600">
+                          {parseFloat(m.total_ton).toFixed(2)} t
+                        </td>
+                        <td className="px-4 py-2 text-right text-blue-600 font-medium">
+                          {m.peso_real_lote.toFixed(2)} t
+                          <span className="text-gray-400 text-xs ml-1">({m.camionadas} cam.)</span>
+                        </td>
+                        <td className="px-4 py-2 text-right font-bold">
+                          <span className={parseFloat(m.toneladas_disponibles || 0) > 0.01 ? 'text-green-600' : 'text-gray-400'}>
+                            {parseFloat(m.toneladas_disponibles || 0).toFixed(2)} t
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="bg-gray-50 border-t border-gray-200">
+                    <tr className="font-semibold">
+                      <td className="px-4 py-2 text-gray-700">Total</td>
+                      <td className="px-4 py-2 text-right text-gray-700">
+                        {resumenMezclas.reduce((s, m) => s + parseFloat(m.total_ton), 0).toFixed(2)} t
+                      </td>
+                      <td className="px-4 py-2 text-right text-blue-700">
+                        {totalPesoRealLote.toFixed(2)} t
+                      </td>
+                      <td className="px-4 py-2 text-right">
+                        <span className={totalRemanente > 0.01 ? 'text-green-700' : 'text-gray-400'}>
+                          {totalRemanente.toFixed(2)} t
+                        </span>
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+              {totalRemanente > 0.01 && (
+                <p className="text-xs text-gray-500 mt-2">
+                  Las toneladas disponibles ya fueron descontadas al recepcionar. Quedan disponibles para futuros despachos.
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Método de cálculo */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-3">
-              ¿Deseas crear un remanente adicional?
+              ¿Deseas crear un remanente adicional? (material recogido del suelo)
             </label>
             <div className="space-y-2">
               <label className="flex items-center p-3 border-2 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors"
@@ -98,7 +186,7 @@ const CerrarLoteModal = ({ lote, onConfirm, onCancel }) => {
                 />
                 <div className="ml-3">
                   <span className="font-medium text-gray-900">No, solo cerrar el lote</span>
-                  <p className="text-xs text-gray-500">Sin remanente adicional</p>
+                  <p className="text-xs text-gray-500">Cierre normal - los remanentes de las mezclas se mantienen</p>
                 </div>
               </label>
 
@@ -113,9 +201,9 @@ const CerrarLoteModal = ({ lote, onConfirm, onCancel }) => {
                   className="w-4 h-4 text-indigo-600"
                 />
                 <div className="ml-3">
-                  <span className="font-medium text-gray-900">Por número de paladas</span>
+                  <span className="font-medium text-gray-900">Por numero de paladas</span>
                   <p className="text-xs text-gray-500">
-                    Calcular automáticamente ({toneladasPorPalada} ton/palada)
+                    Registrar material recogido del suelo ({toneladasPorPalada} ton/palada)
                   </p>
                 </div>
               </label>
@@ -132,7 +220,7 @@ const CerrarLoteModal = ({ lote, onConfirm, onCancel }) => {
                 />
                 <div className="ml-3">
                   <span className="font-medium text-gray-900">Ingresar toneladas directamente</span>
-                  <p className="text-xs text-gray-500">Peso exacto del remanente</p>
+                  <p className="text-xs text-gray-500">Peso exacto del material recogido</p>
                 </div>
               </label>
             </div>
@@ -142,7 +230,7 @@ const CerrarLoteModal = ({ lote, onConfirm, onCancel }) => {
           {formData.metodo === 'paladas' && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Número de Paladas Recogidas
+                Numero de Paladas Recogidas
               </label>
               <input
                 type="number"
@@ -160,7 +248,7 @@ const CerrarLoteModal = ({ lote, onConfirm, onCancel }) => {
                     <strong>Toneladas calculadas:</strong> {toneladasCalculadas.toFixed(2)} t
                   </p>
                   <p className="text-xs text-green-700 mt-1">
-                    {formData.numero_paladas} paladas × {toneladasPorPalada} ton/palada
+                    {formData.numero_paladas} paladas x {toneladasPorPalada} ton/palada
                   </p>
                 </div>
               )}
@@ -194,7 +282,7 @@ const CerrarLoteModal = ({ lote, onConfirm, onCancel }) => {
                 value={formData.observaciones_remanente}
                 onChange={(e) => setFormData({ ...formData, observaciones_remanente: e.target.value })}
                 className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                placeholder="Información adicional sobre el remanente..."
+                placeholder="Informacion adicional sobre el remanente..."
                 rows="3"
               />
             </div>
@@ -214,9 +302,10 @@ const CerrarLoteModal = ({ lote, onConfirm, onCancel }) => {
               type="submit"
               variant="primary"
               icon={HiCheckCircle}
+              disabled={cerrando}
               className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700"
             >
-              Cerrar Lote
+              {cerrando ? 'Cerrando...' : 'Cerrar Lote'}
             </Button>
           </div>
         </form>

@@ -1,7 +1,7 @@
 import secureStorage from './secureStorage';
 
-const AUTH_API = 'http://127.0.0.1:8001/api';
-const CENTRAL_URL = 'http://localhost:5173';
+const AUTH_API = import.meta.env.VITE_AUTH_API_URL;
+const CENTRAL_URL = import.meta.env.VITE_CENTRAL_URL;
 
 /**
  * AuthService - Servicio de autenticación para el Sistema de Producción
@@ -29,10 +29,16 @@ class AuthService {
       const urlParams = new URLSearchParams(window.location.search);
       const token = urlParams.get('token');
       const moduloId = urlParams.get('modulo_id');
+      const rol = urlParams.get('rol');
 
       if (!token || !moduloId) {
         console.log('ℹ️ No hay parámetros de autenticación en URL');
         return false;
+      }
+
+      // Guardar el rol seleccionado en el SAC
+      if (rol) {
+        sessionStorage.setItem('sisprod_rol_activo', rol);
       }
 
       console.log('🔐 Inicializando sesión desde URL...');
@@ -146,6 +152,13 @@ class AuthService {
   }
 
   /**
+   * Obtiene el rol activo seleccionado en el SAC
+   */
+  getRolActivo() {
+    return sessionStorage.getItem('sisprod_rol_activo') || null;
+  }
+
+  /**
    * Verifica si el usuario tiene un rol específico
    */
   hasRole(roleId) {
@@ -182,6 +195,7 @@ class AuthService {
 
     try {
       // Limpiar todos los datos de sesión
+      sessionStorage.removeItem('sisprod_rol_activo');
       secureStorage.clearAll();
 
       // También limpiar localStorage por si acaso (compatibilidad)

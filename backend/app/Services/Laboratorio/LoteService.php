@@ -17,16 +17,9 @@ class LoteService
         DB::beginTransaction();
 
         try {
-            // Generar número si no viene
-            if (!isset($datos['numero_lote'])) {
-                $datos['numero_lote'] = Lote::generarNumeroLote(
-                    $datos['planta_id'],
-                    $datos['empresa_id']
-                );
-            }
-
+            // numero_lote se asigna al recepcionar la primera camionada
             $lote = Lote::create([
-                'numero_lote' => $datos['numero_lote'],
+                'numero_lote' => $datos['numero_lote'] ?? null,
                 'planta_id' => $datos['planta_id'],
                 'empresa_id' => $datos['empresa_id'],
                 'fecha_creacion' => $datos['fecha_creacion'] ?? now(),

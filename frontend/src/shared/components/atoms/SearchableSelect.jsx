@@ -21,7 +21,8 @@ export default function SearchableSelect({
   placeholder = 'Buscar...',
   required = false,
   disabled = false,
-  emptyMessage = 'No hay opciones disponibles'
+  emptyMessage = 'No hay opciones disponibles',
+  size = 'default',
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -81,7 +82,9 @@ export default function SearchableSelect({
         type="button"
         onClick={() => !disabled && setIsOpen(!isOpen)}
         disabled={disabled}
-        className={`w-full px-4 py-2.5 text-left bg-white border rounded-lg flex items-center justify-between transition-all ${
+        className={`w-full text-left bg-white border rounded-lg flex items-center justify-between transition-all ${
+          size === 'sm' ? 'px-2 py-1 text-xs' : 'px-4 py-2.5'
+        } ${
           disabled
             ? 'bg-gray-100 cursor-not-allowed text-gray-500'
             : isOpen
@@ -89,19 +92,19 @@ export default function SearchableSelect({
             : 'border-gray-300 hover:border-gray-400'
         }`}
       >
-        <span className={selectedOption ? 'text-gray-900' : 'text-gray-500'}>
+        <span className={`truncate ${selectedOption ? 'text-gray-900' : 'text-gray-500'}`}>
           {selectedOption ? selectedOption.label : placeholder}
         </span>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 ml-1 flex-shrink-0">
           {value && !disabled && (
             <HiXMark
-              className="w-5 h-5 text-gray-400 hover:text-gray-600"
+              className={`text-gray-400 hover:text-gray-600 ${size === 'sm' ? 'w-3 h-3' : 'w-5 h-5'}`}
               onClick={handleClear}
             />
           )}
           <HiChevronDown
-            className={`w-5 h-5 text-gray-400 transition-transform ${
+            className={`text-gray-400 transition-transform ${size === 'sm' ? 'w-3 h-3' : 'w-5 h-5'} ${
               isOpen ? 'transform rotate-180' : ''
             }`}
           />

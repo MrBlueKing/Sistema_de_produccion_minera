@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
+use App\Models\ConfiguracionSistema;
 use Carbon\Carbon;
 
 class DumpadaController extends Controller
@@ -147,19 +148,87 @@ class DumpadaController extends Controller
     }
 
     /**
+     * Resumen semanal agrupado por frente de trabajo y jornada
+     */
+    public function resumenSemana(Request $request)
+    {
+        $idFaena = $request->get('id_faena');
+        $inicioSemana = Carbon::now()->startOfWeek(Carbon::MONDAY)->format('Y-m-d');
+        $finSemana    = Carbon::now()->endOfWeek(Carbon::SUNDAY)->format('Y-m-d');
+
+        $query = Dumpada::with('frenteTrabajo')
+            ->whereDate('fecha', '>=', $inicioSemana)
+            ->whereDate('fecha', '<=', $finSemana);
+
+        if (!$this->esUsuarioGlobal($request)) {
+            $query->where('id_faena', $request->auth_faena);
+        } else {
+            if ($idFaena) {
+                if (strpos($idFaena, ',') !== false) {
+                    $query->whereIn('id_faena', array_map('trim', explode(',', $idFaena)));
+                } else {
+                    $query->where('id_faena', $idFaena);
+                }
+            }
+        }
+
+        $dumpadas = $query->get(['id_frente_trabajo', 'jornada', 'ton', 'ley', 'ley_cup', 'nombre_maquina', 'estado']);
+
+        $resultado = [];
+        foreach ($dumpadas->groupBy('id_frente_trabajo') as $idFrente => $dumpadasFrente) {
+            $frente   = $dumpadasFrente->first()->frenteTrabajo;
+            $jornadas = [];
+
+            foreach ($dumpadasFrente->groupBy('jornada') as $jornada => $dumpadasJornada) {
+                $leyValues = $dumpadasJornada->whereNotNull('ley')->pluck('ley');
+                $maquinas  = $dumpadasJornada->pluck('nombre_maquina')->filter()->unique()->values()->toArray();
+
+                $jornadas[] = [
+                    'jornada'        => $jornada,
+                    'total_dumpadas' => $dumpadasJornada->count(),
+                    'ton_total'      => round((float) $dumpadasJornada->sum('ton'), 2),
+                    'ley_promedio'   => $leyValues->count() > 0 ? round($leyValues->avg(), 3) : null,
+                    'maquinas'       => $maquinas,
+                ];
+            }
+
+            $leyTotal = $dumpadasFrente->whereNotNull('ley')->pluck('ley');
+
+            $resultado[] = [
+                'id_frente_trabajo' => $idFrente,
+                'frente'            => $frente?->codigo_completo ?? 'Sin frente',
+                'total_dumpadas'    => $dumpadasFrente->count(),
+                'ton_total'         => round((float) $dumpadasFrente->sum('ton'), 2),
+                'ley_promedio'      => $leyTotal->count() > 0 ? round($leyTotal->avg(), 3) : null,
+                'jornadas'          => $jornadas,
+            ];
+        }
+
+        usort($resultado, fn($a, $b) => $b['total_dumpadas'] - $a['total_dumpadas']);
+
+        return response()->json([
+            'success' => true,
+            'data'    => $resultado,
+            'semana'  => ['inicio' => $inicioSemana, 'fin' => $finSemana],
+        ]);
+    }
+
+    /**
      * Crear una nueva dumpada
      */
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'id_frente_trabajo' => 'required|exists:frentes_trabajo,id',
-            'jornada' => 'required|in:AM,PM,Madrugada,Noche',
-            'fecha' => 'nullable|date',
-            'ton' => 'nullable|numeric|min:0',
-            'ley' => 'nullable|numeric|min:0',
-            'ley_cup' => 'nullable|numeric|min:0',
-            'certificado' => 'nullable|string|max:100',
-            'ley_visual' => 'required|numeric|min:0',
+            'id_frente_trabajo'  => 'required|exists:frentes_trabajo,id',
+            'jornada'            => 'required|in:AM,PM,Madrugada,Noche',
+            'fecha'              => 'nullable|date',
+            'ton'                => 'nullable|numeric|min:0',
+            'ley'                => 'nullable|numeric|min:0',
+            'ley_cup'            => 'nullable|numeric|min:0',
+            'certificado'        => 'nullable|string|max:100',
+            'ley_visual'         => 'required|numeric|min:0',
+            'id_maquina'         => 'nullable|integer',
+            'nombre_maquina'     => 'nullable|string|max:150',
         ]);
 
         if ($validator->fails()) {
@@ -188,9 +257,9 @@ class DumpadaController extends Controller
             $fecha
         );
 
-        // El campo 'acopios' se deja NULL por ahora
-        // Se asignará cuando la dumpada se agregue a un acopio
-        $acopios = null;
+        // Generar código de acopio (código completo de la dumpada)
+        $fechaFormateada = Carbon::parse($fecha)->format('d.m.Y');
+        $acopios = trim("{$frente->codigo_completo} {$fechaFormateada} {$request->jornada} {$numeroJornada}");
 
         // Determinar el rango automáticamente basado en la ley
         $rango = $request->ley ? Dumpada::determinarRango($request->ley) : null;
@@ -199,8 +268,11 @@ class DumpadaController extends Controller
         // Solo hay 2 estados: "Ingresado" (sin datos) o "Completado" (con todos los datos)
         $estado = Dumpada::ESTADO_INGRESADO; // Estado inicial: muestra enviada al laboratorio
 
+        // Calcular ley_cup (capping) automáticamente si hay ley
+        $leyCup = $request->ley ? Dumpada::calcularCapping($request->ley, $frente->id_faena) : null;
+
         // Si tiene los 3 datos del laboratorio, está completado
-        if ($request->ley && $request->ley_cup && $request->certificado) {
+        if ($request->ley && $leyCup && $request->certificado) {
             $estado = Dumpada::ESTADO_COMPLETADO;
         }
 
@@ -213,9 +285,13 @@ class DumpadaController extends Controller
             'jornada' => $request->jornada,
             'numero_jornada' => $numeroJornada,
             'ley_visual' => $request->ley_visual,
-            'ton' => $request->ton,
+            // Tonelaje: si viene explícito del frontend (máquina o manual), usarlo directo.
+            // Si no viene, usar la config de la faena con fallback al hardcoded.
+            'ton' => $request->ton !== null
+                ? (float) $request->ton
+                : ConfiguracionSistema::obtener('tonelaje_dumpada_default', 4.6, $frente->id_faena),
             'ley' => $request->ley,
-            'ley_cup' => $request->ley_cup,
+            'ley_cup' => $leyCup,
             'certificado' => $request->certificado,
             'numero_dumpada' => $numeroDumpada,
             'acopios' => $acopios,
@@ -225,6 +301,8 @@ class DumpadaController extends Controller
             'user_id' => $request->auth_user_id,
             'id_faena' => $frente->id_faena, // ID numérico de la faena
             'faena' => $nombreFaena, // Nombre de la faena
+            'id_maquina' => $request->id_maquina,
+            'nombre_maquina' => $request->nombre_maquina,
         ];
 
         $dumpada = Dumpada::create($data);
@@ -244,15 +322,17 @@ class DumpadaController extends Controller
     {
         // Validar que venga un array de dumpadas
         $validator = Validator::make($request->all(), [
-            'dumpadas' => 'required|array|min:1|max:100',
-            'dumpadas.*.id_frente_trabajo' => 'required|exists:frentes_trabajo,id',
-            'dumpadas.*.jornada' => 'required|in:AM,PM,Madrugada,Noche',
-            'dumpadas.*.fecha' => 'nullable|date',
-            'dumpadas.*.ton' => 'nullable|numeric|min:0',
-            'dumpadas.*.ley' => 'nullable|numeric|min:0',
-            'dumpadas.*.ley_cup' => 'nullable|numeric|min:0',
-            'dumpadas.*.certificado' => 'nullable|string|max:100',
-            'dumpadas.*.ley_visual' => 'required|numeric|min:0',
+            'dumpadas'                       => 'required|array|min:1|max:100',
+            'dumpadas.*.id_frente_trabajo'   => 'required|exists:frentes_trabajo,id',
+            'dumpadas.*.jornada'             => 'required|in:AM,PM,Madrugada,Noche',
+            'dumpadas.*.fecha'               => 'nullable|date',
+            'dumpadas.*.ton'                 => 'nullable|numeric|min:0',
+            'dumpadas.*.ley'                 => 'nullable|numeric|min:0',
+            'dumpadas.*.ley_cup'             => 'nullable|numeric|min:0',
+            'dumpadas.*.certificado'         => 'nullable|string|max:100',
+            'dumpadas.*.ley_visual'          => 'required|numeric|min:0',
+            'dumpadas.*.id_maquina'          => 'nullable|integer',
+            'dumpadas.*.nombre_maquina'      => 'nullable|string|max:150',
         ]);
 
         if ($validator->fails()) {
@@ -295,18 +375,22 @@ class DumpadaController extends Controller
                     $fecha
                 );
 
-                // El campo 'acopios' se deja NULL por ahora
-                $acopios = null;
+                // Generar código de acopio (código completo de la dumpada)
+                $fechaFormateada = Carbon::parse($fecha)->format('d.m.Y');
+                $acopios = trim("{$frente->codigo_completo} {$fechaFormateada} {$dumpadaData['jornada']} {$numeroJornada}");
 
                 // Determinar el rango automáticamente basado en la ley
                 $rango = isset($dumpadaData['ley'])
                     ? Dumpada::determinarRango($dumpadaData['ley'])
                     : null;
 
+                // Calcular ley_cup (capping) automáticamente si hay ley
+                $leyCup = isset($dumpadaData['ley']) ? Dumpada::calcularCapping($dumpadaData['ley'], $frente->id_faena) : null;
+
                 // Determinar el estado
                 $estado = Dumpada::ESTADO_INGRESADO;
 
-                if (isset($dumpadaData['ley']) && isset($dumpadaData['ley_cup']) && isset($dumpadaData['certificado'])) {
+                if (isset($dumpadaData['ley']) && $leyCup && isset($dumpadaData['certificado'])) {
                     $estado = Dumpada::ESTADO_COMPLETADO;
                 }
 
@@ -319,9 +403,13 @@ class DumpadaController extends Controller
                     'jornada' => $dumpadaData['jornada'],
                     'numero_jornada' => $numeroJornada,
                     'ley_visual' => $dumpadaData['ley_visual'] ?? null,
-                    'ton' => $dumpadaData['ton'] ?? null,
+                    // Tonelaje: si viene explícito del frontend (máquina o manual), usarlo directo.
+                    // Si no viene, usar la config de la faena con fallback al hardcoded.
+                    'ton' => isset($dumpadaData['ton']) && $dumpadaData['ton'] !== null
+                        ? (float) $dumpadaData['ton']
+                        : ConfiguracionSistema::obtener('tonelaje_dumpada_default', 4.6, $frente->id_faena),
                     'ley' => $dumpadaData['ley'] ?? null,
-                    'ley_cup' => $dumpadaData['ley_cup'] ?? null,
+                    'ley_cup' => $leyCup,
                     'certificado' => $dumpadaData['certificado'] ?? null,
                     'numero_dumpada' => $numeroDumpada,
                     'acopios' => $acopios,
@@ -331,6 +419,8 @@ class DumpadaController extends Controller
                     'user_id' => $request->auth_user_id,
                     'id_faena' => $frente->id_faena,
                     'faena' => $nombreFaena,
+                    'id_maquina' => $dumpadaData['id_maquina'] ?? null,
+                    'nombre_maquina' => $dumpadaData['nombre_maquina'] ?? null,
                 ];
 
                 $dumpada = Dumpada::create($data);
@@ -411,14 +501,17 @@ class DumpadaController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'id_frente_trabajo' => 'required|exists:frentes_trabajo,id',
-            'jornada' => 'required|in:AM,PM,Madrugada,Noche',
-            'fecha' => 'nullable|date',
-            'ton' => 'nullable|numeric|min:0',
-            'ley' => 'nullable|numeric|min:0',
-            'ley_cup' => 'nullable|numeric|min:0',
-            'certificado' => 'nullable|string|max:100',
-            'ley_visual' => 'required|numeric|min:0',
+            'id_frente_trabajo'  => 'required|exists:frentes_trabajo,id',
+            'jornada'            => 'required|in:AM,PM,Madrugada,Noche',
+            'fecha'              => 'nullable|date',
+            'ton'                => 'nullable|numeric|min:0',
+            'ley'                => 'nullable|numeric|min:0',
+            'ley_cup'            => 'nullable|numeric|min:0',
+            'certificado'        => 'nullable|string|max:100',
+            'ley_visual'         => 'required|numeric|min:0',
+            'id_maquina'         => 'nullable|integer',
+            'nombre_maquina'     => 'nullable|string|max:150',
+            'para_muestreo'      => 'nullable|boolean',
         ]);
 
         if ($validator->fails()) {
@@ -447,8 +540,9 @@ class DumpadaController extends Controller
             );
         }
 
-        // El campo acopios se mantiene (se usa para el código del acopio asignado)
-        $acopios = $dumpada->acopios;
+        // Regenerar código de acopio con los datos actualizados
+        $fechaFormateada = Carbon::parse($fecha)->format('d.m.Y');
+        $acopios = trim("{$frente->codigo_completo} {$fechaFormateada} {$request->jornada} {$numeroJornada}");
 
         // Determinar el rango automáticamente si cambió la ley
         $rango = $request->ley ? Dumpada::determinarRango($request->ley) : $dumpada->rango;
@@ -456,7 +550,8 @@ class DumpadaController extends Controller
         // Actualizar estado basado en los datos proporcionados
         // Solo hay 2 estados: "Ingresado" (sin datos) o "Completado" (con todos los datos)
         $ley = $request->ley ?? $dumpada->ley;
-        $leyCup = $request->ley_cup ?? $dumpada->ley_cup;
+        // Recalcular ley_cup automáticamente si hay ley
+        $leyCup = $ley ? Dumpada::calcularCapping($ley, $frente->id_faena) : null;
         $certificado = $request->certificado ?? $dumpada->certificado;
 
         if ($ley && $leyCup && $certificado) {
@@ -473,12 +568,15 @@ class DumpadaController extends Controller
             'fecha' => $fecha,
             'ton' => $request->ton ?? $dumpada->ton,
             'ley' => $request->ley ?? $dumpada->ley,
-            'ley_cup' => $request->ley_cup ?? $dumpada->ley_cup,
+            'ley_cup' => $leyCup,
             'certificado' => $request->certificado ?? $dumpada->certificado,
             'ley_visual' => $request->ley_visual ?? $dumpada->ley_visual,
             'acopios' => $acopios,
             'rango' => $rango,
             'estado' => $estado,
+            'id_maquina' => $request->has('id_maquina') ? $request->id_maquina : $dumpada->id_maquina,
+            'nombre_maquina' => $request->has('nombre_maquina') ? $request->nombre_maquina : $dumpada->nombre_maquina,
+            'para_muestreo' => $request->has('para_muestreo') ? $request->para_muestreo : $dumpada->para_muestreo,
         ];
 
         $dumpada->update($data);
@@ -488,6 +586,48 @@ class DumpadaController extends Controller
             'success' => true,
             'message' => 'Dumpada actualizada exitosamente',
             'data' => $dumpada
+        ], 200);
+    }
+
+    /**
+     * Marcar dumpadas para muestreo de laboratorio (o quitar marca)
+     * POST /api/dispatch/dumpadas/marcar-muestreo
+     * Body: { ids: [1,2,3], para_muestreo: true|null }
+     */
+    public function marcarMuestreo(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'ids'           => 'required|array|min:1',
+            'ids.*'         => 'required|integer|exists:dumpadas,id',
+            'para_muestreo' => 'nullable|boolean',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors'  => $validator->errors()
+            ], 422);
+        }
+
+        $ids = $request->ids;
+        $paraMuestreo = $request->input('para_muestreo'); // null o true
+
+        // Verificar que todas las dumpadas pertenezcan a la faena del usuario
+        $dumpadas = Dumpada::whereIn('id', $ids)->get();
+
+        foreach ($dumpadas as $dumpada) {
+            $this->validarAccesoFaena($request, $dumpada->id_faena);
+        }
+
+        // Actualizar en batch — solo dumpadas con estado 'Ingresado'
+        $actualizadas = Dumpada::whereIn('id', $ids)
+            ->where('estado', Dumpada::ESTADO_INGRESADO)
+            ->update(['para_muestreo' => $paraMuestreo]);
+
+        return response()->json([
+            'success'      => true,
+            'message'      => $actualizadas . ' dumpada(s) actualizadas',
+            'actualizadas' => $actualizadas,
         ], 200);
     }
 

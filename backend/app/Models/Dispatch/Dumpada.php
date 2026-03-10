@@ -41,6 +41,10 @@ class Dumpada extends Model
         'posicion_x',
         'posicion_y',
         'zona_id',
+        // Campos de máquina y muestreo
+        'id_maquina',
+        'nombre_maquina',
+        'para_muestreo',
     ];
 
     protected $casts = [
@@ -51,6 +55,7 @@ class Dumpada extends Model
         'ley_cup' => 'decimal:3',
         'cu_soluble' => 'decimal:3',
         'cu_insoluble' => 'decimal:3',
+        'para_muestreo' => 'boolean',
     ];
 
     /**
@@ -83,12 +88,22 @@ class Dumpada extends Model
     }
 
     /**
-     * Relación: una dumpada puede estar en una mezcla
-     * Retorna el registro de mezcla_dumpada si existe
+     * Relación: una dumpada puede estar en una mezcla (un registro, legado)
+     * Retorna el primer registro de mezcla_dumpada si existe.
+     * @deprecated Usar mezclaDumpadas() para lógica de paladas parciales
      */
     public function mezclaDumpada()
     {
         return $this->hasOne(MezclaDumpada::class, 'dumpada_id');
+    }
+
+    /**
+     * Relación: todos los registros de mezcla_dumpada para esta dumpada.
+     * Una dumpada puede aparecer en múltiples mezclas si se usan paladas parciales.
+     */
+    public function mezclaDumpadas()
+    {
+        return $this->hasMany(MezclaDumpada::class, 'dumpada_id');
     }
 
     /**
@@ -136,11 +151,54 @@ class Dumpada extends Model
     }
 
     /**
-     * Verificar si la dumpada está incluida en alguna mezcla
+     * Verificar si la dumpada está incluida como dumpada completa en alguna mezcla.
+     * Un registro con numero_paladas = NULL significa dumpada completa incluida.
      */
     public function estaEnMezcla()
     {
-        return $this->mezclaDumpada()->exists();
+        return $this->mezclaDumpadas()->whereNull('numero_paladas')->exists();
+    }
+
+    /**
+     * Verificar si la dumpada tiene algún uso parcial (paladas en alguna mezcla)
+     */
+    public function tieneUsosParciales()
+    {
+        return $this->mezclaDumpadas()->whereNotNull('numero_paladas')->exists();
+    }
+
+    /**
+     * Obtener el número de paladas disponibles en esta dumpada.
+     * paladas_totales = floor(ton / ton_por_palada)
+     * paladas_disponibles = paladas_totales - sum(numero_paladas en mezclas)
+     *
+     * @param float $tonPorPalada Toneladas por palada (configurado en sistema)
+     * @return float Paladas disponibles (>= 0)
+     */
+    public function getPaladasDisponibles(float $tonPorPalada): float
+    {
+        if ($tonPorPalada <= 0) {
+            return 0;
+        }
+        $paladasTotales = floor($this->ton / $tonPorPalada);
+        $paladasUsadas = (float) $this->mezclaDumpadas()
+            ->whereNotNull('numero_paladas')
+            ->sum('numero_paladas');
+        return max(0, $paladasTotales - $paladasUsadas);
+    }
+
+    /**
+     * Obtener el número total de paladas de esta dumpada.
+     *
+     * @param float $tonPorPalada Toneladas por palada
+     * @return int Total de paladas
+     */
+    public function getPaladasTotales(float $tonPorPalada): int
+    {
+        if ($tonPorPalada <= 0) {
+            return 0;
+        }
+        return (int) floor($this->ton / $tonPorPalada);
     }
 
     /**
@@ -231,7 +289,7 @@ class Dumpada extends Model
      */
     public static function calcularCapping($ley, $idFaena = null)
     {
-        $cappingMaximo = ConfiguracionSistema::obtener('ley_capping_maximo', 3, $idFaena);
+        $cappingMaximo = ConfiguracionSistema::obtener('ley_capping_maximo', 3.7, $idFaena);
 
         return $ley > $cappingMaximo ? $cappingMaximo : $ley;
     }

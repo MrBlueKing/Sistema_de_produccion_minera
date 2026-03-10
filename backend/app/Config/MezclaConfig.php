@@ -26,9 +26,10 @@ class MezclaConfig
      * Obtener factor de ajuste desde BD (con cache)
      *
      * Se usa en:
-     * - Ley dump → ley_dump_ajustada (ley × FACTOR)
-     * - Ley visual → ley_visual_ajustada (ley_visual × FACTOR)
-     * - Ley lote → ley_lote (base × FACTOR)
+     * - Ley lab → ley_dump_ajustada (ley_lab × FACTOR)
+     * - Ley visual → ley_dump_ajustada (SIN descuento, directo)
+     * - Ley lab → ley_lote (ley_lab × FACTOR × FACTOR)
+     * - Ley visual → ley_lote (ley_visual × FACTOR)
      *
      * @return float
      */

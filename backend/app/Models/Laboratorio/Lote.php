@@ -44,7 +44,7 @@ class Lote extends Model
 
     public function camionadas()
     {
-        return $this->hasMany(Camionada::class, 'lote_id');
+        return $this->hasMany(Camionada::class, 'lote_id')->orderBy('numero_camionada', 'asc');
     }
 
     /**
@@ -278,7 +278,7 @@ class Lote extends Model
         }
 
         // Si no existe, crear uno nuevo
-        $numeroLote = self::generarNumeroLote($plantaId, $empresaId);
+        $numeroLote = self::generarNumeroLote($plantaId);
 
         $nuevoLote = self::create([
             'numero_lote' => $numeroLote,
@@ -292,20 +292,18 @@ class Lote extends Model
     }
 
     /**
-     * Generar número de lote basado en planta y empresa
+     * Generar número de lote basado solo en planta
+     * Formato: {planta.codigo}-{###} correlativo global por planta
+     * Ejemplo: CN-001, CN-002
      */
-    public static function generarNumeroLote($plantaId, $empresaId)
+    public static function generarNumeroLote($plantaId)
     {
         $planta = Planta::find($plantaId);
-        $empresa = Empresa::find($empresaId);
-
         $prefijoPlanta = $planta->codigo ?? 'P';
-        $prefijoEmpresa = $empresa->codigo ?? 'E';
-
-        $prefijo = $prefijoPlanta . '-' . $prefijoEmpresa . '-';
+        $prefijo = $prefijoPlanta . '-';
 
         $ultimoLote = self::where('numero_lote', 'like', $prefijo . '%')
-            ->orderBy('numero_lote', 'desc')
+            ->orderByRaw("CAST(SUBSTRING(numero_lote, ?) AS UNSIGNED) DESC", [strlen($prefijo) + 1])
             ->first();
 
         if (!$ultimoLote) {
@@ -351,6 +349,43 @@ class Lote extends Model
             if ($camionada->mezcla && $camionada->mezcla->ley_prom_lote !== null) {
                 $tonelaje = $camionada->peso_real;
                 $ley = $camionada->mezcla->ley_prom_lote;
+
+                $sumaProductos += ($tonelaje * $ley);
+                $sumaToneladas += $tonelaje;
+            }
+        }
+
+        if ($sumaToneladas == 0) {
+            return null;
+        }
+
+        return round($sumaProductos / $sumaToneladas, 2);
+    }
+
+    /**
+     * Calcular ley lab promedio ponderada
+     * Promedio ponderado de ley_lab de las mezclas por tonelaje de camionadas recepcionadas
+     *
+     * @return float|null
+     */
+    public function getLeyLabPromedio()
+    {
+        $camionadas = $this->camionadas()
+            ->with('mezcla')
+            ->whereNotNull('peso_real')
+            ->get();
+
+        if ($camionadas->isEmpty()) {
+            return null;
+        }
+
+        $sumaProductos = 0;
+        $sumaToneladas = 0;
+
+        foreach ($camionadas as $camionada) {
+            if ($camionada->mezcla && $camionada->mezcla->ley_lab !== null) {
+                $tonelaje = $camionada->peso_real;
+                $ley = $camionada->mezcla->ley_lab;
 
                 $sumaProductos += ($tonelaje * $ley);
                 $sumaToneladas += $tonelaje;

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Laboratorio;
 
 use App\Http\Controllers\Controller;
 use App\Models\Dispatch\Dumpada;
+use App\Models\Dispatch\MuestraLibre;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -37,87 +38,101 @@ class LaboratorioController extends Controller
     }
 
     /**
-     * Listar dumpadas pendientes de análisis
-     * Estados: Recibido (de muestreo), Ingresado, En Análisis
-     * Con paginación y filtros
+     * Listar muestras pendientes de análisis (dumpadas + muestras libres)
+     * Con paginación manual y campo 'tipo' para distinguirlas en frontend
      */
     public function index(Request $request)
     {
-        $perPage = $request->get('per_page', 15);
-        $page = $request->get('page', 1);
-
-        // Parámetros de filtros
-        $search = $request->get('search');
-        $jornada = $request->get('jornada');
+        $perPage     = (int) $request->get('per_page', 15);
+        $page        = (int) $request->get('page', 1);
+        $search      = $request->get('search');
+        $jornada     = $request->get('jornada');
         $fechaInicio = $request->get('fecha_inicio');
-        $fechaFin = $request->get('fecha_fin');
-        $idFrenteTrabajo = $request->get('id_frente_trabajo');
-        $idFaena = $request->get('id_faena');
+        $fechaFin    = $request->get('fecha_fin');
+        $idFrente    = $request->get('id_frente_trabajo');
+        $idFaena     = $request->get('id_faena');
 
-        // Estados pendientes de análisis (incluye Recibido de muestreo)
-        $estadosPendientes = ['Recibido', 'Ingresado', 'En Análisis'];
-
-        $query = Dumpada::with('frenteTrabajo.tipoFrente')
-            ->whereIn('estado', $estadosPendientes)
-            ->orderBy('fecha', 'desc')
-            ->orderBy('id', 'desc');
-
-        // Búsqueda general
-        if ($search) {
-            $query->where(function ($q) use ($search) {
-                $q->where('acopios', 'like', '%' . $search . '%')
-                    ->orWhere('certificado', 'like', '%' . $search . '%')
-                    ->orWhere('numero_dumpada', 'like', '%' . $search . '%')
-                    ->orWhereHas('frenteTrabajo', function ($fq) use ($search) {
-                        $fq->where('codigo_completo', 'like', '%' . $search . '%');
-                    });
-            });
-        }
-
-        // Filtro por jornada
-        if ($jornada) {
-            $query->where('jornada', $jornada);
-        }
-
-        // Filtro por rango de fechas
-        if ($fechaInicio) {
-            $query->whereDate('fecha', '>=', $fechaInicio);
-        }
-        if ($fechaFin) {
-            $query->whereDate('fecha', '<=', $fechaFin);
-        }
-
-        // Filtro por frente de trabajo
-        if ($idFrenteTrabajo) {
-            $query->where('id_frente_trabajo', $idFrenteTrabajo);
-        }
-
-        // Filtro por faena (directo o a través del frente de trabajo)
-        if ($idFaena) {
-            $query->where(function ($q) use ($idFaena) {
-                $q->where('id_faena', $idFaena)
-                  ->orWhereHas('frenteTrabajo', function ($fq) use ($idFaena) {
-                      $fq->where('id_faena', $idFaena);
+        // ── 1. DUMPADAS ────────────────────────────────────────────────────────
+        $queryDumpadas = Dumpada::with('frenteTrabajo.tipoFrente')
+            ->where(function ($q) {
+                $q->where('estado', 'Recibido')
+                  ->orWhere(function ($q2) {
+                      $q2->where('estado', 'Ingresado')
+                         ->where('para_muestreo', true);
                   });
             });
+
+        if ($search) {
+            $queryDumpadas->where(function ($q) use ($search) {
+                $q->where('acopios', 'like', "%{$search}%")
+                  ->orWhere('numero_dumpada', 'like', "%{$search}%")
+                  ->orWhereHas('frenteTrabajo', fn($fq) => $fq->where('codigo_completo', 'like', "%{$search}%"));
+            });
         }
+        if ($jornada)     $queryDumpadas->where('jornada', $jornada);
+        if ($fechaInicio) $queryDumpadas->whereDate('fecha', '>=', $fechaInicio);
+        if ($fechaFin)    $queryDumpadas->whereDate('fecha', '<=', $fechaFin);
+        if ($idFrente)    $queryDumpadas->where('id_frente_trabajo', $idFrente);
+        if ($idFaena)     $queryDumpadas->where('id_faena', $idFaena);
 
-        $dumpadas = $query->paginate($perPage, ['*'], 'page', $page);
+        $dumpadas = $queryDumpadas->orderBy('fecha', 'desc')->orderBy('id', 'desc')->get()
+            ->map(fn($d) => array_merge($d->toArray(), ['tipo' => 'dumpada']));
 
-        // Cargar datos de faenas desde el sistema central
-        $dumpadasConFaenas = $this->cargarFaenasDesdeApiCentral($dumpadas->items(), $request->bearerToken());
+        // ── 2. MUESTRAS LIBRES ─────────────────────────────────────────────────
+        $queryMuestras = MuestraLibre::with('frenteTrabajo')
+            ->where('estado', MuestraLibre::ESTADO_INGRESADO);
+
+        if ($search) {
+            $queryMuestras->where(function ($q) use ($search) {
+                $q->where('nombre', 'like', "%{$search}%")
+                  ->orWhere('solicitante', 'like', "%{$search}%")
+                  ->orWhereHas('frenteTrabajo', fn($fq) => $fq->where('codigo_completo', 'like', "%{$search}%"));
+            });
+        }
+        if ($fechaInicio) $queryMuestras->whereDate('fecha', '>=', $fechaInicio);
+        if ($fechaFin)    $queryMuestras->whereDate('fecha', '<=', $fechaFin);
+        if ($idFrente)    $queryMuestras->where('id_frente_trabajo', $idFrente);
+        if ($idFaena)     $queryMuestras->where('id_faena', $idFaena);
+
+        $muestras = $queryMuestras->orderBy('created_at', 'desc')->get()
+            ->map(fn($m) => array_merge($m->toArray(), ['tipo' => 'muestra_libre']));
+
+        // ── 3. MERGE + PAGINACIÓN MANUAL ───────────────────────────────────────
+        $todos = $dumpadas->concat($muestras)
+            ->sortByDesc('created_at')
+            ->values();
+
+        $total      = $todos->count();
+        $lastPage   = max(1, (int) ceil($total / $perPage));
+        $offset     = ($page - 1) * $perPage;
+        $items      = $todos->slice($offset, $perPage)->values();
+
+        // Enriquecer dumpadas con datos de faena (API central)
+        $dumpadasItems = $items->filter(fn($i) => $i['tipo'] === 'dumpada')->all();
+        // Reconstruir como objetos para el helper (trabaja con colecciones Eloquent-like)
+        $dumpadasObj = Dumpada::hydrate(array_values($dumpadasItems));
+        $dumpadasConFaenas = collect($this->cargarFaenasDesdeApiCentral($dumpadasObj->all(), $request->bearerToken()))
+            ->keyBy('id');
+
+        $itemsFinales = $items->map(function ($item) use ($dumpadasConFaenas) {
+            if ($item['tipo'] === 'dumpada' && isset($dumpadasConFaenas[$item['id']])) {
+                $obj = $dumpadasConFaenas[$item['id']];
+                $item['faena_info'] = $obj->faena_info ?? null;
+            }
+            return $item;
+        })->values();
 
         return response()->json([
             'success' => true,
-            'data' => $dumpadasConFaenas,
+            'data'    => $itemsFinales,
             'pagination' => [
-                'total' => $dumpadas->total(),
-                'per_page' => $dumpadas->perPage(),
-                'current_page' => $dumpadas->currentPage(),
-                'last_page' => $dumpadas->lastPage(),
-                'from' => $dumpadas->firstItem(),
-                'to' => $dumpadas->lastItem()
-            ]
+                'total'        => $total,
+                'per_page'     => $perPage,
+                'current_page' => $page,
+                'last_page'    => $lastPage,
+                'from'         => $total > 0 ? $offset + 1 : null,
+                'to'           => $total > 0 ? min($offset + $perPage, $total) : null,
+            ],
         ], 200);
     }
 
@@ -258,15 +273,71 @@ class LaboratorioController extends Controller
     }
 
     /**
+     * Editar análisis de una dumpada ya completada
+     * PUT /api/laboratorio/historial/{id}
+     */
+    public function editarAnalisis(Request $request, $id)
+    {
+        $dumpada = Dumpada::find($id);
+
+        if (!$dumpada) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Dumpada no encontrada'
+            ], 404);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'ley' => 'required|numeric|min:0',
+            'cu_soluble' => 'required|numeric|min:0',
+            'cu_insoluble' => 'nullable|numeric|min:0',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        $cuInsoluble = $request->cu_insoluble ?? ($request->ley - $request->cu_soluble);
+        $rango = Dumpada::determinarRango($request->ley);
+        $leyCup = Dumpada::calcularCapping($request->ley, $dumpada->id_faena);
+
+        $dumpada->update([
+            'ley' => $request->ley,
+            'ley_cup' => $leyCup,
+            'cu_soluble' => $request->cu_soluble,
+            'cu_insoluble' => $cuInsoluble,
+            'rango' => $rango,
+        ]);
+
+        $dumpada->load('frenteTrabajo.tipoFrente');
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Análisis actualizado exitosamente',
+            'data' => $dumpada
+        ], 200);
+    }
+
+    /**
      * Obtener estadísticas del laboratorio
      */
     public function estadisticas()
     {
-        // Estados pendientes de análisis (incluye Recibido de muestreo)
-        $estadosPendientes = ['Recibido', 'Ingresado', 'En Análisis'];
+        // Pendientes = dumpadas Recibido + dumpadas Ingresado+para_muestreo + muestras libres Ingresado
+        $pendientesDumpadas = Dumpada::where(function ($q) {
+            $q->where('estado', 'Recibido')
+              ->orWhere(function ($q2) {
+                  $q2->where('estado', 'Ingresado')->where('para_muestreo', true);
+              });
+        })->count();
 
-        $pendientes = Dumpada::whereIn('estado', $estadosPendientes)->count();
-        $recibidas = Dumpada::where('estado', 'Recibido')->count();
+        $pendientesMuestras = MuestraLibre::where('estado', MuestraLibre::ESTADO_INGRESADO)->count();
+
+        $pendientes = $pendientesDumpadas + $pendientesMuestras;
+        $recibidas  = Dumpada::where('estado', 'Recibido')->count();
         $completadas = Dumpada::where('estado', Dumpada::ESTADO_COMPLETADO)->count();
         $total = Dumpada::count();
 
@@ -283,106 +354,118 @@ class LaboratorioController extends Controller
     }
 
     /**
-     * Historial de análisis completados (con leyes)
+     * Historial de análisis completados (dumpadas + muestras libres)
      * Para generación de reportes/PDF
      */
     public function historial(Request $request)
     {
-        $perPage = $request->get('per_page', 20);
-        $page = $request->get('page', 1);
-
-        // Parámetros de filtros
-        $search = $request->get('search');
-        $jornada = $request->get('jornada');
+        $perPage     = (int) $request->get('per_page', 20);
+        $page        = (int) $request->get('page', 1);
+        $search      = $request->get('search');
+        $jornada     = $request->get('jornada');
         $fechaInicio = $request->get('fecha_inicio');
-        $fechaFin = $request->get('fecha_fin');
-        $idFrenteTrabajo = $request->get('id_frente_trabajo');
-        $idFaena = $request->get('id_faena');
-        $rango = $request->get('rango');
-        $estadoCertificado = $request->get('estado_certificado'); // 'con', 'sin', null (todos)
-        $certificado = $request->get('certificado'); // búsqueda exacta por número
+        $fechaFin    = $request->get('fecha_fin');
+        $idFrente    = $request->get('id_frente_trabajo');
+        $idFaena     = $request->get('id_faena');
+        $estadoCertificado = $request->get('estado_certificado');
+        $certificado       = $request->get('certificado');
 
-        $query = Dumpada::with('frenteTrabajo.tipoFrente')
+        // ── 1. DUMPADAS COMPLETADAS ────────────────────────────────────────
+        $queryDumpadas = Dumpada::with('frenteTrabajo.tipoFrente')
             ->where('estado', Dumpada::ESTADO_COMPLETADO)
-            ->whereNotNull('ley')
-            ->orderBy('fecha', 'desc')
-            ->orderBy('id', 'desc');
+            ->whereNotNull('ley');
 
-        // Búsqueda general
         if ($search) {
-            $query->where(function ($q) use ($search) {
-                $q->where('certificado', 'like', '%' . $search . '%')
-                    ->orWhere('numero_dumpada', 'like', '%' . $search . '%')
-                    ->orWhere('acopios', 'like', '%' . $search . '%')
-                    ->orWhereHas('frenteTrabajo', function ($fq) use ($search) {
-                        $fq->where('codigo_completo', 'like', '%' . $search . '%');
-                    });
+            $queryDumpadas->where(function ($q) use ($search) {
+                $q->where('certificado', 'like', "%{$search}%")
+                  ->orWhere('numero_dumpada', 'like', "%{$search}%")
+                  ->orWhere('acopios', 'like', "%{$search}%")
+                  ->orWhereHas('frenteTrabajo', fn($fq) => $fq->where('codigo_completo', 'like', "%{$search}%"));
             });
         }
-
-        // Filtro por jornada
-        if ($jornada) {
-            $query->where('jornada', $jornada);
-        }
-
-        // Filtro por rango de fechas
-        if ($fechaInicio) {
-            $query->whereDate('fecha', '>=', $fechaInicio);
-        }
-        if ($fechaFin) {
-            $query->whereDate('fecha', '<=', $fechaFin);
-        }
-
-        // Filtro por frente de trabajo
-        if ($idFrenteTrabajo) {
-            $query->where('id_frente_trabajo', $idFrenteTrabajo);
-        }
-
-        // Filtro por faena
-        if ($idFaena) {
-            $query->where(function ($q) use ($idFaena) {
-                $q->where('id_faena', $idFaena)
-                  ->orWhereHas('frenteTrabajo', function ($fq) use ($idFaena) {
-                      $fq->where('id_faena', $idFaena);
-                  });
-            });
-        }
-
-        // Filtro por rango (Alta, Media, Baja, Estéril)
-        if ($rango) {
-            $query->where('rango', $rango);
-        }
-
-        // Filtro por estado de certificado (con/sin)
+        if ($jornada)     $queryDumpadas->where('jornada', $jornada);
+        if ($fechaInicio) $queryDumpadas->whereDate('fecha', '>=', $fechaInicio);
+        if ($fechaFin)    $queryDumpadas->whereDate('fecha', '<=', $fechaFin);
+        if ($idFrente)    $queryDumpadas->where('id_frente_trabajo', $idFrente);
+        if ($idFaena)     $queryDumpadas->where(function ($q) use ($idFaena) {
+            $q->where('id_faena', $idFaena)
+              ->orWhereHas('frenteTrabajo', fn($fq) => $fq->where('id_faena', $idFaena));
+        });
         if ($estadoCertificado === 'con') {
-            $query->whereNotNull('certificado')->where('certificado', '!=', '');
+            $queryDumpadas->whereNotNull('certificado')->where('certificado', '!=', '');
         } elseif ($estadoCertificado === 'sin') {
-            $query->where(function ($q) {
-                $q->whereNull('certificado')->orWhere('certificado', '');
-            });
+            $queryDumpadas->where(fn($q) => $q->whereNull('certificado')->orWhere('certificado', ''));
+        }
+        if ($certificado) $queryDumpadas->where('certificado', 'like', "%{$certificado}%");
+
+        $dumpadas = $queryDumpadas->orderBy('fecha', 'desc')->orderBy('id', 'desc')->get()
+            ->map(fn($d) => array_merge($d->toArray(), ['tipo' => 'dumpada']));
+
+        // ── 2. MUESTRAS LIBRES COMPLETADAS ────────────────────────────────
+        // Solo si no se filtra por jornada, certificado o estado_certificado
+        // (esos filtros no aplican a muestras libres)
+        $incluirMuestras = !$jornada && !$certificado && !$estadoCertificado;
+
+        $muestras = collect();
+        if ($incluirMuestras) {
+            $queryMuestras = MuestraLibre::with('frenteTrabajo')
+                ->where('estado', MuestraLibre::ESTADO_COMPLETADO)
+                ->whereNotNull('ley');
+
+            if ($search) {
+                $queryMuestras->where(function ($q) use ($search) {
+                    $q->where('nombre', 'like', "%{$search}%")
+                      ->orWhere('solicitante', 'like', "%{$search}%")
+                      ->orWhereHas('frenteTrabajo', fn($fq) => $fq->where('codigo_completo', 'like', "%{$search}%"));
+                });
+            }
+            if ($fechaInicio) $queryMuestras->whereDate('fecha', '>=', $fechaInicio);
+            if ($fechaFin)    $queryMuestras->whereDate('fecha', '<=', $fechaFin);
+            if ($idFrente)    $queryMuestras->where('id_frente_trabajo', $idFrente);
+            if ($idFaena)     $queryMuestras->where('id_faena', $idFaena);
+
+            $muestras = $queryMuestras->orderBy('created_at', 'desc')->get()
+                ->map(fn($m) => array_merge($m->toArray(), ['tipo' => 'muestra_libre']));
         }
 
-        // Filtro por número de certificado específico
-        if ($certificado) {
-            $query->where('certificado', 'like', '%' . $certificado . '%');
-        }
+        // ── 3. MERGE + PAGINACIÓN MANUAL ──────────────────────────────────
+        // Usar strtotime para parsear fechas correctamente sin importar el formato de serialización
+        $todos    = $dumpadas->concat($muestras)
+            ->sortByDesc(function ($item) {
+                $ts = strtotime($item['fecha'] ?? $item['created_at'] ?? '1970-01-01');
+                return $ts * 1000000 + ($item['id'] ?? 0); // Tiebreaker por ID
+            })
+            ->values();
+        $total    = $todos->count();
+        $lastPage = max(1, (int) ceil($total / $perPage));
+        $offset   = ($page - 1) * $perPage;
+        $items    = $todos->slice($offset, $perPage)->values();
 
-        $dumpadas = $query->paginate($perPage, ['*'], 'page', $page);
+        // Enriquecer dumpadas con faenas desde API central
+        $dumpadasItems = $items->filter(fn($i) => $i['tipo'] === 'dumpada')->all();
+        $dumpadasObj   = Dumpada::hydrate(array_values($dumpadasItems));
+        $dumpadasConFaenas = collect($this->cargarFaenasDesdeApiCentral($dumpadasObj->all(), $request->bearerToken()))
+            ->keyBy('id');
 
-        // Cargar datos de faenas
-        $dumpadasConFaenas = $this->cargarFaenasDesdeApiCentral($dumpadas->items(), $request->bearerToken());
+        $itemsFinales = $items->map(function ($item) use ($dumpadasConFaenas) {
+            if ($item['tipo'] === 'dumpada' && isset($dumpadasConFaenas[$item['id']])) {
+                $obj = $dumpadasConFaenas[$item['id']];
+                $item['faena_info'] = $obj->faena_info ?? null;
+            }
+            return $item;
+        })->values();
 
         return response()->json([
             'success' => true,
-            'data' => $dumpadasConFaenas,
+            'data'    => $itemsFinales,
             'pagination' => [
-                'total' => $dumpadas->total(),
-                'per_page' => $dumpadas->perPage(),
-                'current_page' => $dumpadas->currentPage(),
-                'last_page' => $dumpadas->lastPage(),
-                'from' => $dumpadas->firstItem(),
-                'to' => $dumpadas->lastItem()
-            ]
+                'total'        => $total,
+                'per_page'     => $perPage,
+                'current_page' => $page,
+                'last_page'    => $lastPage,
+                'from'         => $total > 0 ? $offset + 1 : null,
+                'to'           => $total > 0 ? min($offset + $perPage, $total) : null,
+            ],
         ], 200);
     }
 

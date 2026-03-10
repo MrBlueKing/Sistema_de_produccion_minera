@@ -19,7 +19,7 @@ class StockExplosivoController extends Controller
     public function index(Request $request)
     {
         $query = StockExplosivo::with([
-            'tipoExplosivo:id,codigo,nombre,unidad_medida,stock_minimo,stock_maximo',
+            'tipoExplosivo:id,codigo,nombre,unidad_medida,stock_minimo,stock_maximo,id_categoria,fabricante,clasificacion_onu,descripcion,requiere_lote',
             'tipoExplosivo.categoria:id,nombre',
             'polvorin:id,codigo,nombre'
         ]);

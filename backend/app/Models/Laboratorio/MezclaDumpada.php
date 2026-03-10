@@ -19,6 +19,7 @@ class MezclaDumpada extends Model
         'tipo',
         'origen',
         'toneladas',
+        'numero_paladas',
         'ley_dump_ajustada',
         'ley_visual',
         'ley_lote',
@@ -26,6 +27,7 @@ class MezclaDumpada extends Model
 
     protected $casts = [
         'toneladas' => 'decimal:2',
+        'numero_paladas' => 'decimal:2',
         'ley_dump_ajustada' => 'decimal:2',
         'ley_visual' => 'decimal:2',
         'ley_lote' => 'decimal:2',
@@ -68,29 +70,66 @@ class MezclaDumpada extends Model
     }
 
     /**
-     * Método estático para crear un detalle desde una dumpada
-     * IMPORTANTE: Guarda las leyes ORIGINALES sin ajustar, EXCEPTO ley_lote.
-     * ley_lote se guarda CON factor 0.81 aplicado para coincidir con el preview.
-     * El factor 0.9 adicional se aplica al calcular promedios en Mezcla::calcularTotales()
+     * Método estático para crear un detalle desde una dumpada.
+     *
+     * REGLA DE NEGOCIO para ley_dump_ajustada:
+     *   - Si tiene ley lab: ley_lab × factor (0.9)
+     *   - Si solo tiene ley visual: ley_visual SIN descuento
+     *
+     * REGLA DE NEGOCIO para ley_lote (siempre se aplica descuento):
+     *   - Si tiene ley lab: ley_lab × factor × factor (0.81)
+     *   - Si solo tiene ley visual: ley_visual × factor (0.9)
+     *
+     * @param Dumpada $dumpada
+     * @param int $mezclaId
+     * @param float|null $numeroPaladas Número de paladas a tomar. NULL = dumpada completa (legado).
+     *                                  Si se especifica, las toneladas se calculan como paladas × ton_por_palada.
      */
-    public static function desdeDumpada(Dumpada $dumpada, $mezclaId)
+    public static function desdeDumpada(Dumpada $dumpada, $mezclaId, $numeroPaladas = null)
     {
-        // Guardar leyes originales SIN aplicar factor
-        $leyDump = $dumpada->ley;
-        $leyVisual = $dumpada->ley_visual;
+        // Calcular toneladas según modo (completo o parcial por paladas)
+        if ($numeroPaladas !== null) {
+            $tonPorPalada = (float) \App\Models\ConfiguracionSistema::obtener('toneladas_por_palada', 1.82, $dumpada->id_faena);
+            $toneladas = round($numeroPaladas * $tonPorPalada, 2);
+        } else {
+            $toneladas = $dumpada->ton;
+        }
 
-        // IMPORTANTE: ley_lote se guarda CON factor 0.81 (0.9 × 0.9) y REDONDEADO
-        // Esto coincide con cómo se calcula en Acopio::recalcularTotales() línea 222 y 238
-        // y con el preview en MezclasView.jsx que usa ley_lote_promedio del acopio
-        $leyLote = $leyDump ? round($leyDump * 0.81, 2) : null;
+        // Aplicar capping a la ley de laboratorio antes de calcular factores
+        $leyLab = $dumpada->ley;
+        if ($leyLab) {
+            $leyLab = Dumpada::calcularCapping($leyLab, $dumpada->id_faena);
+        }
+        $leyVisual = $dumpada->ley_visual;
+        $factor = \App\Config\MezclaConfig::getFactorAjusteLey();
+
+        // ley_dump_ajustada: lab se descuenta, visual NO se descuenta
+        if ($leyLab) {
+            $leyDumpAjustada = round($leyLab * $factor, 2);
+        } else {
+            $leyDumpAjustada = $leyVisual; // sin descuento
+        }
+
+        // ley_lote: siempre se aplica descuento
+        // lab pasa por dos descuentos (×0.9×0.9 = ×0.81), visual por uno (×0.9)
+        if ($leyLab) {
+            $leyLote = round($leyLab * $factor * $factor, 2);
+        } elseif ($leyVisual) {
+            $leyLote = round($leyVisual * $factor, 2);
+        } else {
+            $leyLote = null;
+        }
 
         \Log::info('🔧 [MEZCLA DETALLE] Guardando dumpada en mezcla', [
             'dumpada_id' => $dumpada->id,
             'numero_dumpada' => $dumpada->numero_dumpada,
-            'toneladas' => $dumpada->ton,
-            'ley_dump_original' => $leyDump,
-            'ley_lote_calculada' => $leyLote,
-            'calculo' => $leyDump ? "{$leyDump} × 0.81 = " . ($leyDump * 0.81) . " → round = {$leyLote}" : 'NULL'
+            'toneladas' => $toneladas,
+            'numero_paladas' => $numeroPaladas,
+            'ley_lab' => $leyLab,
+            'ley_visual' => $leyVisual,
+            'ley_dump_ajustada' => $leyDumpAjustada,
+            'ley_lote' => $leyLote,
+            'fuente' => $leyLab ? 'LAB' : 'VISUAL',
         ]);
 
         return self::create([
@@ -98,18 +137,19 @@ class MezclaDumpada extends Model
             'dumpada_id' => $dumpada->id,
             'tipo' => self::TIPO_DUMPADA,
             'origen' => $dumpada->acopios ?? "Dumpada #{$dumpada->numero_dumpada}",
-            'toneladas' => $dumpada->ton,
-            'ley_dump_ajustada' => $leyDump, // Guardar ley original (columna mantiene nombre legacy)
-            'ley_visual' => $leyVisual, // Guardar ley visual original
-            'ley_lote' => $leyLote, // Guardar con factor 0.81 aplicado
+            'toneladas' => $toneladas,
+            'numero_paladas' => $numeroPaladas,
+            'ley_dump_ajustada' => $leyDumpAjustada, // lab×0.9 o visual directo
+            'ley_visual' => $leyVisual,
+            'ley_lote' => $leyLote, // lab×0.81 o visual×0.9
         ]);
     }
 
     /**
      * Método estático para crear un detalle de remanente
      *
-     * IMPORTANTE: Este método recibe las leyes ORIGINALES (sin ajustar)
-     * El factor 0.9 se aplicará al calcular promedios en Mezcla::calcularTotales()
+     * IMPORTANTE: ley_dump_ajustada y ley_lote deben llegar CON factores ya aplicados.
+     * calcularTotales() ya NO aplica factor adicional a ley_prom_dump ni ley_prom_lote.
      */
     public static function desdeRemanente($mezclaId, $toneladas, $leyDump, $leyVisual, $leyLote, $origen)
     {

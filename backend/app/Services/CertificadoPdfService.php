@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Dispatch\Dumpada;
+use App\Models\Dispatch\MuestraLibre;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 
@@ -16,10 +17,13 @@ class CertificadoPdfService
      * @param bool $guardarNumero Si true, guarda el número de certificado en las dumpadas
      * @return \Barryvdh\DomPDF\PDF
      */
-    public function generarCertificado(array $dumpadaIds, ?string $numeroCertificado = null, bool $guardarNumero = true)
+    /**
+     * Generar PDF de certificado.
+     * Acepta dumpadas, muestras específicas, o ambos tipos mezclados.
+     */
+    public function generarCertificado(array $dumpadaIds, ?string $numeroCertificado = null, bool $guardarNumero = true, array $muestraLibreIds = [])
     {
-        // Obtener las dumpadas con leyes completas (sin requerir certificado)
-        $dumpadas = Dumpada::with('frenteTrabajo')
+        $dumpadas = empty($dumpadaIds) ? collect() : Dumpada::with('frenteTrabajo')
             ->whereIn('id', $dumpadaIds)
             ->whereNotNull('ley')
             ->whereNotNull('cu_soluble')
@@ -28,29 +32,40 @@ class CertificadoPdfService
             ->orderBy('numero_jornada')
             ->get();
 
-        if ($dumpadas->isEmpty()) {
-            throw new \Exception('No se encontraron dumpadas con análisis completo (ley, cu_soluble, cu_insoluble)');
+        $muestrasLibres = empty($muestraLibreIds) ? collect() : MuestraLibre::whereIn('id', $muestraLibreIds)
+            ->whereNotNull('ley')
+            ->whereNotNull('cu_soluble')
+            ->whereNotNull('cu_insoluble')
+            ->orderBy('fecha')
+            ->get();
+
+        if ($dumpadas->isEmpty() && $muestrasLibres->isEmpty()) {
+            throw new \Exception('No se encontraron muestras con análisis completo (ley, cu_soluble, cu_insoluble)');
         }
 
-        // Generar número de certificado si no se proporciona
         if (!$numeroCertificado) {
             $numeroCertificado = $this->generarNumeroCertificado();
         }
 
-        // Guardar el número de certificado en las dumpadas
         if ($guardarNumero) {
             $this->asignarCertificadoADumpadas($dumpadas, $numeroCertificado);
+            foreach ($muestrasLibres as $m) {
+                $m->update(['certificado' => $numeroCertificado]);
+            }
         }
 
-        // Preparar datos para la vista
+        $muestrasData = array_merge(
+            $this->prepararMuestras($dumpadas, $numeroCertificado),
+            $this->prepararMuestrasMuestraLibre($muestrasLibres, $numeroCertificado)
+        );
+
         $data = [
             'numeroCertificado' => $numeroCertificado,
-            'fechaEmision' => Carbon::now()->format('d M. Y'),
-            'muestras' => $this->prepararMuestras($dumpadas, $numeroCertificado),
-            'laboratorio' => $this->getDatosLaboratorio(),
+            'fechaEmision'      => Carbon::now()->format('d M. Y'),
+            'muestras'          => $muestrasData,
+            'laboratorio'       => $this->getDatosLaboratorio(),
         ];
 
-        // Generar PDF
         $pdf = Pdf::loadView('pdf.certificado', $data);
         $pdf->setPaper('letter', 'portrait');
 
@@ -63,6 +78,10 @@ class CertificadoPdfService
      * @param string $numeroCertificado El número del certificado a regenerar
      * @return \Barryvdh\DomPDF\PDF
      */
+    /**
+     * Regenerar un certificado existente por su número.
+     * Incluye automáticamente dumpadas y muestras específicas con ese certificado.
+     */
     public function regenerarCertificado(string $numeroCertificado)
     {
         $dumpadas = Dumpada::with('frenteTrabajo')
@@ -71,19 +90,26 @@ class CertificadoPdfService
             ->orderBy('numero_jornada')
             ->get();
 
-        if ($dumpadas->isEmpty()) {
-            throw new \Exception("No se encontraron dumpadas con el certificado: {$numeroCertificado}");
+        $muestrasLibres = MuestraLibre::where('certificado', $numeroCertificado)
+            ->orderBy('fecha')
+            ->get();
+
+        if ($dumpadas->isEmpty() && $muestrasLibres->isEmpty()) {
+            throw new \Exception("No se encontraron muestras con el certificado: {$numeroCertificado}");
         }
 
-        // Preparar datos para la vista
+        $muestrasData = array_merge(
+            $this->prepararMuestras($dumpadas, $numeroCertificado),
+            $this->prepararMuestrasMuestraLibre($muestrasLibres, $numeroCertificado)
+        );
+
         $data = [
             'numeroCertificado' => $numeroCertificado,
-            'fechaEmision' => Carbon::now()->format('d M. Y'),
-            'muestras' => $this->prepararMuestras($dumpadas, $numeroCertificado),
-            'laboratorio' => $this->getDatosLaboratorio(),
+            'fechaEmision'      => Carbon::now()->format('d M. Y'),
+            'muestras'          => $muestrasData,
+            'laboratorio'       => $this->getDatosLaboratorio(),
         ];
 
-        // Generar PDF
         $pdf = Pdf::loadView('pdf.certificado', $data);
         $pdf->setPaper('letter', 'portrait');
 
@@ -146,26 +172,108 @@ class CertificadoPdfService
     }
 
     /**
-     * Generar número de certificado único
-     * Formato: año-número secuencial (ej: 2026-00001)
+     * Generar certificado PDF para muestras específicas (MuestraLibre)
+     */
+    public function generarCertificadoMuestraLibre(array $muestraLibreIds, ?string $numeroCertificado = null, bool $guardarNumero = true)
+    {
+        $muestras = MuestraLibre::whereIn('id', $muestraLibreIds)
+            ->whereNotNull('ley')
+            ->whereNotNull('cu_soluble')
+            ->whereNotNull('cu_insoluble')
+            ->orderBy('fecha')
+            ->get();
+
+        if ($muestras->isEmpty()) {
+            throw new \Exception('No se encontraron muestras específicas con análisis completo (ley, cu_soluble, cu_insoluble)');
+        }
+
+        if (!$numeroCertificado) {
+            $numeroCertificado = $this->generarNumeroCertificado();
+        }
+
+        if ($guardarNumero) {
+            foreach ($muestras as $m) {
+                $m->update(['certificado' => $numeroCertificado]);
+            }
+        }
+
+        $data = [
+            'numeroCertificado' => $numeroCertificado,
+            'fechaEmision'      => Carbon::now()->format('d M. Y'),
+            'muestras'          => $this->prepararMuestrasMuestraLibre($muestras, $numeroCertificado),
+            'laboratorio'       => $this->getDatosLaboratorio(),
+        ];
+
+        $pdf = Pdf::loadView('pdf.certificado', $data);
+        $pdf->setPaper('letter', 'portrait');
+        return $pdf;
+    }
+
+    /**
+     * Regenerar certificado PDF de muestras específicas por número
+     */
+    public function regenerarCertificadoMuestraLibre(string $numeroCertificado)
+    {
+        $muestras = MuestraLibre::where('certificado', $numeroCertificado)
+            ->orderBy('fecha')
+            ->get();
+
+        if ($muestras->isEmpty()) {
+            throw new \Exception("No se encontraron muestras específicas con el certificado: {$numeroCertificado}");
+        }
+
+        $data = [
+            'numeroCertificado' => $numeroCertificado,
+            'fechaEmision'      => Carbon::now()->format('d M. Y'),
+            'muestras'          => $this->prepararMuestrasMuestraLibre($muestras, $numeroCertificado),
+            'laboratorio'       => $this->getDatosLaboratorio(),
+        ];
+
+        $pdf = Pdf::loadView('pdf.certificado', $data);
+        $pdf->setPaper('letter', 'portrait');
+        return $pdf;
+    }
+
+    /**
+     * Preparar muestras específicas para el PDF
+     */
+    private function prepararMuestrasMuestraLibre($muestras, $numeroCertificado)
+    {
+        return $muestras->map(function ($m) use ($numeroCertificado) {
+            return [
+                'codigo'         => $m->codigo,
+                'fecha'          => $m->fecha ? Carbon::parse($m->fecha)->format('d.m.Y') : '',
+                'cu_total'       => number_format($m->ley, 2, ',', '.'),
+                'cu_soluble'     => number_format($m->cu_soluble, 2, ',', '.'),
+                'cu_insoluble'   => number_format($m->cu_insoluble, 2, ',', '.'),
+                'certificado_lab' => $numeroCertificado,
+            ];
+        })->toArray();
+    }
+
+    /**
+     * Generar número de certificado único.
+     * Formato: año-número secuencial (ej: 2026-00001).
+     * Considera tanto dumpadas como muestras específicas para no repetir números.
      */
     private function generarNumeroCertificado()
     {
-        $year = Carbon::now()->year;
+        $year    = Carbon::now()->year;
         $prefijo = $year . '-';
 
-        // Buscar el último número de certificado del año actual
-        $ultimoCertificado = Dumpada::where('certificado', 'like', $prefijo . '%')
+        $ultimoDumpada = Dumpada::where('certificado', 'like', $prefijo . '%')
             ->whereNotNull('certificado')
             ->orderByRaw('CAST(SUBSTRING(certificado, 6) AS UNSIGNED) DESC')
             ->value('certificado');
 
-        if ($ultimoCertificado) {
-            // Extraer el número después del año (ej: "2026-00001" -> 1)
-            $numero = (int) substr($ultimoCertificado, 5) + 1;
-        } else {
-            $numero = 1;
-        }
+        $ultimoMuestra = MuestraLibre::where('certificado', 'like', $prefijo . '%')
+            ->whereNotNull('certificado')
+            ->orderByRaw('CAST(SUBSTRING(certificado, 6) AS UNSIGNED) DESC')
+            ->value('certificado');
+
+        $numDumpada = $ultimoDumpada ? (int) substr($ultimoDumpada, 5) : 0;
+        $numMuestra = $ultimoMuestra ? (int) substr($ultimoMuestra, 5) : 0;
+        $numero     = max($numDumpada, $numMuestra) + 1;
 
         return $prefijo . str_pad($numero, 5, '0', STR_PAD_LEFT);
     }

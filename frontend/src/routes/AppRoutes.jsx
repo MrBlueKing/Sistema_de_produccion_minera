@@ -36,7 +36,7 @@ export default function AppRoutes() {
   // ========================================
   if (!authenticated) {
     console.log("Usuario no autenticado...")
-    window.location.href = 'http://localhost:5173/login';
+    window.location.href = `${import.meta.env.VITE_CENTRAL_URL}/login`;
     return null;
   }
 
@@ -80,7 +80,7 @@ export default function AppRoutes() {
               <h1 className="text-6xl font-bold text-gray-300 mb-4">404</h1>
               <p className="text-xl text-gray-600 mb-6">Página no encontrada</p>
               <button
-                onClick={() => window.location.href = 'http://localhost:5173'}
+                onClick={() => window.location.href = import.meta.env.VITE_CENTRAL_URL}
                 className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
                 Volver al Dashboard Central

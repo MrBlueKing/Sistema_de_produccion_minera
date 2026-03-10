@@ -13,7 +13,7 @@ export default function AccesoDenegado() {
       navigate(-1);
     } else {
       // Si no hay historial, redirige al login del SAC
-      window.location.href = 'http://localhost:5173/login';
+      window.location.href = `${import.meta.env.VITE_CENTRAL_URL}/login`;
     }
   };
 

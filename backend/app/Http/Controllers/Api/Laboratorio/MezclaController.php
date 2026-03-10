@@ -87,7 +87,8 @@ class MezclaController extends Controller
             'acopios' => 'nullable|array',
             'acopios.*' => 'required|integer|exists:acopios,id',
             'dumpadas' => 'nullable|array',
-            'dumpadas.*' => 'required|integer|exists:dumpadas,id',
+            'dumpadas.*.id' => 'required|integer|exists:dumpadas,id',
+            'dumpadas.*.numero_paladas' => 'nullable|numeric|min:0.01',
             'remanentes' => 'nullable|array',
             'remanentes.*.origen' => 'required|string',
             'remanentes.*.toneladas' => 'required|numeric|min:0',
@@ -211,14 +212,22 @@ class MezclaController extends Controller
     }
 
     /**
-     * Agregar dumpadas a una mezcla existente
+     * Agregar dumpadas a una mezcla existente.
+     * Acepta dumpadas completas o con número de paladas parciales.
      * POST /api/mezclas/{id}/agregar-dumpadas
+     *
+     * Formato nuevo:
+     * { "dumpadas": [{"id": 1, "numero_paladas": 3}, {"id": 2, "numero_paladas": null}] }
+     *
+     * numero_paladas = null → dumpada completa (comportamiento legado)
+     * numero_paladas > 0   → solo esas paladas de la dumpada
      */
     public function agregarDumpadas(Request $request, $id)
     {
         $validator = Validator::make($request->all(), [
             'dumpadas' => 'required|array|min:1',
-            'dumpadas.*' => 'required|integer|exists:dumpadas,id',
+            'dumpadas.*.id' => 'required|integer|exists:dumpadas,id',
+            'dumpadas.*.numero_paladas' => 'nullable|numeric|min:0.01',
         ]);
 
         if ($validator->fails()) {

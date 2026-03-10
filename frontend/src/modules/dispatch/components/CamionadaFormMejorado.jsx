@@ -5,25 +5,27 @@ import useToast from '../../../hooks/useToast';
 import laboratorioService from '../../../services/laboratorio';
 import configuracionService from '../../../services/configuracion';
 
-const CamionadaFormMejorado = ({ onSuccess, onCancel, camionadaEditar = null }) => {
+const CamionadaFormMejorado = ({ onSuccess, onCancel, camionadaEditar = null, loteIdPreseleccionado = null }) => {
   const toast = useToast();
   const [loading, setLoading] = useState(false);
   const [mezclas, setMezclas] = useState([]);
   const [plantas, setPlantas] = useState([]);
   const [empresas, setEmpresas] = useState([]);
   const [maquinas, setMaquinas] = useState([]);
+  const [lotesAbiertos, setLotesAbiertos] = useState([]);
   const [cargandoMaquinas, setCargandoMaquinas] = useState(false);
   const [mezclaSeleccionada, setMezclaSeleccionada] = useState(null);
   const [pesoCamionDefault, setPesoCamionDefault] = useState(29);
 
   const [formData, setFormData] = useState({
     mezcla_id: '',
+    lote_id: loteIdPreseleccionado ? String(loteIdPreseleccionado) : '',
     planta_id: '',
     empresa_id: '',
     patente: '',
     fecha_despacho: new Date().toISOString().split('T')[0],
     hora_despacho: new Date().toTimeString().slice(0, 5),
-    peso: pesoCamionDefault, // ✅ Peso desde configuración
+    peso: pesoCamionDefault,
     ley_visual: '',
     ley_mezcla: '',
     observaciones: ''
@@ -37,6 +39,7 @@ const CamionadaFormMejorado = ({ onSuccess, onCancel, camionadaEditar = null }) 
     if (camionadaEditar) {
       setFormData({
         mezcla_id: camionadaEditar.mezcla_id || '',
+        lote_id: camionadaEditar.lote_id || '',
         planta_id: camionadaEditar.lote?.planta_id || '',
         empresa_id: camionadaEditar.lote?.empresa_id || '',
         patente: camionadaEditar.patente || '',
@@ -69,7 +72,8 @@ const CamionadaFormMejorado = ({ onSuccess, onCancel, camionadaEditar = null }) 
         setFormData(prev => ({
           ...prev,
           ley_visual: leyVisual,
-          ley_mezcla: leyMezcla
+          ley_mezcla: leyMezcla,
+          planta_id: prev.lote_id ? prev.planta_id : (mezcla.planta_id || prev.planta_id)
         }));
       }
     } else {
@@ -82,28 +86,33 @@ const CamionadaFormMejorado = ({ onSuccess, onCancel, camionadaEditar = null }) 
       setLoading(true);
       setCargandoMaquinas(true);
 
-      const [mezclasRes, plantasRes, empresasRes, configRes, maquinasRes] = await Promise.all([
+      const [mezclasRes, plantasRes, empresasRes, configRes, camionesRes, lotesRes] = await Promise.all([
         laboratorioService.getMezclasDisponibles(),
         laboratorioService.getPlantas({ activas: true }),
         laboratorioService.getEmpresas({ activas: true }),
         configuracionService.getAll(),
-        laboratorioService.getMaquinasDisponibles().catch(err => {
-          console.error('Error cargando máquinas:', err);
-          toast.error('No se pueden cargar las máquinas del sistema de petróleo. No se puede crear camionada.');
-          return { data: [] };
-        })
+        laboratorioService.getCamiones({ activos: true }),
+        laboratorioService.getLotesAbiertos()
       ]);
-
-      console.log('✅ Mezclas cargadas:', mezclasRes);
-      console.log('✅ Plantas cargadas:', plantasRes);
-      console.log('✅ Empresas cargadas:', empresasRes);
-      console.log('✅ Configuraciones cargadas:', configRes);
-      console.log('✅ Máquinas cargadas:', maquinasRes);
 
       setMezclas(mezclasRes || []);
       setPlantas(plantasRes || []);
       setEmpresas(empresasRes || []);
-      setMaquinas(maquinasRes.data || []);
+      setMaquinas(camionesRes || []);
+      setLotesAbiertos(lotesRes || []);
+
+      // Si hay lote preseleccionado, auto-completar planta y empresa
+      if (loteIdPreseleccionado && lotesRes) {
+        const lotePresel = lotesRes.find(l => l.id === parseInt(loteIdPreseleccionado));
+        if (lotePresel) {
+          setFormData(prev => ({
+            ...prev,
+            lote_id: String(lotePresel.id),
+            planta_id: String(lotePresel.planta_id),
+            empresa_id: String(lotePresel.empresa_id),
+          }));
+        }
+      }
 
       // Establecer peso predefinido desde configuración
       const pesoDefault = configRes.peso_camion_default || 29;
@@ -137,16 +146,12 @@ const CamionadaFormMejorado = ({ onSuccess, onCancel, camionadaEditar = null }) 
     e.preventDefault();
 
     // Validaciones
+    if (!formData.lote_id) {
+      toast.error('Debe seleccionar un lote');
+      return;
+    }
     if (!formData.mezcla_id) {
       toast.error('Debe seleccionar una mezcla');
-      return;
-    }
-    if (!formData.planta_id) {
-      toast.error('Debe seleccionar una planta destino');
-      return;
-    }
-    if (!formData.empresa_id) {
-      toast.error('Debe seleccionar una empresa');
       return;
     }
     if (!formData.patente.trim()) {
@@ -175,8 +180,9 @@ const CamionadaFormMejorado = ({ onSuccess, onCancel, camionadaEditar = null }) 
     try {
       const dataToSend = {
         mezcla_id: parseInt(formData.mezcla_id),
-        planta_id: parseInt(formData.planta_id),
-        empresa_id: parseInt(formData.empresa_id),
+        lote_id: parseInt(formData.lote_id),
+        planta_id: formData.planta_id ? parseInt(formData.planta_id) : null,
+        empresa_id: formData.empresa_id ? parseInt(formData.empresa_id) : null,
         patente: formData.patente.trim().toUpperCase(),
         fecha_despacho: formData.fecha_despacho,
         hora_despacho: formData.hora_despacho || null,
@@ -206,6 +212,7 @@ const CamionadaFormMejorado = ({ onSuccess, onCancel, camionadaEditar = null }) 
       if (!camionadaEditar) {
         setFormData({
           mezcla_id: formData.mezcla_id, // Mantener la mezcla seleccionada
+          lote_id: formData.lote_id, // Mantener el lote
           planta_id: formData.planta_id, // Mantener la planta
           empresa_id: formData.empresa_id, // Mantener la empresa
           patente: '',
@@ -232,9 +239,6 @@ const CamionadaFormMejorado = ({ onSuccess, onCancel, camionadaEditar = null }) 
     }
   };
 
-  const plantaSeleccionada = plantas.find(p => p.id === parseInt(formData.planta_id));
-  const empresaSeleccionada = empresas.find(e => e.id === parseInt(formData.empresa_id));
-
   return (
     <form onSubmit={handleSubmit} className="bg-white p-6 rounded-lg shadow-lg border-2 border-blue-200">
       <div className="flex items-center justify-between mb-6">
@@ -251,6 +255,47 @@ const CamionadaFormMejorado = ({ onSuccess, onCancel, camionadaEditar = null }) 
           DESTINO DE LA CARGA
         </h4>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Lote */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Lote *
+            </label>
+            <select
+              name="lote_id"
+              value={formData.lote_id}
+              onChange={(e) => {
+                const loteId = e.target.value;
+                const lote = lotesAbiertos.find(l => l.id === parseInt(loteId));
+                setFormData(prev => ({
+                  ...prev,
+                  lote_id: loteId,
+                  planta_id: lote ? String(lote.planta_id) : '',
+                  empresa_id: lote ? String(lote.empresa_id) : '',
+                }));
+              }}
+              disabled={!!loteIdPreseleccionado || !!camionadaEditar}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+              required
+            >
+              <option value="">Seleccione un lote...</option>
+              {lotesAbiertos.map(lote => (
+                <option key={lote.id} value={lote.id}>
+                  {lote.numero_lote} - {lote.planta?.nombre || ''} ({lote.empresa?.nombre || ''})
+                </option>
+              ))}
+            </select>
+            {formData.lote_id && (() => {
+              const lote = lotesAbiertos.find(l => l.id === parseInt(formData.lote_id));
+              return lote ? (
+                <div className="mt-2 p-2 bg-green-50 rounded border border-green-300">
+                  <p className="text-xs text-green-800 font-semibold">
+                    Planta: {lote.planta?.nombre} | Empresa: {lote.empresa?.nombre}
+                  </p>
+                </div>
+              ) : null;
+            })()}
+          </div>
+
           {/* Mezcla */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -275,67 +320,7 @@ const CamionadaFormMejorado = ({ onSuccess, onCancel, camionadaEditar = null }) 
               <div className="mt-2 p-2 bg-white rounded border border-blue-200">
                 <p className="text-xs text-gray-600">
                   <span className="font-semibold">Total:</span> {parseFloat(mezclaSeleccionada.total_ton || 0).toFixed(2)} t |
-                  <span className="font-semibold"> Despachadas:</span> {parseFloat(mezclaSeleccionada.toneladas_despachadas ?? mezclaSeleccionada.peso_despachado ?? 0).toFixed(2)} t |
                   <span className="font-semibold text-green-600"> Disponibles:</span> {parseFloat(mezclaSeleccionada.toneladas_disponibles ?? mezclaSeleccionada.peso_remanente ?? 0).toFixed(2)} t
-                </p>
-                <p className="text-xs text-gray-600 mt-1">
-                  <span className="font-semibold">Ley Lab:</span> {parseFloat(mezclaSeleccionada.ley_lab || 0).toFixed(2)}% |
-                  <span className="font-semibold"> Camionadas:</span> {mezclaSeleccionada.numero_camionadas || 0}
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* Planta */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Planta Destino *
-            </label>
-            <select
-              name="planta_id"
-              value={formData.planta_id}
-              onChange={handleChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
-            >
-              <option value="">Seleccione una planta...</option>
-              {plantas.map(planta => (
-                <option key={planta.id} value={planta.id}>
-                  {planta.nombre} ({planta.codigo})
-                </option>
-              ))}
-            </select>
-            {plantaSeleccionada && (
-              <p className="text-xs text-gray-500 mt-1">
-                {plantaSeleccionada.descripcion || 'Planta seleccionada'}
-              </p>
-            )}
-          </div>
-
-          {/* Empresa */}
-          <div className="md:col-span-2">
-            <label className="block text-sm font-medium text-gray-700 mb-1 flex items-center gap-2">
-              <HiBriefcase className="text-gray-600" />
-              Empresa Vendedora *
-            </label>
-            <select
-              name="empresa_id"
-              value={formData.empresa_id}
-              onChange={handleChange}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
-            >
-              <option value="">Seleccione una empresa...</option>
-              {empresas.map(empresa => (
-                <option key={empresa.id} value={empresa.id}>
-                  {empresa.nombre} ({empresa.codigo})
-                </option>
-              ))}
-            </select>
-            {plantaSeleccionada && empresaSeleccionada && (
-              <div className="mt-2 p-2 bg-green-50 rounded border border-green-300">
-                <p className="text-xs text-green-800 font-semibold">
-                  📋 Lote: {plantaSeleccionada.codigo}-{empresaSeleccionada.codigo} ({plantaSeleccionada.nombre} - {empresaSeleccionada.nombre})
                 </p>
               </div>
             )}
@@ -367,16 +352,16 @@ const CamionadaFormMejorado = ({ onSuccess, onCancel, camionadaEditar = null }) 
               <option value="">
                 {cargandoMaquinas ? 'Cargando camiones...' : 'Seleccione un camión...'}
               </option>
-              {maquinas.map((maquina) => (
-                <option key={maquina.id_maquina} value={maquina.patente}>
-                  {maquina.nombre_maquina} ({maquina.patente}) - {maquina.nombre_categoria || 'Sin categoría'}
+              {maquinas.map((camion) => (
+                <option key={camion.id} value={camion.patente}>
+                  {camion.nombre} ({camion.patente}){camion.categoria ? ` - ${camion.categoria}` : ''}
                 </option>
               ))}
             </select>
 
             {maquinas.length === 0 && !cargandoMaquinas && (
               <p className="text-xs text-red-600 mt-1 font-semibold">
-                ⚠️ No se pudieron cargar los camiones. Verifique la conexión con el sistema de petróleo.
+                No hay camiones registrados. Registre camiones en Plantas &gt; Camiones.
               </p>
             )}
           </div>
@@ -494,7 +479,7 @@ const CamionadaFormMejorado = ({ onSuccess, onCancel, camionadaEditar = null }) 
           >
             <HiSave className="text-xl" />
             {loading ? 'Guardando...' :
-             maquinas.length === 0 && !camionadaEditar ? 'Esperando camiones...' :
+             maquinas.length === 0 && !camionadaEditar ? 'Sin camiones disponibles' :
              (camionadaEditar ? 'Actualizar Camionada' : 'Registrar Camionada')}
           </button>
         {onCancel && (
@@ -511,7 +496,7 @@ const CamionadaFormMejorado = ({ onSuccess, onCancel, camionadaEditar = null }) 
 
         {maquinas.length === 0 && !loading && !camionadaEditar && (
           <p className="text-center text-red-600 text-sm font-semibold bg-red-50 p-3 rounded-md border border-red-200">
-            ⚠️ No se puede crear camionada sin conexión al sistema de petróleo
+            No hay camiones registrados. Registre camiones en Plantas &gt; Camiones.
           </p>
         )}
       </div>

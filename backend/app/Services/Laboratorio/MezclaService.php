@@ -61,10 +61,22 @@ class MezclaService
                 }
             }
 
-            // 2. Validar y procesar DUMPADAS INDIVIDUALES si existen (para compatibilidad)
-            $dumpadasIds = $datos['dumpadas'] ?? [];
+            // 2. Validar y procesar DUMPADAS INDIVIDUALES si existen
+            // Acepta formato [{id, numero_paladas}] (paladas parciales o null = completa)
+            $dumpadasDatos = $datos['dumpadas'] ?? [];
             $dumpadas = [];
-            if (!empty($dumpadasIds)) {
+            $dumpadasPaladasMap = []; // [id => numero_paladas|null]
+            if (!empty($dumpadasDatos)) {
+                // Normalizar: extraer IDs y construir mapa de paladas
+                $dumpadasIds = array_map(fn($d) => is_array($d) ? $d['id'] : (int)$d, $dumpadasDatos);
+                foreach ($dumpadasDatos as $dd) {
+                    if (is_array($dd)) {
+                        $dumpadasPaladasMap[$dd['id']] = isset($dd['numero_paladas']) ? (float)$dd['numero_paladas'] : null;
+                    } else {
+                        $dumpadasPaladasMap[(int)$dd] = null; // backward compat: sin paladas = completa
+                    }
+                }
+
                 $dumpadas = Dumpada::whereIn('id', $dumpadasIds)->get();
 
                 if ($dumpadas->count() !== count($dumpadasIds)) {
@@ -73,9 +85,28 @@ class MezclaService
 
                 // Verificar que las dumpadas no estén en otra mezcla
                 foreach ($dumpadas as $dumpada) {
-                    if ($dumpada->estaEnMezcla()) {
-                        throw new Exception("La dumpada #{$dumpada->numero_dumpada} ya está en una mezcla");
+                    $numeroPaladas = $dumpadasPaladasMap[$dumpada->id] ?? null;
+
+                    if ($numeroPaladas === null) {
+                        // Dumpada completa: no puede estar en ninguna mezcla ni tener usos parciales
+                        if ($dumpada->estaEnMezcla()) {
+                            throw new Exception("La dumpada #{$dumpada->numero_dumpada} ya está en una mezcla");
+                        }
+                        if ($dumpada->tieneUsosParciales()) {
+                            throw new Exception("La dumpada #{$dumpada->numero_dumpada} tiene uso parcial en otras mezclas. Use el modo de paladas para agregar el resto.");
+                        }
+                    } else {
+                        // Uso parcial: verificar que no esté completa ya y que haya paladas disponibles
+                        if ($dumpada->estaEnMezcla()) {
+                            throw new Exception("La dumpada #{$dumpada->numero_dumpada} ya está asignada completa en otra mezcla");
+                        }
+                        $tonPorPalada = (float) \App\Models\ConfiguracionSistema::obtener('toneladas_por_palada', 1.82, $dumpada->id_faena);
+                        $paladasDisponibles = $dumpada->getPaladasDisponibles($tonPorPalada);
+                        if ($numeroPaladas > $paladasDisponibles) {
+                            throw new Exception("La dumpada #{$dumpada->numero_dumpada} solo tiene {$paladasDisponibles} paladas disponibles, solicitadas: {$numeroPaladas}");
+                        }
                     }
+
                     // Verificar que la dumpada no esté en un acopio
                     if ($dumpada->estaEnAcopio()) {
                         throw new Exception("La dumpada #{$dumpada->numero_dumpada} está en un acopio. Debe usar el acopio completo.");
@@ -83,9 +114,10 @@ class MezclaService
                 }
             }
 
-            // Validar que al menos haya acopios o dumpadas
-            if (empty($acopiosIds) && empty($dumpadasIds)) {
-                throw new Exception('Debe proporcionar al menos un acopio o dumpadas individuales');
+            // Validar que al menos haya acopios, dumpadas o remanentes
+            $tieneRemanentes = !empty($datos['remanentes_mezclas']) || !empty($datos['remanentes_manuales']) || !empty($datos['lotes_venta_remanentes']);
+            if (empty($acopiosIds) && empty($dumpadasDatos) && !$tieneRemanentes) {
+                throw new Exception('Debe proporcionar al menos un acopio, dumpadas individuales o remanentes');
             }
 
             // 3. Generar código si no se proporciona (usa el prefijo de la planta)
@@ -118,9 +150,10 @@ class MezclaService
                 $acopio->update(['estado' => Acopio::ESTADO_EN_MEZCLA]);
             }
 
-            // 6. Agregar dumpadas individuales si existen
+            // 6. Agregar dumpadas individuales si existen (con soporte de paladas parciales)
             foreach ($dumpadas as $dumpada) {
-                MezclaDumpada::desdeDumpada($dumpada, $mezcla->id);
+                $numeroPaladas = $dumpadasPaladasMap[$dumpada->id] ?? null;
+                MezclaDumpada::desdeDumpada($dumpada, $mezcla->id, $numeroPaladas);
             }
 
             // 7. Agregar remanentes de mezclas existentes si existen
@@ -140,20 +173,18 @@ class MezclaService
                     }
 
                     // Crear registro en mezcla_dumpada con tipo REM
-                    // IMPORTANTE: Los remanentes necesitan tratamiento especial para la ley visual
-                    $factorAjuste = \App\Config\MezclaConfig::getFactorAjusteLey();
+                    // Los promedios de la mezcla origen ya tienen los factores correctos:
+                    // - ley_prom_dump ya incluye factor (lab×0.9 o visual directo)
+                    // - ley_prom_lote ya incluye factor (lab×0.81 o visual×0.9)
                     $factorRemanenteVisual = \App\Config\MezclaConfig::getFactorRemanenteVisual();
 
-                    // Para ley_dump: revertir factor 0.9 para obtener original
-                    $leyDumpOriginal = $mezclaOrigen->ley_prom_dump ? round($mezclaOrigen->ley_prom_dump / $factorAjuste, 2) : null;
+                    // ley_dump: usar directo (ya tiene factores aplicados)
+                    $leyDumpRemanente = $mezclaOrigen->ley_prom_dump;
 
-                    // Para ley_lote: usar directamente (ya tiene factor 0.81)
+                    // ley_lote: usar directo (ya tiene factores aplicados)
                     $leyLoteRemanente = $mezclaOrigen->ley_prom_lote;
 
-                    // Para ley_visual: calcular como ley_prom_lote × 1.11 (SIN dividir por 0.9)
-                    // ley_prom_lote ya tiene factor 0.81, entonces:
-                    // ley × 0.81 × 1.11 = ley × 0.8991
-                    // Luego en calcularTotales() × 0.9 = ley × 0.809
+                    // ley_visual: calcular como ley_prom_lote × 1.11
                     $leyVisualRemanente = $mezclaOrigen->ley_prom_lote
                         ? round($mezclaOrigen->ley_prom_lote * $factorRemanenteVisual, 2)
                         : null;
@@ -163,10 +194,9 @@ class MezclaService
                         'toneladas_usar' => $toneladasUsar,
                         'ley_prom_dump_origen' => $mezclaOrigen->ley_prom_dump,
                         'ley_prom_lote_origen' => $mezclaOrigen->ley_prom_lote,
-                        'ley_dump_original_calculada' => $leyDumpOriginal,
+                        'ley_dump_remanente' => $leyDumpRemanente,
                         'ley_lote_remanente' => $leyLoteRemanente,
-                        'ley_visual_remanente_calculada' => $leyVisualRemanente,
-                        'calculo_visual' => $mezclaOrigen->ley_prom_lote ? "{$mezclaOrigen->ley_prom_lote} × {$factorRemanenteVisual} = {$leyVisualRemanente}" : 'NULL'
+                        'ley_visual_remanente' => $leyVisualRemanente,
                     ]);
 
                     MezclaDumpada::create([
@@ -175,9 +205,9 @@ class MezclaService
                         'tipo' => MezclaDumpada::TIPO_REMANENTE,
                         'origen' => "Remanente de {$mezclaOrigen->codigo}",
                         'toneladas' => $toneladasUsar,
-                        'ley_dump_ajustada' => $leyDumpOriginal, // Ley original (sin factor 0.9)
-                        'ley_visual' => $leyVisualRemanente, // (ley_prom_lote × 1.11) / 0.9
-                        'ley_lote' => $leyLoteRemanente, // Con factor 0.81 (directo de mezcla origen)
+                        'ley_dump_ajustada' => $leyDumpRemanente, // Directo de mezcla origen
+                        'ley_visual' => $leyVisualRemanente, // ley_prom_lote × 1.11
+                        'ley_lote' => $leyLoteRemanente, // Directo de mezcla origen
                     ]);
 
                     // Descontar toneladas de la mezcla origen
@@ -259,14 +289,17 @@ class MezclaService
     }
 
     /**
-     * Agregar dumpadas adicionales a una mezcla existente
+     * Agregar dumpadas adicionales a una mezcla existente.
+     * Soporta dumpadas completas y uso parcial por paladas.
      *
      * @param int $mezclaId
-     * @param array $dumpadasIds
+     * @param array $dumpadas Array de objetos: [{id: int, numero_paladas: float|null}, ...]
+     *                        numero_paladas = null → dumpada completa (comportamiento legado)
+     *                        numero_paladas > 0   → solo esas paladas de la dumpada
      * @return Mezcla
      * @throws Exception
      */
-    public function agregarDumpadas($mezclaId, array $dumpadasIds)
+    public function agregarDumpadas($mezclaId, array $dumpadas)
     {
         DB::beginTransaction();
 
@@ -277,18 +310,58 @@ class MezclaService
             if ($mezcla->ajuste_aplicado) {
                 throw new Exception('No se pueden agregar dumpadas a una mezcla con ajuste de toneladas aplicado');
             }
-            $dumpadas = Dumpada::whereIn('id', $dumpadasIds)->get();
 
-            if ($dumpadas->count() !== count($dumpadasIds)) {
-                throw new Exception('Algunas dumpadas no existen');
-            }
+            // Obtener configuración de toneladas por palada
+            $tonPorPalada = (float) \App\Models\ConfiguracionSistema::obtener('toneladas_por_palada', 1.82);
 
-            foreach ($dumpadas as $dumpada) {
-                if ($dumpada->estaEnMezcla()) {
-                    throw new Exception("La dumpada #{$dumpada->n_acop} ya está en una mezcla");
+            foreach ($dumpadas as $dumpadaData) {
+                // Normalizar: aceptar int (legado) u objeto {id, numero_paladas}
+                if (is_int($dumpadaData) || is_numeric($dumpadaData)) {
+                    $dumpadaId = (int) $dumpadaData;
+                    $numeroPaladas = null;
+                } else {
+                    $dumpadaId = (int) ($dumpadaData['id'] ?? 0);
+                    $numeroPaladas = isset($dumpadaData['numero_paladas']) && $dumpadaData['numero_paladas'] !== null
+                        ? (float) $dumpadaData['numero_paladas']
+                        : null;
                 }
 
-                MezclaDumpada::desdeDumpada($dumpada, $mezcla->id);
+                $dumpada = Dumpada::find($dumpadaId);
+                if (!$dumpada) {
+                    throw new Exception("La dumpada #{$dumpadaId} no existe");
+                }
+
+                if ($numeroPaladas !== null) {
+                    // MODO PALADAS PARCIALES
+                    if ($numeroPaladas <= 0) {
+                        throw new Exception("El número de paladas debe ser mayor a 0 para la dumpada #{$dumpada->numero_dumpada}");
+                    }
+
+                    // No puede estar como dumpada completa en ninguna mezcla
+                    if ($dumpada->estaEnMezcla()) {
+                        throw new Exception("La dumpada #{$dumpada->numero_dumpada} ya está incluida como dumpada completa en una mezcla");
+                    }
+
+                    // Verificar que hay suficientes paladas disponibles
+                    $paladasDisponibles = $dumpada->getPaladasDisponibles($tonPorPalada);
+                    if ($numeroPaladas > $paladasDisponibles) {
+                        throw new Exception("La dumpada #{$dumpada->numero_dumpada} solo tiene {$paladasDisponibles} paladas disponibles, se solicitaron {$numeroPaladas}");
+                    }
+
+                    MezclaDumpada::desdeDumpada($dumpada, $mezcla->id, $numeroPaladas);
+
+                } else {
+                    // MODO DUMPADA COMPLETA (comportamiento legado)
+                    if ($dumpada->estaEnMezcla()) {
+                        throw new Exception("La dumpada #{$dumpada->numero_dumpada} ya está en una mezcla");
+                    }
+
+                    if ($dumpada->tieneUsosParciales()) {
+                        throw new Exception("La dumpada #{$dumpada->numero_dumpada} tiene uso parcial en otras mezclas. Especifique el número de paladas restantes.");
+                    }
+
+                    MezclaDumpada::desdeDumpada($dumpada, $mezcla->id);
+                }
             }
 
             // Recalcular totales
@@ -464,35 +537,56 @@ class MezclaService
     }
 
     /**
-     * Obtener todas las dumpadas disponibles (no incluidas en mezclas)
+     * Obtener todas las dumpadas disponibles para agregar a mezclas.
+     * Incluye dumpadas con uso parcial (paladas restantes > 0).
+     *
+     * Una dumpada es "disponible" cuando:
+     *   1. No tiene ningún registro en mezcla_dumpada (completamente libre), O
+     *   2. Solo tiene registros parciales (numero_paladas NOT NULL) y le quedan paladas
+     *
+     * Cada dumpada devuelta incluye:
+     *   - paladas_totales: floor(ton / ton_por_palada)
+     *   - paladas_usadas: suma de paladas ya asignadas a mezclas
+     *   - paladas_disponibles: paladas_totales - paladas_usadas
+     *   - ton_por_palada: configuración del sistema
+     *   - tiene_uso_parcial: true si ya tiene alguna palada en otra mezcla
      *
      * @param array $filtros ['fecha_desde' => ..., 'fecha_hasta' => ..., 'id_faena' => ...]
      * @return \Illuminate\Database\Eloquent\Collection
      */
     public function obtenerDumpadasDisponibles(array $filtros = [])
     {
-        Log::info('🔎 [SERVICE] Buscando dumpadas disponibles', [
+        Log::info('🔎 [SERVICE] Buscando dumpadas disponibles (con soporte de paladas)', [
             'filtros' => $filtros
         ]);
 
-        // Contar totales primero para debug
-        $totalDumpadas = Dumpada::count();
-        $dumpadasCompletadas = Dumpada::where('estado', Dumpada::ESTADO_COMPLETADO)->count();
-        $dumpadasEnMezcla = Dumpada::whereHas('mezclaDumpada')->count();
+        // Obtener configuración de toneladas por palada
+        $idFaena = $filtros['id_faena'] ?? null;
+        $tonPorPalada = (float) \App\Models\ConfiguracionSistema::obtener('toneladas_por_palada', 1.82, $idFaena);
 
-        Log::info('📊 [SERVICE] Estadísticas de dumpadas', [
-            'total_dumpadas' => $totalDumpadas,
-            'completadas' => $dumpadasCompletadas,
-            'ya_en_mezcla' => $dumpadasEnMezcla,
-            'disponibles_estimadas' => $dumpadasCompletadas - $dumpadasEnMezcla
-        ]);
-
-        // Dumpadas que NO están en mezcla y tienen al menos ley O ley_visual
-        $query = Dumpada::whereDoesntHave('mezclaDumpada')
-            ->where(function($q) {
-                $q->whereNotNull('ley')
-                  ->orWhereNotNull('ley_visual');
+        // Dumpadas disponibles = las que tienen ley o ley_visual Y no están completamente usadas
+        // Condición: sin registros en mezcla_dumpada, O solo con registros parciales y paladas restantes
+        $query = Dumpada::where(function($q) use ($tonPorPalada) {
+            // Condición 1: Sin ningún registro en mezcla_dumpada (completamente libre)
+            $q->whereDoesntHave('mezclaDumpadas')
+            // Condición 2: Tiene solo registros parciales (sin null) y le quedan paladas
+            ->orWhere(function($q2) use ($tonPorPalada) {
+                $q2->whereDoesntHave('mezclaDumpadas', function($sub) {
+                        // Excluir dumpadas que tienen registro de dumpada COMPLETA (null)
+                        $sub->whereNull('numero_paladas');
+                    })
+                    ->whereHas('mezclaDumpadas', function($sub) {
+                        $sub->whereNotNull('numero_paladas');
+                    })
+                    ->whereRaw(
+                        '(SELECT COALESCE(SUM(md.numero_paladas), 0) FROM mezcla_dumpada md WHERE md.dumpada_id = dumpadas.id AND md.numero_paladas IS NOT NULL) < FLOOR(dumpadas.ton / ?)',
+                        [$tonPorPalada]
+                    );
             });
+        })->where(function($q) {
+            $q->whereNotNull('ley')
+              ->orWhereNotNull('ley_visual');
+        });
 
         if (isset($filtros['fecha_desde'])) {
             $query->where('fecha', '>=', $filtros['fecha_desde']);
@@ -503,35 +597,51 @@ class MezclaService
         }
 
         if (isset($filtros['id_faena'])) {
-            $query->where('id_faena', $filtros['id_faena']);
+            $idsFaena = is_string($filtros['id_faena'])
+                ? explode(',', $filtros['id_faena'])
+                : (array) $filtros['id_faena'];
+            $idsFaena = array_filter(array_map('intval', $idsFaena));
+
+            if (count($idsFaena) === 1) {
+                $query->where('id_faena', $idsFaena[0]);
+            } elseif (count($idsFaena) > 1) {
+                $query->whereIn('id_faena', $idsFaena);
+            }
         }
 
-        // Seleccionar solo los campos necesarios para optimizar
-        // Ordenar por ID descendente (más recientes primero)
-        // IMPORTANTE: No usar numero_dumpada porque es STRING y ordenará alfabéticamente
-        // Por eso "999" > "4307" (incorrecto). El ID sí es numérico y creciente.
-        // ✅ SIN LÍMITE - Mostrará TODAS las dumpadas disponibles
-
         $dumpadas = $query->with(['frenteTrabajo:id,codigo_completo'])
-            ->select(['id', 'numero_dumpada', 'acopios', 'fecha', 'ton', 'ley', 'ley_visual', 'jornada', 'id_frente_trabajo', 'estado'])
-            ->orderBy('id', 'desc') // Cambiado de numero_dumpada a id
+            ->select(['id', 'numero_dumpada', 'acopios', 'fecha', 'ton', 'ley', 'ley_visual', 'jornada', 'id_frente_trabajo', 'estado', 'id_faena'])
+            ->orderBy('id', 'desc')
             ->get();
 
-        Log::info('✅ [SERVICE] Resultado final', [
-            'dumpadas_encontradas' => $dumpadas->count(),
-            'con_ley' => $dumpadas->whereNotNull('ley')->count(),
-            'con_ley_visual' => $dumpadas->whereNotNull('ley_visual')->count(),
-            'ejemplo_primera_dumpada' => $dumpadas->first() ? [
-                'id' => $dumpadas->first()->id,
-                'numero_dumpada' => $dumpadas->first()->numero_dumpada,
-                'estado' => $dumpadas->first()->estado,
-                'ley' => $dumpadas->first()->ley,
-                'ley_visual' => $dumpadas->first()->ley_visual,
-            ] : 'No hay dumpadas',
-            'ejemplo_ultima_dumpada' => $dumpadas->last() ? [
-                'id' => $dumpadas->last()->id,
-                'numero_dumpada' => $dumpadas->last()->numero_dumpada,
-            ] : 'No hay dumpadas'
+        // Obtener suma de paladas usadas para todas las dumpadas en un solo query
+        $dumpadasIds = $dumpadas->pluck('id')->toArray();
+        $paladasUsadasMap = [];
+        if (!empty($dumpadasIds)) {
+            $paladasUsadasMap = MezclaDumpada::whereIn('dumpada_id', $dumpadasIds)
+                ->whereNotNull('numero_paladas')
+                ->groupBy('dumpada_id')
+                ->selectRaw('dumpada_id, SUM(numero_paladas) as total_usadas')
+                ->pluck('total_usadas', 'dumpada_id')
+                ->toArray();
+        }
+
+        // Agregar info de paladas a cada dumpada
+        $dumpadas->each(function($dumpada) use ($tonPorPalada, $paladasUsadasMap) {
+            $paladasTotales = $tonPorPalada > 0 ? (int) floor($dumpada->ton / $tonPorPalada) : 0;
+            $paladasUsadas = (float) ($paladasUsadasMap[$dumpada->id] ?? 0);
+            $dumpada->paladas_totales = $paladasTotales;
+            $dumpada->paladas_usadas = $paladasUsadas;
+            $dumpada->paladas_disponibles = max(0, $paladasTotales - $paladasUsadas);
+            $dumpada->ton_por_palada = $tonPorPalada;
+            $dumpada->tiene_uso_parcial = $paladasUsadas > 0;
+        });
+
+        Log::info('✅ [SERVICE] Dumpadas disponibles encontradas', [
+            'total' => $dumpadas->count(),
+            'completamente_libres' => $dumpadas->where('tiene_uso_parcial', false)->count(),
+            'con_uso_parcial' => $dumpadas->where('tiene_uso_parcial', true)->count(),
+            'ton_por_palada' => $tonPorPalada,
         ]);
 
         return $dumpadas;

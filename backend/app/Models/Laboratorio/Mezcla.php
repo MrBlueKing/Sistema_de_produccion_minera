@@ -196,8 +196,10 @@ class Mezcla extends Model
      * Calcular totales y promedios ponderados de la mezcla
      * Este método recalcula todos los valores basándose en los detalles
      *
-     * IMPORTANTE: Los detalles guardan leyes ORIGINALES (sin ajustar).
-     * El factor 0.9 se aplica AL FINAL al calcular los promedios.
+     * IMPORTANTE:
+     * - ley_dump_ajustada ya viene CON factor aplicado (lab×0.9, visual directo)
+     * - ley_lote ya viene CON factor aplicado (lab×0.81, visual×0.9)
+     * - Solo ley_prom_visual se le aplica factor ×0.9 aquí
      */
     public function calcularTotales()
     {
@@ -235,7 +237,7 @@ class Mezcla extends Model
             ]);
         }
 
-        // Promedios ponderados por toneladas (usando leyes ORIGINALES sin ajustar)
+        // Promedios ponderados por toneladas (ley_dump y ley_lote ya tienen factores aplicados)
         $sumaDumpPonderada = $detalles->sum(function ($detalle) {
             return $detalle->toneladas * ($detalle->ley_dump_ajustada ?? 0);
         });
@@ -268,13 +270,21 @@ class Mezcla extends Model
             $this->toneladas_despachadas = 0; // Asegurar que sea 0, no NULL
         }
 
-        // Calcular promedios y APLICAR factor 0.9 AL FINAL
-        // IMPORTANTE: ley_lote NO lleva factor adicional porque ya tiene 0.81 aplicado en los detalles
+        // Calcular promedios ponderados
+        // IMPORTANTE:
+        // - ley_prom_dump: los detalles ya tienen el factor aplicado (lab×0.9, visual directo), NO aplicar de nuevo
+        // - ley_prom_visual: se aplica factor 0.9 al promedio
+        // - ley_prom_lote: los detalles ya tienen factor aplicado (lab×0.81, visual×0.9), NO aplicar de nuevo
         $factor = MezclaConfig::getFactorAjusteLey();
 
-        $this->ley_prom_dump = $totalTon > 0 ? round(($sumaDumpPonderada / $totalTon) * $factor, 2) : null;
+        $this->ley_prom_dump = $totalTon > 0 ? round($sumaDumpPonderada / $totalTon, 2) : null;
         $this->ley_prom_visual = $totalTon > 0 ? round(($sumaVisualPonderada / $totalTon) * $factor, 2) : null;
-        $this->ley_prom_lote = $totalTon > 0 ? round($sumaLotePonderada / $totalTon, 2) : null; // SIN factor adicional
+        $this->ley_prom_lote = $totalTon > 0 ? round($sumaLotePonderada / $totalTon, 2) : null;
+
+        // Calcular ley_lab = ley_prom_lote / (factor * factor) → inversa del camino lab
+        $this->ley_lab = $this->ley_prom_lote
+            ? round($this->ley_prom_lote / ($factor * $factor), 2)
+            : null;
 
         \Log::info('📊 [MEZCLA TOTALES] Resultado final', [
             'suma_lote_ponderada' => $sumaLotePonderada,

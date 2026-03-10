@@ -39,22 +39,25 @@ class CamionadaService
             // 1. Verificar que exista la mezcla
             $mezcla = Mezcla::findOrFail($datos['mezcla_id']);
 
-            // 2. Si no viene planta_id, tomar de la mezcla
-            if (!isset($datos['planta_id']) || empty($datos['planta_id'])) {
-                $datos['planta_id'] = $mezcla->planta_id;
+            // 2. Obtener el lote (debe venir del request, ya no se auto-crea)
+            if (empty($datos['lote_id'])) {
+                throw new Exception('Debe seleccionar un lote para la camionada');
             }
 
-            // 3. Obtener o crear el lote para esta combinación planta + empresa
-            $lote = Lote::obtenerOCrearLote($datos['planta_id'], $datos['empresa_id']);
+            $lote = Lote::with(['planta', 'empresa'])->findOrFail($datos['lote_id']);
 
-            // 4. Calcular el número de camionada (correlativo por lote)
+            if ($lote->estado !== Lote::ESTADO_ABIERTO) {
+                throw new Exception('El lote seleccionado no está abierto');
+            }
+
+            // 3. Calcular el número de camionada (correlativo por lote)
             $ultimaCamionada = Camionada::where('lote_id', $lote->id)
                 ->orderBy('numero_camionada', 'desc')
                 ->first();
 
             $numeroCamionada = $ultimaCamionada ? ($ultimaCamionada->numero_camionada + 1) : 1;
 
-            // 5. Obtener nombres de planta y empresa si no se proporcionan
+            // 4. Obtener nombres de planta y empresa desde el lote
             $nombreCliente = $datos['cliente'] ?? $lote->empresa->nombre;
             $nombrePlanta = $datos['planta'] ?? $lote->planta->nombre;
 
@@ -273,6 +276,7 @@ class CamionadaService
                 'es_remanente',
                 'mezcla_origen_id'
             ])
+            ->withCount('camionadas')
             ->where('toneladas_disponibles', '>', 0.01) // Tolerancia de 10kg
             ->orderBy('fecha', 'desc')
             ->get();
@@ -290,7 +294,7 @@ class CamionadaService
                 'ley_lab' => round((float) ($mezcla->ley_lab ?? 0), 2),
                 'ley_visual' => round((float) ($mezcla->ley_prom_visual ?? $mezcla->ley_lab ?? 0), 2),
                 'ley_lote' => round((float) ($mezcla->ley_prom_lote ?? $mezcla->ley_lab ?? 0), 2),
-                'numero_camionadas' => $mezcla->camionadas()->count(),
+                'numero_camionadas' => $mezcla->camionadas_count,
                 'estado' => $mezcla->estado,
                 'es_remanente' => $mezcla->es_remanente,
             ];
@@ -353,6 +357,15 @@ class CamionadaService
             }
 
             $camionada->save();
+
+            // Asignar nombre al lote si viene y el lote aún no tiene nombre
+            if (!empty($datos['numero_lote']) && $camionada->lote_id) {
+                $lote = Lote::find($camionada->lote_id);
+                if ($lote && empty($lote->numero_lote)) {
+                    $lote->numero_lote = $datos['numero_lote'];
+                    $lote->save();
+                }
+            }
 
             // DESCONTAR TONELADAS DE LA MEZCLA con el peso_real
             // Al crear la camionada NO se descuenta nada

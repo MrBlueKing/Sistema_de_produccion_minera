@@ -211,27 +211,21 @@ class Acopio extends Model
             }
         }
 
-        // Calcular ley lote promedio (CON factor 0.9 aplicado DOS VECES = 0.81)
-        // IMPORTANTE: ley_dump en BD está SIN ajustar (cruda)
-        // Para mostrar en mezcla: ley_dump × 0.9
-        // Para ley_lote: (ley_dump × 0.9) × 0.9 = ley_dump × 0.81
+        // Calcular ley lote promedio
+        // REGLA: ley_lab → ×0.81 (dos descuentos), ley_visual → ×0.9 (un descuento)
         $leyLotePromedio = null;
         if ($totalToneladas > 0) {
             $sumaLeyLotePonderada = $todasDumpadas->sum(function($dumpada) {
                 $ton = floatval($dumpada->ton ?? 0);
-                $ley = 0;
 
-                // Priorizar ley de laboratorio, sino usar ley visual
+                // ley lab: dos descuentos (×0.81), ley visual: un descuento (×0.9)
                 if (!empty($dumpada->ley) && $dumpada->ley > 0) {
-                    $ley = floatval($dumpada->ley);
+                    $leyLote = floatval($dumpada->ley) * 0.81;
                 } elseif (!empty($dumpada->ley_visual) && $dumpada->ley_visual > 0) {
-                    $ley = floatval($dumpada->ley_visual);
+                    $leyLote = floatval($dumpada->ley_visual) * 0.9;
+                } else {
+                    $leyLote = 0;
                 }
-
-                // Aplicar factor 0.81 (0.9 × 0.9)
-                // Primera vez: ajuste para mezcla (× 0.9)
-                // Segunda vez: ajuste para lote (× 0.9)
-                $leyLote = $ley * 0.81;
 
                 return $ton * $leyLote;
             });

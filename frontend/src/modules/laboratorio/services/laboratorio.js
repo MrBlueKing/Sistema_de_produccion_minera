@@ -35,6 +35,12 @@ class LaboratorioService {
     return response.data;
   }
 
+  // Editar análisis de una dumpada del historial
+  async editarAnalisis(id, data) {
+    const response = await api.put(`/laboratorio/historial/${id}`, data);
+    return response.data;
+  }
+
   // ========================================
   // MÓDULO: MUESTREO
   // ========================================
@@ -79,13 +85,15 @@ class LaboratorioService {
     return response.data;
   }
 
-  // Generar y descargar certificado PDF
-  async generarCertificadoPdf(dumpadaIds, numeroCertificado = null) {
-    const response = await api.post('/laboratorio/certificados/generar', {
-      dumpada_ids: dumpadaIds,
-      numero_certificado: numeroCertificado
-    }, {
-      responseType: 'blob' // Para descargar el PDF
+  // Generar y descargar certificado PDF (acepta dumpadas, muestras específicas, o ambos)
+  async generarCertificadoPdf(dumpadaIds = [], numeroCertificado = null, muestraLibreIds = []) {
+    const body = {};
+    if (numeroCertificado) body.numero_certificado = numeroCertificado;
+    if (dumpadaIds.length > 0) body.dumpada_ids = dumpadaIds;
+    if (muestraLibreIds.length > 0) body.muestra_libre_ids = muestraLibreIds;
+
+    const response = await api.post('/laboratorio/certificados/generar', body, {
+      responseType: 'blob'
     });
     return response;
   }
@@ -107,6 +115,22 @@ class LaboratorioService {
       responseType: 'blob'
     });
     return response;
+  }
+
+  // ========================================
+  // MÓDULO: MUESTRAS LIBRES
+  // ========================================
+
+  // Completar análisis de una muestra libre
+  async completarMuestraLibre(id, data) {
+    const response = await api.put(`/laboratorio/muestras-libres/${id}/completar`, data);
+    return response.data;
+  }
+
+  // Editar análisis de una muestra libre ya completada
+  async editarMuestraLibre(id, data) {
+    const response = await api.put(`/laboratorio/muestras-libres/${id}/editar`, data);
+    return response.data;
   }
 }
 

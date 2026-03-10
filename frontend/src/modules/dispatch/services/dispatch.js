@@ -37,6 +37,41 @@ class DispatchService {
     return response.data;
   }
 
+  async marcarMuestreo(ids, paraMuestreo) {
+    const response = await api.post('/dispatch/dumpadas/marcar-muestreo', {
+      ids,
+      para_muestreo: paraMuestreo,
+    });
+    return response.data;
+  }
+
+  async getMaquinas() {
+    const response = await api.get('/dispatch/tonelaje-maquinas');
+    return response.data;
+  }
+
+  // Muestras Libres
+  async getMuestrasLibres() {
+    const response = await api.get('/dispatch/muestras-libres');
+    return response.data;
+  }
+
+  async createMuestraLibre(data) {
+    const response = await api.post('/dispatch/muestras-libres', data);
+    return response.data;
+  }
+
+  async deleteMuestraLibre(id) {
+    const response = await api.delete(`/dispatch/muestras-libres/${id}`);
+    return response.data;
+  }
+
+  // Resumen semanal para el hub (agrupado por frente + jornada)
+  async getResumenSemana(params = {}) {
+    const response = await api.get('/dispatch/resumen-semana', { params });
+    return response.data;
+  }
+
   // Rangos
   async getRangos() {
     const response = await api.get('/dispatch/rangos');

@@ -24,13 +24,18 @@ trait MultiTenancy
             }
         }
 
-        // Buscar el rol "Encargado Dispatch" en diferentes formatos
+        // Buscar roles globales en diferentes formatos
         $rolesGlobales = [
             'Encargado Dispatch',
             'encargado_dispatch',
             'encargado dispatch',
             'ENCARGADO DISPATCH',
             'Encargado_Dispatch',
+            'Admin Explosivos',
+            'admin_explosivos',
+            'admin explosivos',
+            'ADMIN EXPLOSIVOS',
+            'Admin_Explosivos',
         ];
 
         foreach ($rolesGlobales as $rolGlobal) {
@@ -42,6 +47,9 @@ trait MultiTenancy
         // También verificar con strtolower para mayor flexibilidad
         $rolesLower = array_map('strtolower', array_filter($rolesNombres));
         if (in_array('encargado dispatch', $rolesLower) || in_array('encargado_dispatch', $rolesLower)) {
+            return true;
+        }
+        if (in_array('admin explosivos', $rolesLower) || in_array('admin_explosivos', $rolesLower)) {
             return true;
         }
 

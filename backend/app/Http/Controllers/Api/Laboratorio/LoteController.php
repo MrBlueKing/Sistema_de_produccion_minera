@@ -126,6 +126,7 @@ class LoteController extends Controller
 
         // Calcular leyes promedio ponderadas
         $loteData['ley_lote_promedio'] = $lote->getLeyLotePromedio();
+        $loteData['ley_lab_promedio'] = $lote->getLeyLabPromedio();
         $loteData['ley_visual_promedio'] = $lote->getLeyVisualPromedio();
 
         // Agregar nombres para cuando no se cargan las relaciones
@@ -271,7 +272,7 @@ class LoteController extends Controller
 
                         // Si no existe, crear uno nuevo
                         if (!$nuevoLote) {
-                            $numeroLote = Lote::generarNumeroLote($lote->planta_id, $lote->empresa_id);
+                            $numeroLote = Lote::generarNumeroLote($lote->planta_id);
                             $nuevoLote = Lote::create([
                                 'numero_lote' => $numeroLote,
                                 'planta_id' => $lote->planta_id,
@@ -400,20 +401,45 @@ class LoteController extends Controller
      */
     public function lotesAbiertos(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'planta_id' => 'required|integer|exists:plantas,id',
-            'empresa_id' => 'required|integer|exists:empresas,id',
-        ]);
+        $query = Lote::with(['planta', 'empresa'])
+            ->where('estado', Lote::ESTADO_ABIERTO);
 
-        if ($validator->fails()) {
-            return response()->json([
-                'error' => 'Datos inválidos',
-                'detalles' => $validator->errors()
-            ], 422);
+        if ($request->has('planta_id') && !empty($request->planta_id)) {
+            $query->where('planta_id', $request->planta_id);
         }
 
-        $lotes = Lote::obtenerLotesAbiertos($request->planta_id, $request->empresa_id);
+        if ($request->has('empresa_id') && !empty($request->empresa_id)) {
+            $query->where('empresa_id', $request->empresa_id);
+        }
+
+        $lotes = $query->orderBy('created_at', 'desc')->get();
 
         return response()->json($lotes);
+    }
+
+    /**
+     * Obtener lotes abiertos con sus camionadas (para vista cards)
+     * GET /api/dispatch/lotes/abiertos-con-camionadas
+     */
+    public function lotesAbiertosConCamionadas(Request $request)
+    {
+        $query = Lote::with(['planta', 'empresa', 'camionadas.mezcla'])
+            ->where('estado', Lote::ESTADO_ABIERTO);
+
+        if ($request->has('planta_id') && !empty($request->planta_id)) {
+            $query->where('planta_id', $request->planta_id);
+        }
+
+        if ($request->has('empresa_id') && !empty($request->empresa_id)) {
+            $query->where('empresa_id', $request->empresa_id);
+        }
+
+        $lotes = $query->orderBy('created_at', 'desc')->get();
+
+        $lotesTransformados = $lotes->map(function ($lote) {
+            return $this->agregarCamposCalculados($lote);
+        });
+
+        return response()->json($lotesTransformados);
     }
 }

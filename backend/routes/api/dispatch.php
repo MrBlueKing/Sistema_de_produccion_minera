@@ -1,15 +1,18 @@
 <?php
 
 use App\Http\Controllers\Api\Dispatch\DumpadaController;
+use App\Http\Controllers\Api\Dispatch\MuestraLibreController;
 use App\Http\Controllers\Api\Dispatch\RangoController;
 use App\Http\Controllers\Api\Dispatch\TronaduraController;
 use App\Http\Controllers\Api\Dispatch\AcopioController;
 use App\Http\Controllers\Api\Laboratorio\MezclaController;
 use App\Http\Controllers\Api\Laboratorio\CamionadaController;
 use App\Http\Controllers\Api\Laboratorio\PlantaController;
+use App\Http\Controllers\Api\Laboratorio\EmpresaController;
 use App\Http\Controllers\Api\Laboratorio\LoteController;
 use App\Http\Controllers\Api\MapaTerrenoController;
 use App\Http\Controllers\Api\TonelajeMaquinaController;
+use App\Http\Controllers\Api\CamionController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -19,12 +22,16 @@ use Illuminate\Support\Facades\Route;
 |--------------------------------------------------------------------------
 */
 
+// Resumen semanal para el hub
+Route::get('/resumen-semana', [DumpadaController::class, 'resumenSemana']);
+
 // Dumpadas
 Route::prefix('dumpadas')->group(function () {
     Route::get('/', [DumpadaController::class, 'index']);
     Route::post('/', [DumpadaController::class, 'store']);
     Route::post('/bulk', [DumpadaController::class, 'bulkStore']); // Creación masiva
     Route::post('/previsualizar-acopio', [DumpadaController::class, 'previsualizarAcopio']);
+    Route::post('/marcar-muestreo', [DumpadaController::class, 'marcarMuestreo']); // Marcar para muestreo de lab
     Route::get('/{id}', [DumpadaController::class, 'show']);
     Route::put('/{id}', [DumpadaController::class, 'update']);
     Route::delete('/{id}', [DumpadaController::class, 'destroy']);
@@ -179,6 +186,9 @@ Route::prefix('camionadas')->group(function () {
     // Obtener mezclas con remanente disponible para despacho
     Route::get('/mezclas-disponibles', [CamionadaController::class, 'mezclasDisponibles']);
 
+    // Reordenar camionadas dentro de un lote
+    Route::post('/reordenar', [CamionadaController::class, 'reordenar']);
+
     // Crear camionada (despacho directo desde mezcla)
     Route::post('/', [CamionadaController::class, 'store']);
 
@@ -216,9 +226,23 @@ Route::prefix('plantas')->group(function () {
 });
 
 // ==========================
+// EMPRESAS
+// ==========================
+Route::prefix('empresas')->group(function () {
+    Route::get('/', [EmpresaController::class, 'index']);
+    Route::post('/', [EmpresaController::class, 'store']);
+    Route::get('/{id}', [EmpresaController::class, 'show']);
+    Route::put('/{id}', [EmpresaController::class, 'update']);
+    Route::delete('/{id}', [EmpresaController::class, 'destroy']);
+});
+
+// ==========================
 // LOTES
 // ==========================
 Route::prefix('lotes')->group(function () {
+    // Obtener lotes abiertos con camionadas (vista cards)
+    Route::get('/abiertos-con-camionadas', [LoteController::class, 'lotesAbiertosConCamionadas']);
+
     // Obtener lotes abiertos por planta y empresa (debe ir primero para no confundir con /{id})
     Route::get('/abiertos', [LoteController::class, 'lotesAbiertos']);
 
@@ -253,6 +277,26 @@ Route::prefix('mapa-terreno')->group(function () {
 
 Route::get('/ordenes', function () {
     return response()->json(['message' => 'Listado de órdenes de despacho']);
+});
+
+// ==========================
+// MUESTRAS LIBRES
+// ==========================
+Route::prefix('muestras-libres')->group(function () {
+    Route::get('/', [MuestraLibreController::class, 'index']);
+    Route::post('/', [MuestraLibreController::class, 'store']);
+    Route::put('/{id}/completar', [MuestraLibreController::class, 'completarAnalisis']);
+    Route::delete('/{id}', [MuestraLibreController::class, 'destroy']);
+});
+
+// ==========================
+// CAMIONES (Tabla local)
+// ==========================
+Route::prefix('camiones')->group(function () {
+    Route::get('/', [CamionController::class, 'index']);
+    Route::post('/', [CamionController::class, 'store']);
+    Route::put('/{id}', [CamionController::class, 'update']);
+    Route::delete('/{id}', [CamionController::class, 'destroy']);
 });
 
 // ==========================

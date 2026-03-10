@@ -264,7 +264,7 @@ export default function Muestreo() {
   };
 
   const handleGoBack = () => {
-    window.location.href = 'http://localhost:5173';
+    window.location.href = import.meta.env.VITE_CENTRAL_URL;
   };
 
   const getEstadoColor = (estado) => {
@@ -339,7 +339,7 @@ export default function Muestreo() {
             items={[
               {
                 label: 'Dashboard Central',
-                href: 'http://localhost:5173',
+                href: import.meta.env.VITE_CENTRAL_URL,
                 onClick: (e) => {
                   e.preventDefault();
                   handleGoBack();

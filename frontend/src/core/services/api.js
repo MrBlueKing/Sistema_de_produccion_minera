@@ -12,7 +12,7 @@ import authService from './auth';
  */
 
 const api = axios.create({
-  baseURL: 'http://127.0.0.1:8002/api', // ✅ Puerto 8002 para Sistema de Producción
+  baseURL: import.meta.env.VITE_API_URL,
   headers: {
     'Content-Type': 'application/json',
   },

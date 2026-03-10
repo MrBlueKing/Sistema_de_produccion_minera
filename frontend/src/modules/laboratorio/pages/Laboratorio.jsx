@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { HiHome, HiCheckCircle, HiInformationCircle, HiBeaker, HiArrowPath, HiDocumentText, HiDocumentArrowDown } from 'react-icons/hi2';
+import { HiHome, HiCheckCircle, HiInformationCircle, HiBeaker, HiArrowPath, HiDocumentText, HiDocumentArrowDown, HiPencil, HiXMark, HiCheck } from 'react-icons/hi2';
 import Header from '../../../shared/components/organisms/Header';
 import Button from '../../../shared/components/atoms/Button';
 import Card from '../../../shared/components/atoms/Card';
@@ -33,6 +33,11 @@ export default function Laboratorio() {
   const [selectedHistorialIds, setSelectedHistorialIds] = useState([]);
   const [generandoPdf, setGenerandoPdf] = useState(false);
   const [regenerandoCertificado, setRegenerandoCertificado] = useState(null); // Para tracking del botón específico
+
+  // Edición de análisis
+  const [editModal, setEditModal] = useState({ show: false, dumpada: null });
+  const [editForm, setEditForm] = useState({ ley: '', cu_soluble: '', cu_insoluble: '' });
+  const [savingEdit, setSavingEdit] = useState(false);
 
   // Paginación
   const [currentPage, setCurrentPage] = useState(1);
@@ -136,7 +141,12 @@ export default function Laboratorio() {
         response = await laboratorioService.getHistorialAnalisis(params);
       }
 
-      setDumpadas(response.data || []);
+      // Agregar _key compuesto para evitar colisión de IDs entre dumpadas y muestras_libres
+      const items = (response.data || []).map(item => ({
+        ...item,
+        _key: item.tipo === 'muestra_libre' ? `ml_${item.id}` : `d_${item.id}`,
+      }));
+      setDumpadas(items);
 
       if (response.pagination) {
         setTotalPages(response.pagination.last_page);
@@ -213,11 +223,11 @@ export default function Laboratorio() {
   };
 
   const handleSelectAll = (dumpadasList) => {
-    const allIds = dumpadasList.map(d => d.id);
-    if (selectedIds.length === allIds.length) {
+    const allKeys = dumpadasList.map(d => d._key);
+    if (selectedIds.length === allKeys.length) {
       setSelectedIds([]);
     } else {
-      setSelectedIds(allIds);
+      setSelectedIds(allKeys);
     }
   };
 
@@ -226,46 +236,32 @@ export default function Laboratorio() {
     setSelectedHistorialIds([]);
   };
 
-  // Obtener el certificado actual de las dumpadas seleccionadas
+  // Obtener el certificado actual de los ítems seleccionados en historial
   const getCertificadoSeleccionado = () => {
     if (selectedHistorialIds.length === 0) return null;
 
-    const dumpadasSeleccionadas = dumpadas.filter(d => selectedHistorialIds.includes(d.id));
-    const certificados = [...new Set(dumpadasSeleccionadas.map(d => d.certificado).filter(Boolean))];
+    const seleccionadas = dumpadas.filter(d => selectedHistorialIds.includes(d._key));
+    const certificados = [...new Set(seleccionadas.map(d => d.certificado).filter(Boolean))];
 
     if (certificados.length === 1) return certificados[0];
     if (certificados.length > 1) return 'CONFLICTO';
 
-    // Si hay seleccionadas pero ninguna tiene certificado
-    const algunaSinCertificado = dumpadasSeleccionadas.some(d => !d.certificado);
+    const algunaSinCertificado = seleccionadas.some(d => !d.certificado);
     if (algunaSinCertificado) return 'SIN_CERTIFICADO';
 
     return null;
   };
 
-  // Verificar si una dumpada es seleccionable
-  // Las dumpadas con certificado NO se pueden seleccionar (solo descargar con botón directo)
+  // Verificar si un ítem del historial es seleccionable (no tiene certificado)
+  // Tanto dumpadas como muestras específicas pueden generar certificados
   const isDumpadaSeleccionable = (dumpada) => {
-    // Si ya tiene certificado, no se puede seleccionar
     if (dumpada.certificado) return false;
-
-    // Si no hay selección, es seleccionable
-    if (selectedHistorialIds.length === 0) return true;
-
-    // Si ya está seleccionada, permitir deseleccionar
-    if (selectedHistorialIds.includes(dumpada.id)) return true;
-
     return true;
   };
 
-  // Verificar si una dumpada es compatible con la selección actual (para estilos)
+  // Compatible = sin certificado (tipo no restringe)
   const isDumpadaCompatible = (dumpada) => {
-    // Si tiene certificado, no es compatible para selección
     if (dumpada.certificado) return false;
-
-    if (selectedHistorialIds.length === 0) return true;
-    if (selectedHistorialIds.includes(dumpada.id)) return true;
-
     return true;
   };
 
@@ -282,27 +278,23 @@ export default function Laboratorio() {
   };
 
   // Funciones de selección para historial (certificados)
-  const handleSelectOneHistorial = (id) => {
-    const dumpada = dumpadas.find(d => d.id === id);
+  const handleSelectOneHistorial = (key) => {
+    const dumpada = dumpadas.find(d => d._key === key);
 
-    // Si ya está seleccionada, permitir deseleccionar
-    if (selectedHistorialIds.includes(id)) {
-      setSelectedHistorialIds(prev => prev.filter(itemId => itemId !== id));
+    if (selectedHistorialIds.includes(key)) {
+      setSelectedHistorialIds(prev => prev.filter(k => k !== key));
       return;
     }
 
-    // Si no es seleccionable (tiene certificado), mostrar mensaje
     if (!isDumpadaSeleccionable(dumpada)) {
-      const mensaje = getTooltipMessage(dumpada);
-      toast.info('Certificado existente', mensaje);
+      toast.info('Certificado existente', getTooltipMessage(dumpada));
       return;
     }
 
-    setSelectedHistorialIds(prev => [...prev, id]);
+    setSelectedHistorialIds(prev => [...prev, key]);
   };
 
   const handleSelectAllHistorial = (dumpadasList) => {
-    // Solo considerar las que NO tienen certificado (las únicas seleccionables)
     const sinCertificado = dumpadasList.filter(d => !d.certificado);
 
     // Si todas las sin certificado están seleccionadas, deseleccionar
@@ -314,20 +306,20 @@ export default function Laboratorio() {
       return;
     }
 
-    // Seleccionar todas las que no tienen certificado
+    // Seleccionar todas sin certificado
     if (sinCertificado.length > 0) {
-      setSelectedHistorialIds(sinCertificado.map(d => d.id));
+      setSelectedHistorialIds(sinCertificado.map(d => d._key));
       const conCertificado = dumpadasList.length - sinCertificado.length;
       if (conCertificado > 0) {
         toast.info(
           'Selección parcial',
-          `Se seleccionaron ${sinCertificado.length} dumpadas sin certificado. ${conCertificado} ya tienen certificado y solo se pueden descargar.`
+          `Se seleccionaron ${sinCertificado.length} muestras sin certificado. ${conCertificado} ya tienen certificado y solo se pueden descargar.`
         );
       }
     } else {
       toast.info(
-        'Sin dumpadas seleccionables',
-        'Todas las dumpadas en esta página ya tienen certificado. Usa el botón de descarga en cada fila.'
+        'Sin muestras seleccionables',
+        'Todas las muestras en esta página ya tienen certificado. Usa el botón de descarga en cada fila.'
       );
     }
   };
@@ -335,18 +327,21 @@ export default function Laboratorio() {
   // Generar certificado PDF
   const handleGenerarCertificado = async () => {
     if (selectedHistorialIds.length === 0) {
-      toast.warning('Atención', 'Selecciona al menos una dumpada para generar el certificado');
+      toast.warning('Atención', 'Selecciona al menos una muestra para generar el certificado');
       return;
     }
 
-    // Validación previa en frontend
+    // Separar dumpadas y muestras específicas por _key
+    const dumpadaIds      = selectedHistorialIds.filter(k => k.startsWith('d_')).map(k => parseInt(k.slice(2)));
+    const muestraLibreIds = selectedHistorialIds.filter(k => k.startsWith('ml_')).map(k => parseInt(k.slice(3)));
+
     const certificadoActual = getCertificadoSeleccionado();
     if (certificadoActual === 'CONFLICTO') {
-      const dumpadasSeleccionadas = dumpadas.filter(d => selectedHistorialIds.includes(d.id));
-      const certificados = [...new Set(dumpadasSeleccionadas.map(d => d.certificado).filter(Boolean))];
+      const seleccionadas = dumpadas.filter(d => selectedHistorialIds.includes(d._key));
+      const certificados = [...new Set(seleccionadas.map(d => d.certificado).filter(Boolean))];
       toast.error(
         'Certificados diferentes',
-        `Has seleccionado dumpadas de ${certificados.length} certificados distintos: ${certificados.join(', ')}. Debes seleccionar dumpadas del mismo certificado o sin certificado.`
+        `Has seleccionado muestras de ${certificados.length} certificados distintos: ${certificados.join(', ')}. Selecciona muestras del mismo certificado o sin certificado.`
       );
       return;
     }
@@ -354,7 +349,7 @@ export default function Laboratorio() {
     setGenerandoPdf(true);
 
     try {
-      const response = await laboratorioService.generarCertificadoPdf(selectedHistorialIds);
+      const response = await laboratorioService.generarCertificadoPdf(dumpadaIds, null, muestraLibreIds);
 
       // Crear blob y descargar
       const blob = new Blob([response.data], { type: 'application/pdf' });
@@ -399,6 +394,47 @@ export default function Laboratorio() {
     }
   };
 
+  // Editar análisis
+  const handleEditClick = (dumpada, e) => {
+    e?.stopPropagation();
+    setEditForm({
+      ley: dumpada.ley || '',
+      cu_soluble: dumpada.cu_soluble || '',
+      cu_insoluble: dumpada.cu_insoluble || '',
+    });
+    setEditModal({ show: true, dumpada });
+  };
+
+  const handleEditSave = async () => {
+    if (!editModal.dumpada) return;
+    if (!editForm.ley || !editForm.cu_soluble) {
+      toast.error('Campos requeridos', 'Ley (Cu Total) y Cu Soluble son obligatorios');
+      return;
+    }
+    setSavingEdit(true);
+    try {
+      const payload = {
+        ley: parseFloat(editForm.ley),
+        cu_soluble: parseFloat(editForm.cu_soluble),
+        cu_insoluble: editForm.cu_insoluble ? parseFloat(editForm.cu_insoluble) : undefined,
+      };
+
+      if (editModal.dumpada.tipo === 'muestra_libre') {
+        await laboratorioService.editarMuestraLibre(editModal.dumpada.id, payload);
+      } else {
+        await laboratorioService.editarAnalisis(editModal.dumpada.id, payload);
+      }
+
+      toast.success('Actualizado', 'El análisis fue editado correctamente');
+      setEditModal({ show: false, dumpada: null });
+      loadData();
+    } catch (error) {
+      toast.error('Error al guardar', error.response?.data?.message || error.message);
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
   // Regenerar certificado existente (descarga directa desde botón de fila)
   const handleRegenerarCertificado = async (numeroCertificado, e) => {
     e?.stopPropagation(); // Evitar que se seleccione la fila
@@ -438,7 +474,7 @@ export default function Laboratorio() {
 
   // Completar análisis
   const handleCompletar = (dumpada) => {
-    setSelectedIds([dumpada.id]);
+    setSelectedIds([dumpada._key]);
     setShowBulkCompleteModal(true);
   };
 
@@ -456,20 +492,46 @@ export default function Laboratorio() {
     setLoading(true);
 
     try {
-      // Enviar los 3 valores de Cu: ley (Cu Total), cu_soluble, cu_insoluble
-      // El ley_cup (capping) se calcula automáticamente en el backend
-      const analisis = Object.entries(completedDataMap).map(([id, data]) => ({
-        id: parseInt(id),
-        ley: data.ley,           // Cu Total
-        cu_soluble: data.cu_soluble,
-        cu_insoluble: data.cu_insoluble,
-        certificado: data.certificado,
-      }));
+      const dumpadasAnalisis = [];
+      const muestrasLibresPromises = [];
 
-      await laboratorioService.completarMultiplesAnalisis(analisis);
+      // Las claves del map son _key compuestos: "ml_3" para muestra libre, "d_7" para dumpada
+      for (const [key, data] of Object.entries(completedDataMap)) {
+        const isMuestraLibre = key.startsWith('ml_');
+        const realId = parseInt(key.replace(/^(ml_|d_)/, ''));
 
+        if (isMuestraLibre) {
+          muestrasLibresPromises.push(
+            laboratorioService.completarMuestraLibre(realId, {
+              ley: data.ley,
+              cu_soluble: data.cu_soluble,
+              cu_insoluble: data.cu_insoluble,
+            })
+          );
+        } else {
+          dumpadasAnalisis.push({
+            id: realId,
+            ley: data.ley,
+            cu_soluble: data.cu_soluble,
+            cu_insoluble: data.cu_insoluble,
+            certificado: data.certificado,
+          });
+        }
+      }
+
+      const promises = [];
+      if (dumpadasAnalisis.length > 0) {
+        promises.push(laboratorioService.completarMultiplesAnalisis(dumpadasAnalisis));
+      }
+      if (muestrasLibresPromises.length > 0) {
+        promises.push(...muestrasLibresPromises);
+      }
+
+      await Promise.all(promises);
+
+      const total = Object.keys(completedDataMap).length;
       toast.success(
-        `${analisis.length} análisis completado${analisis.length !== 1 ? 's' : ''}`,
+        `${total} análisis completado${total !== 1 ? 's' : ''}`,
         'Los valores de Cu han sido registrados correctamente'
       );
 
@@ -489,7 +551,7 @@ export default function Laboratorio() {
   };
 
   const handleGoBack = () => {
-    window.location.href = 'http://localhost:5173';
+    window.location.href = import.meta.env.VITE_CENTRAL_URL;
   };
 
   const getEstadoColor = (estado) => {
@@ -601,7 +663,7 @@ export default function Laboratorio() {
             items={[
               {
                 label: 'Dashboard Central',
-                href: 'http://localhost:5173',
+                href: import.meta.env.VITE_CENTRAL_URL,
                 onClick: (e) => {
                   e.preventDefault();
                   handleGoBack();
@@ -618,7 +680,7 @@ export default function Laboratorio() {
         {/* Modal de Completar Análisis (Wizard) */}
         <BulkCompleteModal
           show={showBulkCompleteModal}
-          dumpadas={dumpadas.filter(d => selectedIds.includes(d.id))}
+          dumpadas={dumpadas.filter(d => selectedIds.includes(d._key)).map(d => ({ ...d, id: d._key }))}
           onConfirm={handleBulkCompleteConfirm}
           onCancel={handleBulkCompleteCancel}
         />
@@ -916,13 +978,12 @@ export default function Laboratorio() {
                           <input
                             type="checkbox"
                             onChange={() => handleSelectAll(dumpadas)}
-                            checked={selectedIds.length === dumpadas.length && selectedIds.length > 0}
+                            checked={dumpadas.length > 0 && selectedIds.length === dumpadas.length}
                             className="w-4 h-4 rounded border-orange-300 text-orange-600 focus:ring-orange-500"
                           />
                         </th>
-                        <th className="text-left py-3 px-2 font-bold text-orange-900 text-xs">Faena</th>
-                        <th className="text-left py-3 px-2 font-bold text-orange-900 text-xs">Frente</th>
-                        <th className="text-left py-3 px-2 font-bold text-orange-900 text-xs">Jornada</th>
+                        <th className="text-left py-3 px-2 font-bold text-orange-900 text-xs">Tipo</th>
+                        <th className="text-left py-3 px-2 font-bold text-orange-900 text-xs">N° Muestra</th>
                         <th className="text-left py-3 px-2 font-bold text-orange-900 text-xs">Fecha</th>
                         <th className="text-left py-3 px-2 font-bold text-orange-900 text-xs">Estado</th>
                         <th className="text-left py-3 px-2 font-bold text-orange-900 text-xs">Acción</th>
@@ -931,35 +992,43 @@ export default function Laboratorio() {
                     <tbody>
                       {dumpadas.map((dumpada, index) => {
                         const backgroundColor = index % 2 === 0 ? '#ffffff' : '#fff7ed';
+                        const esMuestraLibre = dumpada.tipo === 'muestra_libre';
 
                         return (
                           <tr
-                            key={dumpada.id}
+                            key={dumpada._key}
                             style={{ backgroundColor }}
-                            className={`border-b border-gray-200 hover:bg-orange-50 transition-all ${selectedIds.includes(dumpada.id) ? 'ring-2 ring-orange-400 bg-orange-50' : ''}`}
+                            className={`border-b border-gray-200 hover:bg-orange-50 transition-all ${selectedIds.includes(dumpada._key) ? 'ring-2 ring-orange-400 bg-orange-50' : ''}`}
                           >
                             <td className="py-3 px-2 text-center">
                               <input
                                 type="checkbox"
-                                checked={selectedIds.includes(dumpada.id)}
-                                onChange={() => handleSelectOne(dumpada.id)}
+                                checked={selectedIds.includes(dumpada._key)}
+                                onChange={() => handleSelectOne(dumpada._key)}
                                 className="w-4 h-4 rounded border-gray-300 text-orange-600 focus:ring-orange-500"
                               />
                             </td>
                             <td className="py-3 px-2">
-                              <span className="text-xs font-semibold text-gray-700 bg-gray-100 px-2 py-1 rounded">
-                                {dumpada.faena || dumpada.faena_info?.nombre || '-'}
-                              </span>
+                              {esMuestraLibre ? (
+                                <span className="bg-purple-600 text-white px-2 py-1 rounded-full text-xs font-bold whitespace-nowrap">
+                                  Muestra Específica
+                                </span>
+                              ) : (
+                                <span className="bg-orange-500 text-white px-2 py-1 rounded-full text-xs font-bold whitespace-nowrap">
+                                  Muestra Dumpada
+                                </span>
+                              )}
                             </td>
                             <td className="py-3 px-2">
-                              <span className="font-bold text-orange-900 bg-orange-100 px-2 py-1 rounded text-xs">
-                                {dumpada.frente_trabajo?.codigo_completo || '-'}
-                              </span>
-                            </td>
-                            <td className="py-3 px-2">
-                              <span className="bg-orange-600 text-white px-2 py-1 rounded-full text-xs font-semibold">
-                                {dumpada.jornada}{dumpada.numero_jornada ? `-${dumpada.numero_jornada}` : ''}
-                              </span>
+                              {esMuestraLibre ? (
+                                <span className="font-bold text-purple-900 bg-purple-100 px-3 py-1.5 rounded-lg text-sm font-mono">
+                                  {dumpada.codigo || `ME-${String(dumpada.id).padStart(5, '0')}`}
+                                </span>
+                              ) : (
+                                <span className="font-bold text-orange-900 bg-orange-100 px-3 py-1.5 rounded-lg text-sm font-mono">
+                                  {dumpada.acopios || dumpada.numero_dumpada || dumpada.id}
+                                </span>
+                              )}
                             </td>
                             <td className="py-3 px-2 text-xs text-gray-800">
                               {formatearFecha(dumpada.fecha)}
@@ -1029,47 +1098,51 @@ export default function Laboratorio() {
                         <tr className="border-b-2 border-green-200 bg-gradient-to-r from-green-50 to-green-100">
                           <th className="text-center py-3 px-2 font-bold text-green-900 text-xs w-10">
                             {(() => {
-                              const sinCertificado = dumpadas.filter(d => !d.certificado);
-                              const allSelected = sinCertificado.length > 0 &&
-                                sinCertificado.every(d => selectedHistorialIds.includes(d.id));
+                              const seleccionables = dumpadas.filter(d => !d.certificado);
+                              const allSelected = seleccionables.length > 0 &&
+                                seleccionables.every(d => selectedHistorialIds.includes(d._key));
                               return (
                                 <input
                                   type="checkbox"
                                   onChange={() => handleSelectAllHistorial(dumpadas)}
                                   checked={allSelected}
-                                  disabled={sinCertificado.length === 0}
-                                  title={sinCertificado.length === 0
-                                    ? 'Todas las dumpadas ya tienen certificado'
-                                    : `Seleccionar ${sinCertificado.length} dumpadas sin certificado`
+                                  disabled={seleccionables.length === 0}
+                                  title={seleccionables.length === 0
+                                    ? 'No hay muestras seleccionables'
+                                    : `Seleccionar ${seleccionables.length} muestras sin certificado`
                                   }
                                   className={`w-4 h-4 rounded border-green-300 text-green-600 focus:ring-green-500 ${
-                                    sinCertificado.length === 0 ? 'opacity-50 cursor-not-allowed' : ''
+                                    seleccionables.length === 0 ? 'opacity-50 cursor-not-allowed' : ''
                                   }`}
                                 />
                               );
                             })()}
                           </th>
-                          <th className="text-left py-3 px-2 font-bold text-green-900 text-xs">Frente</th>
-                          <th className="text-left py-3 px-2 font-bold text-green-900 text-xs">Jornada</th>
+                          <th className="text-left py-3 px-2 font-bold text-green-900 text-xs">Código</th>
                           <th className="text-left py-3 px-2 font-bold text-green-900 text-xs">Fecha</th>
                           <th className="text-left py-3 px-2 font-bold text-green-900 text-xs">Cu Total</th>
                           <th className="text-left py-3 px-2 font-bold text-green-900 text-xs">Cu Sol</th>
                           <th className="text-left py-3 px-2 font-bold text-green-900 text-xs">Cu Insol</th>
                           <th className="text-left py-3 px-2 font-bold text-green-900 text-xs">Certificado</th>
-                          <th className="text-left py-3 px-2 font-bold text-green-900 text-xs">Rango</th>
+                          <th className="text-center py-3 px-2 font-bold text-green-900 text-xs">Editar</th>
                         </tr>
                       </thead>
                       <tbody>
                         {dumpadas.map((dumpada, index) => {
                           const backgroundColor = index % 2 === 0 ? '#ffffff' : '#f0fdf4';
-                          const isSelected = selectedHistorialIds.includes(dumpada.id);
+                          const esMuestraLibre = dumpada.tipo === 'muestra_libre';
+                          const isSelected = selectedHistorialIds.includes(dumpada._key);
                           const tieneCertificado = !!dumpada.certificado;
                           const esSeleccionable = !tieneCertificado;
-                          const tooltipMsg = getTooltipMessage(dumpada);
+
+                          // Código a mostrar
+                          const codigoMuestra = esMuestraLibre
+                            ? (dumpada.codigo || `ME-${String(dumpada.id).padStart(5, '0')}`)
+                            : (dumpada.acopios || dumpada.numero_dumpada || dumpada.id);
 
                           return (
                             <tr
-                              key={dumpada.id}
+                              key={dumpada._key}
                               style={{
                                 backgroundColor: isSelected ? '#dcfce7' : (tieneCertificado ? '#fefce8' : backgroundColor),
                               }}
@@ -1078,15 +1151,15 @@ export default function Laboratorio() {
                               } ${isSelected ? 'ring-2 ring-green-400' : ''} ${
                                 tieneCertificado ? 'border-l-4 border-l-amber-400' : ''
                               }`}
-                              onClick={() => esSeleccionable && handleSelectOneHistorial(dumpada.id)}
-                              title={tooltipMsg || undefined}
+                              onClick={() => esSeleccionable && handleSelectOneHistorial(dumpada._key)}
+                              title={getTooltipMessage(dumpada) || undefined}
                             >
                               <td className="py-3 px-2 text-center" onClick={(e) => e.stopPropagation()}>
                                 {esSeleccionable ? (
                                   <input
                                     type="checkbox"
                                     checked={isSelected}
-                                    onChange={() => handleSelectOneHistorial(dumpada.id)}
+                                    onChange={() => handleSelectOneHistorial(dumpada._key)}
                                     className="w-4 h-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
                                   />
                                 ) : (
@@ -1095,18 +1168,14 @@ export default function Laboratorio() {
                                   </span>
                                 )}
                               </td>
+                              {/* Código */}
                               <td className="py-3 px-2">
-                                <span className={`font-bold px-2 py-1 rounded text-xs ${
-                                  tieneCertificado ? 'text-amber-800 bg-amber-100' : 'text-green-900 bg-green-100'
+                                <span className={`font-bold font-mono px-2 py-1 rounded text-xs ${
+                                  esMuestraLibre
+                                    ? 'text-purple-900 bg-purple-100'
+                                    : tieneCertificado ? 'text-amber-800 bg-amber-100' : 'text-green-900 bg-green-100'
                                 }`}>
-                                  {dumpada.frente_trabajo?.codigo_completo || '-'}
-                                </span>
-                              </td>
-                              <td className="py-3 px-2">
-                                <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                                  tieneCertificado ? 'bg-amber-500 text-white' : 'bg-green-600 text-white'
-                                }`}>
-                                  {dumpada.jornada}{dumpada.numero_jornada ? `-${dumpada.numero_jornada}` : ''}
+                                  {codigoMuestra}
                                 </span>
                               </td>
                               <td className="py-3 px-2 text-xs text-gray-800">
@@ -1154,10 +1223,14 @@ export default function Laboratorio() {
                                   )}
                                 </div>
                               </td>
-                              <td className="py-3 px-2">
-                                <span className={`${getRangoColor(dumpada.rango)} text-white px-2 py-1 rounded-full text-xs font-bold`}>
-                                  {dumpada.rango || '-'}
-                                </span>
+                              <td className="py-3 px-2 text-center" onClick={(e) => e.stopPropagation()}>
+                                <button
+                                  onClick={(e) => handleEditClick(dumpada, e)}
+                                  className="p-1.5 bg-green-100 hover:bg-green-200 text-green-700 rounded-lg transition-colors"
+                                  title="Editar análisis"
+                                >
+                                  <HiPencil className="w-4 h-4" />
+                                </button>
                               </td>
                             </tr>
                           );
@@ -1183,6 +1256,109 @@ export default function Laboratorio() {
             </>
           )}
         </Card>
+        {/* Modal de Edición de Análisis */}
+        {editModal.show && editModal.dumpada && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full">
+              <div className="bg-gradient-to-r from-green-600 to-green-500 text-white p-5 rounded-t-xl flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
+                    <HiPencil className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold">Editar Análisis</h2>
+                    <p className="text-green-100 text-xs">
+                      {editModal.dumpada.tipo === 'muestra_libre'
+                        ? `${editModal.dumpada.codigo || `ME-${String(editModal.dumpada.id).padStart(5, '0')}`} - ${editModal.dumpada.nombre || 'Muestra Específica'}`
+                        : `Dumpada #${editModal.dumpada.numero_dumpada} - ${editModal.dumpada.frente_trabajo?.codigo_completo}`
+                      }
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setEditModal({ show: false, dumpada: null })}
+                  className="w-8 h-8 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center transition-colors"
+                >
+                  <HiXMark className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="p-5 space-y-4">
+                <div className="bg-gray-50 rounded-lg p-3 text-xs text-gray-600">
+                  <p><strong>Fecha:</strong> {formatearFecha(editModal.dumpada.fecha)} | <strong>Jornada:</strong> {editModal.dumpada.jornada}{editModal.dumpada.numero_jornada ? `-${editModal.dumpada.numero_jornada}` : ''}</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">
+                    Ley - Cu Total (%) <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="0.001"
+                    value={editForm.ley}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, ley: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    placeholder="Ej: 1.640"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">
+                    Cu Soluble (%) <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="0.001"
+                    value={editForm.cu_soluble}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, cu_soluble: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    placeholder="Ej: 0.800"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">
+                    Cu Insoluble (%) <span className="text-gray-400 text-xs font-normal">opcional, se calcula auto</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="0.001"
+                    value={editForm.cu_insoluble}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, cu_insoluble: e.target.value }))}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    placeholder={editForm.ley && editForm.cu_soluble ? `Auto: ${(parseFloat(editForm.ley || 0) - parseFloat(editForm.cu_soluble || 0)).toFixed(3)}` : 'Se calcula automáticamente'}
+                  />
+                </div>
+              </div>
+
+              <div className="px-5 pb-5 flex gap-3 justify-end">
+                <button
+                  onClick={() => setEditModal({ show: false, dumpada: null })}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleEditSave}
+                  disabled={savingEdit}
+                  className="px-4 py-2 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors disabled:opacity-50 flex items-center gap-2"
+                >
+                  {savingEdit ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                      Guardando...
+                    </>
+                  ) : (
+                    <>
+                      <HiCheck className="w-4 h-4" />
+                      Guardar
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );

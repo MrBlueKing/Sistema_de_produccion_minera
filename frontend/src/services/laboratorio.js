@@ -12,6 +12,21 @@ class LaboratorioService {
     return response.data;
   }
 
+  async createEmpresa(data) {
+    const response = await api.post('/laboratorio/empresas', data);
+    return response.data;
+  }
+
+  async updateEmpresa(id, data) {
+    const response = await api.put(`/laboratorio/empresas/${id}`, data);
+    return response.data;
+  }
+
+  async deleteEmpresa(id) {
+    const response = await api.delete(`/laboratorio/empresas/${id}`);
+    return response.data;
+  }
+
   // ==================== PLANTAS ====================
   async getPlantas(params = {}) {
     const response = await api.get('/laboratorio/plantas', { params });
@@ -76,6 +91,16 @@ class LaboratorioService {
     return response.data;
   }
 
+  async getLotesAbiertosConCamionadas(params = {}) {
+    const response = await api.get('/dispatch/lotes/abiertos-con-camionadas', { params });
+    return response.data;
+  }
+
+  async getLotesAbiertos(params = {}) {
+    const response = await api.get('/dispatch/lotes/abiertos', { params });
+    return response.data;
+  }
+
   // ==================== CAMIONADAS ====================
   async getCamionadas(params = {}) {
     const response = await api.get('/dispatch/camionadas', { params });
@@ -112,6 +137,14 @@ class LaboratorioService {
     return response.data;
   }
 
+  async reordenarCamionada(camionadaId, direccion) {
+    const response = await api.post('/dispatch/camionadas/reordenar', {
+      camionada_id: camionadaId,
+      direccion,
+    });
+    return response.data;
+  }
+
   async actualizarLeyLaboratorio(id, leyLabCamion) {
     const response = await api.post(`/dispatch/camionadas/${id}/ley-laboratorio`, {
       ley_lab_camion: leyLabCamion
@@ -129,19 +162,40 @@ class LaboratorioService {
     return response.data;
   }
 
-  // ==================== MÁQUINAS (SISTEMA PETRÓLEO) ====================
-  /**
-   * Obtener máquinas disponibles desde el sistema de petróleo
-   * Filtra solo camiones tolva (categoría 7)
-   */
+  // ==================== CAMIONES (Tabla local) ====================
+  async getCamiones(params = {}) {
+    const response = await api.get('/dispatch/camiones', { params });
+    return response.data;
+  }
+
+  async createCamion(data) {
+    const response = await api.post('/dispatch/camiones', data);
+    return response.data;
+  }
+
+  async updateCamion(id, data) {
+    const response = await api.put(`/dispatch/camiones/${id}`, data);
+    return response.data;
+  }
+
+  async deleteCamion(id) {
+    const response = await api.delete(`/dispatch/camiones/${id}`);
+    return response.data;
+  }
+
+  // ==================== MÁQUINAS (SISTEMA PETRÓLEO - LEGACY) ====================
   async getMaquinasDisponibles() {
-    try {
-      const response = await api.get('/petroleo/maquinas');
-      return response.data;
-    } catch (error) {
-      console.error('Error al obtener máquinas:', error);
-      throw error;
-    }
+    // Now uses local camiones table
+    const camiones = await this.getCamiones({ activos: true });
+    // Transform to match old API shape for backward compatibility
+    return {
+      data: (camiones || []).map(c => ({
+        id_maquina: c.id,
+        patente: c.patente,
+        nombre_maquina: c.nombre,
+        nombre_categoria: c.categoria || 'Tolva',
+      }))
+    };
   }
 
   // ==================== CERTIFICADOS PDF ====================

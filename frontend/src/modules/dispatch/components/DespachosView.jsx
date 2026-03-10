@@ -14,8 +14,11 @@ import {
   HiX,
   HiBriefcase,
   HiChartBar,
-  HiXCircle
+  HiXCircle,
+  HiChevronUp,
+  HiChevronDown
 } from 'react-icons/hi';
+import { HiScale } from 'react-icons/hi2';
 import useToast from '../../../hooks/useToast';
 import laboratorioService from '../../../services/laboratorio';
 import Card from '../../../shared/components/atoms/Card';
@@ -27,12 +30,11 @@ import CamionadaFormMejorado from './CamionadaFormMejorado';
 import CamionadasMultiplesForm from './CamionadasMultiplesForm';
 import CerrarLoteModal from './CerrarLoteModal';
 import Badge from '../../../shared/components/atoms/Badge';
-import RecepcionPanel from './RecepcionPanel';
 
 const DespachosView = () => {
   const toast = useToast();
   const [loading, setLoading] = useState(false);
-  const [vistaActiva, setVistaActiva] = useState('camionadas'); // 'camionadas', 'recepcion', 'lotes', 'plantas'
+  const [vistaActiva, setVistaActiva] = useState('lotes'); // 'lotes', 'camionadas', 'plantas'
 
   // Estados para camionadas
   const [camionadas, setCamionadas] = useState([]);
@@ -65,13 +67,21 @@ const DespachosView = () => {
     activo: true
   });
 
+  // Estados para camiones
+  const [camionesLista, setCamionesLista] = useState([]);
+  const [formCamion, setFormCamion] = useState({
+    patente: '',
+    nombre: '',
+    categoria: '',
+    tonelaje: '',
+    activo: true
+  });
+
   // Estados para lotes
   const [lotes, setLotes] = useState([]);
   const [empresas, setEmpresas] = useState([]);
   const [tabLotesActivo, setTabLotesActivo] = useState('abiertos'); // 'abiertos' o 'completados'
-  const [filtrosLotes, setFiltros
-    
-  ] = useState({
+  const [filtrosLotes, setFiltrosLotes] = useState({
     planta_id: '',
     empresa_id: '',
     search: '',
@@ -92,6 +102,30 @@ const DespachosView = () => {
   const [deleteModal, setDeleteModal] = useState({ show: false, id: null, nombre: '', tipo: '' });
   const [mostrarModalEliminarLote, setMostrarModalEliminarLote] = useState(false);
   const [loteAEliminar, setLoteAEliminar] = useState(null);
+
+  // Estados para crear lote manual
+  const [mostrarFormLote, setMostrarFormLote] = useState(false);
+  const [formLote, setFormLote] = useState({ planta_id: '', empresa_id: '' });
+  const [creandoLote, setCreandoLote] = useState(false);
+
+  // Estado para agregar camionada desde card de lote
+  const [loteIdParaCamionada, setLoteIdParaCamionada] = useState(null);
+
+  // Lotes abiertos con camionadas (para vista cards)
+  const [lotesAbiertosCards, setLotesAbiertosCards] = useState([]);
+
+  // Recepción inline en cards de lotes
+  const [recepcionandoId, setRecepcionandoId] = useState(null);
+  const [formRecepcionInline, setFormRecepcionInline] = useState({ peso_real: '' });
+  const [submittingRecepcion, setSubmittingRecepcion] = useState(false);
+  const [showModalRecepcion, setShowModalRecepcion] = useState(false);
+  const [camionadaParaRecepcion, setCamionadaParaRecepcion] = useState(null);
+  const [formRecepcionModal, setFormRecepcionModal] = useState({
+    fecha_recepcion: '',
+    hora_recepcion: '',
+    peso_real: '',
+    observaciones_recepcion: ''
+  });
 
   useEffect(() => {
     cargarDatos();
@@ -114,15 +148,23 @@ const DespachosView = () => {
         setCamionadas(camionadasRes || []);
         setMezclas(mezclasRes || []);
       } else if (vistaActiva === 'plantas') {
-        const plantasRes = await laboratorioService.getPlantas({ activas: 1 });
-        setPlantas(plantasRes || []);
-      } else if (vistaActiva === 'lotes') {
-        const [plantasRes, empresasRes] = await Promise.all([
-          laboratorioService.getPlantas({ activas: true }),
-          laboratorioService.getEmpresas({ activas: true })
+        const [plantasRes, empresasRes, camionesRes] = await Promise.all([
+          laboratorioService.getPlantas({ activas: 1 }),
+          laboratorioService.getEmpresas(),
+          laboratorioService.getCamiones()
         ]);
         setPlantas(plantasRes || []);
         setEmpresas(empresasRes || []);
+        setCamionesLista(camionesRes || []);
+      } else if (vistaActiva === 'lotes') {
+        const [plantasRes, empresasRes, lotesAbRes] = await Promise.all([
+          laboratorioService.getPlantas({ activas: true }),
+          laboratorioService.getEmpresas({ activas: true }),
+          laboratorioService.getLotesAbiertosConCamionadas()
+        ]);
+        setPlantas(plantasRes || []);
+        setEmpresas(empresasRes || []);
+        setLotesAbiertosCards(lotesAbRes || []);
         await cargarLotes();
       }
     } catch (error) {
@@ -181,10 +223,10 @@ const DespachosView = () => {
 
   // ============== FUNCIONES CAMIONADAS ==============
 
-  const handleCamionadaCreada = (camionada) => {
+  const handleCamionadaCreada = async (camionada) => {
     toast.success('Camionada creada exitosamente');
     setMostrarFormCamionada(false);
-    cargarDatos();
+    await cargarDatos();
   };
 
   const handleRecepcionarCamionada = async (e) => {
@@ -214,16 +256,8 @@ const DespachosView = () => {
     }
   };
 
-  const handleEliminarCamionada = async (id) => {
-    if (!window.confirm('¿Está seguro de eliminar esta camionada?')) return;
-
-    try {
-      await laboratorioService.deleteCamionada(id);
-      toast.success('Camionada eliminada');
-      cargarDatos();
-    } catch (error) {
-      toast.error('Error al eliminar', error.response?.data?.message || error.message);
-    }
+  const handleEliminarCamionada = (id) => {
+    setDeleteModal({ show: true, id, nombre: `camionada #${id}`, tipo: 'camionada' });
   };
 
   // ============== FUNCIONES HELPER PARA FORMULARIOS ==============
@@ -249,13 +283,25 @@ const DespachosView = () => {
     });
   };
 
+  const resetFormCamion = () => {
+    setFormCamion({
+      patente: '',
+      nombre: '',
+      categoria: '',
+      tonelaje: '',
+      activo: true
+    });
+  };
+
   const handleNuevoClick = () => {
     setModoFormPlanta('crear');
     setPlantaSeleccionada(null);
     if (vistaPlantasActiva === 'plantas') {
       resetFormPlanta();
-    } else {
+    } else if (vistaPlantasActiva === 'empresas') {
       resetFormEmpresa();
+    } else {
+      resetFormCamion();
     }
     setMostrarFormPlanta(true);
   };
@@ -270,7 +316,7 @@ const DespachosView = () => {
         descripcion: item.descripcion || '',
         activo: item.activo !== undefined ? item.activo : true
       });
-    } else {
+    } else if (vistaPlantasActiva === 'empresas') {
       setFormEmpresa({
         nombre: item.nombre || '',
         codigo: item.codigo || '',
@@ -278,6 +324,14 @@ const DespachosView = () => {
         contacto: item.contacto || '',
         telefono: item.telefono || '',
         email: item.email || '',
+        activo: item.activo !== undefined ? item.activo : true
+      });
+    } else {
+      setFormCamion({
+        patente: item.patente || '',
+        nombre: item.nombre || '',
+        categoria: item.categoria || '',
+        tonelaje: item.tonelaje || '',
         activo: item.activo !== undefined ? item.activo : true
       });
     }
@@ -288,7 +342,7 @@ const DespachosView = () => {
     setDeleteModal({
       show: true,
       id: item.id,
-      nombre: item.nombre,
+      nombre: item.nombre || item.patente,
       tipo
     });
   };
@@ -299,8 +353,10 @@ const DespachosView = () => {
 
     if (tipo === 'planta') {
       setFormPlanta(prev => ({ ...prev, [name]: val }));
-    } else {
+    } else if (tipo === 'empresa') {
       setFormEmpresa(prev => ({ ...prev, [name]: val }));
+    } else if (tipo === 'camion') {
+      setFormCamion(prev => ({ ...prev, [name]: val }));
     }
   };
 
@@ -310,8 +366,16 @@ const DespachosView = () => {
       if (deleteModal.tipo === 'planta') {
         await laboratorioService.deletePlanta(deleteModal.id);
         toast.success('Planta eliminada exitosamente');
-      } else {
-        toast.warning('Función no implementada', 'La eliminación de empresas aún no está disponible en el backend');
+      } else if (deleteModal.tipo === 'empresa') {
+        await laboratorioService.deleteEmpresa(deleteModal.id);
+        toast.success('Empresa eliminada exitosamente');
+      } else if (deleteModal.tipo === 'camion') {
+        await laboratorioService.deleteCamion(deleteModal.id);
+        toast.success('Camión eliminado exitosamente');
+      } else if (deleteModal.tipo === 'camionada') {
+        await laboratorioService.deleteCamionada(deleteModal.id);
+        toast.success('Camionada eliminada');
+        cargarDatos();
       }
 
       setDeleteModal({ show: false, id: null, nombre: '', tipo: '' });
@@ -337,6 +401,9 @@ const DespachosView = () => {
       setMostrarModalEliminarLote(false);
       setLoteAEliminar(null);
       await cargarLotes();
+      // Recargar cards de lotes abiertos
+      const lotesAbRes = await laboratorioService.getLotesAbiertosConCamionadas();
+      setLotesAbiertosCards(lotesAbRes || []);
     } catch (error) {
       console.error('Error al eliminar lote:', error);
       toast.error(
@@ -383,13 +450,16 @@ const DespachosView = () => {
       const dataToSend = { ...formEmpresa };
 
       if (modoFormPlanta === 'crear') {
-        toast.warning('Función no implementada', 'La creación de empresas aún no está disponible en el backend');
+        await laboratorioService.createEmpresa(dataToSend);
+        toast.success('Empresa creada exitosamente');
       } else {
-        toast.warning('Función no implementada', 'La actualización de empresas aún no está disponible en el backend');
+        await laboratorioService.updateEmpresa(plantaSeleccionada.id, dataToSend);
+        toast.success('Empresa actualizada exitosamente');
       }
 
       setMostrarFormPlanta(false);
       resetFormEmpresa();
+      await cargarDatos();
     } catch (error) {
       console.error('Error al guardar empresa:', error);
       toast.error(
@@ -401,6 +471,41 @@ const DespachosView = () => {
     }
   };
 
+
+  // ============== FUNCIONES CAMIONES ==============
+
+  const handleSubmitCamion = async (e) => {
+    e.preventDefault();
+    setLoading(true);
+
+    try {
+      const dataToSend = {
+        ...formCamion,
+        tonelaje: formCamion.tonelaje ? parseFloat(formCamion.tonelaje) : null,
+        patente: formCamion.patente.toUpperCase(),
+      };
+
+      if (modoFormPlanta === 'crear') {
+        await laboratorioService.createCamion(dataToSend);
+        toast.success('Camión creado exitosamente');
+      } else {
+        await laboratorioService.updateCamion(plantaSeleccionada.id, dataToSend);
+        toast.success('Camión actualizado exitosamente');
+      }
+
+      setMostrarFormPlanta(false);
+      resetFormCamion();
+      await cargarDatos();
+    } catch (error) {
+      console.error('Error al guardar camión:', error);
+      toast.error(
+        'Error al guardar',
+        error.response?.data?.mensaje || error.response?.data?.message || 'No se pudo guardar el camión'
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // ============== FUNCIONES LOTES ==============
 
@@ -441,9 +546,158 @@ const DespachosView = () => {
     cargarLotes(newPage);
   };
 
+  const handleCrearLote = async () => {
+    if (!formLote.planta_id || !formLote.empresa_id) {
+      toast.warning('Seleccione planta y empresa');
+      return;
+    }
+    setCreandoLote(true);
+    try {
+      const response = await laboratorioService.createLote({
+        planta_id: parseInt(formLote.planta_id),
+        empresa_id: parseInt(formLote.empresa_id),
+      });
+      toast.success('Lote creado', `Lote ${response.lote?.numero_lote || ''} creado exitosamente`);
+      setMostrarFormLote(false);
+      setFormLote({ planta_id: '', empresa_id: '' });
+      // Recargar lotes abiertos cards
+      const lotesAbRes = await laboratorioService.getLotesAbiertosConCamionadas();
+      setLotesAbiertosCards(lotesAbRes || []);
+      await cargarLotes();
+    } catch (error) {
+      console.error('Error creando lote:', error);
+      toast.error('Error al crear lote', error.response?.data?.mensaje || error.message);
+    } finally {
+      setCreandoLote(false);
+    }
+  };
+
+  const handleAgregarCamionadaALote = (loteId) => {
+    setLoteIdParaCamionada(loteId);
+    setMostrarFormCamionada(true);
+  };
+
+  const handleCamionadaCreadaDesdeLote = async () => {
+    setMostrarFormCamionada(false);
+    setLoteIdParaCamionada(null);
+    // Recargar cards
+    const lotesAbRes = await laboratorioService.getLotesAbiertosConCamionadas();
+    setLotesAbiertosCards(lotesAbRes || []);
+    await cargarLotes();
+  };
+
   const handleCerrarLote = (lote) => {
     setLoteACerrar(lote);
     setMostrarModalCerrarLote(true);
+  };
+
+  // ============== FUNCIONES RECEPCIÓN EN CARDS ==============
+
+  const handleRecepcionRapida = (camionada) => {
+    setRecepcionandoId(camionada.id);
+    setFormRecepcionInline({ peso_real: camionada.peso || '' });
+  };
+
+  const cancelarRecepcionRapida = () => {
+    setRecepcionandoId(null);
+    setFormRecepcionInline({ peso_real: '' });
+  };
+
+  const confirmarRecepcionRapida = async (camionada) => {
+    const pesoReal = parseFloat(formRecepcionInline.peso_real);
+    if (!pesoReal || pesoReal <= 0) {
+      toast.error('El peso real debe ser mayor a 0');
+      return;
+    }
+
+    setSubmittingRecepcion(true);
+    try {
+      await laboratorioService.recepcionarCamionada(camionada.id, {
+        fecha_recepcion: new Date().toISOString().split('T')[0],
+        hora_recepcion: new Date().toTimeString().slice(0, 5),
+        peso_real: pesoReal,
+      });
+
+      toast.success('Recepcionada', `${camionada.patente} - ${pesoReal.toFixed(2)} t`);
+      setRecepcionandoId(null);
+      // Recargar cards
+      const lotesAbRes = await laboratorioService.getLotesAbiertosConCamionadas();
+      setLotesAbiertosCards(lotesAbRes || []);
+      await cargarLotes();
+    } catch (error) {
+      console.error('Error al recepcionar:', error);
+      toast.error('Error', error.response?.data?.mensaje || error.message);
+    } finally {
+      setSubmittingRecepcion(false);
+    }
+  };
+
+  const handleRecepcionModal = (camionada) => {
+    setCamionadaParaRecepcion(camionada);
+    setFormRecepcionModal({
+      fecha_recepcion: new Date().toISOString().split('T')[0],
+      hora_recepcion: new Date().toTimeString().slice(0, 5),
+      peso_real: camionada.peso || '',
+      observaciones_recepcion: '',
+      numero_lote: '',
+    });
+    setShowModalRecepcion(true);
+  };
+
+  const handleSubmitRecepcionModal = async (e) => {
+    e.preventDefault();
+    if (!formRecepcionModal.peso_real || parseFloat(formRecepcionModal.peso_real) <= 0) {
+      toast.error('El peso real debe ser mayor a 0');
+      return;
+    }
+
+    // Validar nombre del lote si es requerido
+    if (!camionadaParaRecepcion.lote?.numero_lote && !formRecepcionModal.numero_lote?.trim()) {
+      toast.error('Debe asignar un nombre al lote');
+      return;
+    }
+
+    setSubmittingRecepcion(true);
+    try {
+      const datosRecepcion = {
+        fecha_recepcion: formRecepcionModal.fecha_recepcion,
+        hora_recepcion: formRecepcionModal.hora_recepcion,
+        peso_real: parseFloat(formRecepcionModal.peso_real),
+        observaciones_recepcion: formRecepcionModal.observaciones_recepcion?.trim() || null,
+      };
+
+      // Enviar nombre del lote si se ingresó
+      if (formRecepcionModal.numero_lote?.trim()) {
+        datosRecepcion.numero_lote = formRecepcionModal.numero_lote.trim();
+      }
+
+      await laboratorioService.recepcionarCamionada(camionadaParaRecepcion.id, datosRecepcion);
+
+      toast.success('Camionada recepcionada', `Patente ${camionadaParaRecepcion.patente} recibida`);
+      setShowModalRecepcion(false);
+      setCamionadaParaRecepcion(null);
+      // Recargar cards
+      const lotesAbRes = await laboratorioService.getLotesAbiertosConCamionadas();
+      setLotesAbiertosCards(lotesAbRes || []);
+      await cargarLotes();
+    } catch (error) {
+      console.error('Error al recepcionar:', error);
+      toast.error('Error', error.response?.data?.mensaje || error.response?.data?.message || 'No se pudo recepcionar');
+    } finally {
+      setSubmittingRecepcion(false);
+    }
+  };
+
+  const handleReordenarCamionada = async (camionadaId, direccion) => {
+    try {
+      await laboratorioService.reordenarCamionada(camionadaId, direccion);
+      // Recargar cards
+      const lotesAbRes = await laboratorioService.getLotesAbiertosConCamionadas();
+      setLotesAbiertosCards(lotesAbRes || []);
+    } catch (error) {
+      console.error('Error al reordenar:', error);
+      toast.error('Error', error.response?.data?.mensaje || error.message);
+    }
   };
 
   const confirmarCerrarLote = async (datos) => {
@@ -467,7 +721,7 @@ const DespachosView = () => {
             const toneladas = parseFloat(r.toneladas_disponibles).toFixed(2);
             const leyVisual = r.ley_prom_visual ? parseFloat(r.ley_prom_visual).toFixed(2) : 'N/A';
             const leyLote = r.ley_prom_lote ? parseFloat(r.ley_prom_lote).toFixed(2) : 'N/A';
-            return `${r.codigo} (${toneladas} t, Ley Visual: ${leyVisual}%, Ley Lote: ${leyLote}%)`;
+            return `${r.codigo} (${toneladas} t, Ley Visual: ${leyVisual}%, Ley Mezcla: ${leyLote}%)`;
           })
           .join(', ');
         detalles.push(`${remanentesDisponibles.length} mezcla(s) con remanente: ${resumen}`);
@@ -481,8 +735,8 @@ const DespachosView = () => {
         const leyLote = remanenteCreado.ley_prom_lote ? parseFloat(remanenteCreado.ley_prom_lote).toFixed(2) : 'N/A';
 
         const infoRemanente = paladas
-          ? `${remanenteCreado.codigo} (${toneladasRemanente} t - ${paladas} paladas, Ley Visual: ${leyVisual}%, Ley Lote: ${leyLote}%)`
-          : `${remanenteCreado.codigo} (${toneladasRemanente} t, Ley Visual: ${leyVisual}%, Ley Lote: ${leyLote}%)`;
+          ? `${remanenteCreado.codigo} (${toneladasRemanente} t - ${paladas} paladas, Ley Visual: ${leyVisual}%, Ley Mezcla: ${leyLote}%)`
+          : `${remanenteCreado.codigo} (${toneladasRemanente} t, Ley Visual: ${leyVisual}%, Ley Mezcla: ${leyLote}%)`;
         detalles.push(`Remanente nuevo creado: ${infoRemanente}`);
       }
 
@@ -596,17 +850,6 @@ const DespachosView = () => {
                 {camionadas.length}
               </span>
             )}
-          </button>
-
-          <button
-            onClick={() => setVistaActiva('recepcion')}
-            className={`relative flex items-center gap-2 px-6 py-3 font-semibold transition-all rounded-t-lg ${vistaActiva === 'recepcion'
-                ? 'bg-green-600 text-white shadow-lg transform translate-y-0.5'
-                : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
-              }`}
-          >
-            <HiCheckCircle className="w-5 h-5" />
-            <span>Recepción</span>
           </button>
 
           <button
@@ -969,7 +1212,7 @@ const DespachosView = () => {
                   )}
                   {camionadaSeleccionada.ley_mezcla && (
                     <div className="bg-gray-50 p-3 rounded">
-                      <p className="text-xs text-gray-500 mb-1">Ley Lote</p>
+                      <p className="text-xs text-gray-500 mb-1">Ley Mezcla</p>
                       <p className="font-semibold text-gray-900">{camionadaSeleccionada.ley_mezcla}%</p>
                     </div>
                   )}
@@ -1019,11 +1262,6 @@ const DespachosView = () => {
         </div>
       )}
 
-      {/* VISTA DE RECEPCIÓN */}
-      {vistaActiva === 'recepcion' && (
-        <RecepcionPanel />
-      )}
-
       {/* VISTA DE LOTES - TABS */}
       {vistaActiva === 'lotes' && (
         <div className="space-y-4">
@@ -1034,6 +1272,15 @@ const DespachosView = () => {
                 <HiCube className="w-7 h-7 text-blue-600" />
                 Gestión de Lotes
               </h2>
+              {tabLotesActivo === 'abiertos' && (
+                <Button
+                  variant="success"
+                  icon={HiPlus}
+                  onClick={() => setMostrarFormLote(true)}
+                >
+                  Abrir Lote
+                </Button>
+              )}
             </div>
 
             {/* Tabs */}
@@ -1046,7 +1293,7 @@ const DespachosView = () => {
                   }`}
               >
                 <HiClock className="w-5 h-5" />
-                <span>Abiertos</span>
+                <span>Lote Venta</span>
                 {lotes.length > 0 && tabLotesActivo === 'abiertos' && (
                   <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-white text-blue-600">
                     {lotes.length}
@@ -1062,7 +1309,7 @@ const DespachosView = () => {
                   }`}
               >
                 <HiCheckCircle className="w-5 h-5" />
-                <span>Completados</span>
+                <span>Venta</span>
                 {paginacionLotes.total > 0 && tabLotesActivo === 'completados' && (
                   <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-white text-green-600">
                     {paginacionLotes.total}
@@ -1186,250 +1433,595 @@ const DespachosView = () => {
             )}
           </Card>
 
-          {/* Tabla de Lotes */}
-          {loading ? (
-            <Card>
-              <div className="text-center py-12">
-                <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-200 border-t-blue-600 mx-auto"></div>
-                <p className="text-gray-600 mt-4">Cargando lotes...</p>
-              </div>
-            </Card>
-          ) : lotes.length === 0 ? (
-            <Card>
-              <div className="text-center py-12">
-                <HiCube className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                <p className="text-gray-700 font-medium mb-2">
-                  {tabLotesActivo === 'abiertos' ? 'No hay lotes abiertos' : 'No hay lotes completados'}
-                </p>
-                <p className="text-gray-500 text-sm">
-                  {tabLotesActivo === 'abiertos'
-                    ? 'Los lotes se crean automáticamente al registrar camionadas'
-                    : 'Los lotes completados aparecerán aquí una vez que cierres lotes abiertos'}
-                </p>
-              </div>
-            </Card>
-          ) : (
-            <Card className="border-l-4 border-blue-500">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-gradient-to-r from-blue-50 to-indigo-50 border-b-2 border-blue-200">
-                    <tr>
-                      <th className="text-left py-3 px-4 font-bold text-blue-900">Número Lote</th>
-                      <th className="text-left py-3 px-4 font-bold text-blue-900">Planta</th>
-                      <th className="text-left py-3 px-4 font-bold text-blue-900">Empresa</th>
-                      <th className="text-center py-3 px-4 font-bold text-blue-900">Camionadas</th>
-                      <th className="text-right py-3 px-4 font-bold text-blue-900">Peso Total</th>
-                      <th className="text-center py-3 px-4 font-bold text-blue-900">Ley Lote</th>
-                      <th className="text-center py-3 px-4 font-bold text-blue-900">Ley Visual</th>
-                      {tabLotesActivo === 'abiertos' && (
-                        <th className="text-center py-3 px-4 font-bold text-blue-900">Progreso</th>
-                      )}
-                      {tabLotesActivo === 'completados' && (
-                        <th className="text-center py-3 px-4 font-bold text-blue-900">Fecha</th>
-                      )}
-                      <th className="text-center py-3 px-4 font-bold text-blue-900">Estado</th>
-                      <th className="text-center py-3 px-4 font-bold text-blue-900">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {lotes.map((lote, index) => {
-                      const totalCamionadas = lote.numero_camionadas || lote.camionadas?.length || 0;
-                      const camionadasRecepcionadas = lote.camionadas_recepcionadas || 0;
-                      const progresoRecepcion = totalCamionadas > 0
-                        ? Math.round((camionadasRecepcionadas / totalCamionadas) * 100)
-                        : 0;
-                      const totalPeso = lote.peso_total || 0;
-                      const todasRecepcionadas = lote.todas_recepcionadas || (camionadasRecepcionadas === totalCamionadas && totalCamionadas > 0);
+          {/* Modal Crear Lote */}
+          {mostrarFormLote && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+              <Card className="max-w-md w-full">
+                <div className="flex items-center justify-between mb-6">
+                  <h3 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+                    <HiCube className="text-blue-600" />
+                    Abrir Nuevo Lote
+                  </h3>
+                  <button onClick={() => setMostrarFormLote(false)} className="text-gray-500 hover:text-gray-700 text-2xl font-bold">
+                    <HiX />
+                  </button>
+                </div>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Planta *</label>
+                    <select
+                      value={formLote.planta_id}
+                      onChange={(e) => setFormLote({ ...formLote, planta_id: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                      required
+                    >
+                      <option value="">Seleccionar planta...</option>
+                      {plantas.map(p => (
+                        <option key={p.id} value={p.id}>{p.nombre} ({p.codigo})</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Empresa *</label>
+                    <select
+                      value={formLote.empresa_id}
+                      onChange={(e) => setFormLote({ ...formLote, empresa_id: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
+                      required
+                    >
+                      <option value="">Seleccionar empresa...</option>
+                      {empresas.map(e => (
+                        <option key={e.id} value={e.id}>{e.nombre} ({e.codigo})</option>
+                      ))}
+                    </select>
+                  </div>
+                  {formLote.planta_id && formLote.empresa_id && (
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                      <p className="text-sm text-yellow-800">
+                        El nombre del lote se asignará al recepcionar la primera camionada.
+                      </p>
+                    </div>
+                  )}
+                </div>
+                <div className="flex gap-3 justify-end mt-6">
+                  <Button variant="secondary" onClick={() => setMostrarFormLote(false)} disabled={creandoLote}>
+                    Cancelar
+                  </Button>
+                  <Button variant="primary" onClick={handleCrearLote} disabled={creandoLote}>
+                    {creandoLote ? 'Creando...' : 'Crear Lote'}
+                  </Button>
+                </div>
+              </Card>
+            </div>
+          )}
 
-                      return (
-                        <tr
-                          key={lote.id}
-                          className={`hover:bg-blue-50 transition-colors cursor-pointer ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
-                            }`}
+          {/* Form Camionada desde Card de Lote */}
+          {mostrarFormCamionada && loteIdParaCamionada && tabLotesActivo === 'abiertos' && (
+            <CamionadasMultiplesForm
+              loteIdPreseleccionado={loteIdParaCamionada}
+              onSuccess={handleCamionadaCreadaDesdeLote}
+              onCancel={() => {
+                setMostrarFormCamionada(false);
+                setLoteIdParaCamionada(null);
+              }}
+            />
+          )}
+
+          {/* Resumen General por Planta > Empresa */}
+          {tabLotesActivo === 'abiertos' && lotesAbiertosCards.length > 0 && (() => {
+            // Agrupar lotes por planta > empresa
+            const resumen = {};
+            lotesAbiertosCards.forEach(lote => {
+              const plantaNombre = lote.planta?.nombre || lote.planta_nombre || 'Sin Planta';
+              const empresaNombre = lote.empresa?.nombre || lote.empresa_nombre || 'Sin Empresa';
+              const key = `${plantaNombre}|||${empresaNombre}`;
+
+              if (!resumen[key]) {
+                resumen[key] = {
+                  planta: plantaNombre,
+                  empresa: empresaNombre,
+                  lotes: 0,
+                  totalPeso: 0,
+                  totalCamionadas: 0,
+                  pendientesRecepcion: 0,
+                  sumProductoLey: 0,
+                  sumPesoConLey: 0,
+                };
+              }
+              resumen[key].lotes += 1;
+              const pesoRecibido = parseFloat(lote.peso_recibido || 0);
+              resumen[key].totalPeso += pesoRecibido;
+              resumen[key].totalCamionadas += (lote.numero_camionadas || lote.camionadas?.length || 0);
+              const recep = lote.camionadas_recepcionadas || 0;
+              const total = lote.numero_camionadas || lote.camionadas?.length || 0;
+              resumen[key].pendientesRecepcion += (total - recep);
+
+              if (lote.ley_lab_promedio != null && pesoRecibido > 0) {
+                resumen[key].sumProductoLey += pesoRecibido * parseFloat(lote.ley_lab_promedio);
+                resumen[key].sumPesoConLey += pesoRecibido;
+              }
+            });
+
+            const grupos = Object.values(resumen);
+            // Agrupar por planta
+            const porPlanta = {};
+            grupos.forEach(g => {
+              if (!porPlanta[g.planta]) porPlanta[g.planta] = [];
+              porPlanta[g.planta].push(g);
+            });
+
+            return (
+              <Card className="border-l-4 border-indigo-400">
+                <h3 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
+                  <HiChartBar className="text-indigo-500" />
+                  Resumen General
+                </h3>
+                <div className="space-y-3">
+                  {Object.entries(porPlanta).map(([planta, empresas]) => (
+                    <div key={planta}>
+                      <p className="text-xs font-bold text-gray-600 mb-1.5 flex items-center gap-1">
+                        <HiOfficeBuilding className="text-blue-500" />
+                        {planta}
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 ml-4">
+                        {empresas.map((emp) => {
+                          const leyProm = emp.sumPesoConLey > 0
+                            ? (emp.sumProductoLey / emp.sumPesoConLey).toFixed(2)
+                            : null;
+                          return (
+                            <div key={emp.empresa} className="bg-gray-50 rounded-lg px-3 py-2 border border-gray-200 flex items-center justify-between gap-3">
+                              <div>
+                                <p className="text-sm font-semibold text-gray-800 flex items-center gap-1">
+                                  <HiBriefcase className="text-purple-500 w-3.5 h-3.5" />
+                                  {emp.empresa}
+                                </p>
+                                <p className="text-[11px] text-gray-500">
+                                  {emp.lotes} lote{emp.lotes !== 1 ? 's' : ''} | {emp.totalCamionadas} cam.
+                                  {emp.pendientesRecepcion > 0 && (
+                                    <span className="text-yellow-600 font-semibold"> | {emp.pendientesRecepcion} pend.</span>
+                                  )}
+                                </p>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-sm font-bold text-green-700">{emp.totalPeso.toFixed(2)} t</p>
+                                {leyProm && (
+                                  <p className="text-[10px] text-orange-600 font-semibold">Ley Mezcla: {leyProm}%</p>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </Card>
+            );
+          })()}
+
+          {/* Vista de Lotes */}
+          {tabLotesActivo === 'abiertos' ? (
+            /* === CARDS DE LOTES ABIERTOS === */
+            loading ? (
+              <Card>
+                <div className="text-center py-12">
+                  <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-200 border-t-blue-600 mx-auto"></div>
+                  <p className="text-gray-600 mt-4">Cargando lotes...</p>
+                </div>
+              </Card>
+            ) : lotesAbiertosCards.length === 0 ? (
+              <Card>
+                <div className="text-center py-12">
+                  <HiCube className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-700 font-medium mb-2">No hay lotes abiertos</p>
+                  <p className="text-gray-500 text-sm mb-4">
+                    Crea un lote manualmente con el botón "Abrir Lote"
+                  </p>
+                  <Button variant="success" icon={HiPlus} onClick={() => setMostrarFormLote(true)}>
+                    Abrir Lote
+                  </Button>
+                </div>
+              </Card>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {lotesAbiertosCards.map((lote) => {
+                  const totalCamionadas = lote.numero_camionadas || lote.camionadas?.length || 0;
+                  const camionadasRecepcionadas = lote.camionadas_recepcionadas || 0;
+                  const pendientesRecepcion = totalCamionadas - camionadasRecepcionadas;
+                  const progresoRecepcion = totalCamionadas > 0
+                    ? Math.round((camionadasRecepcionadas / totalCamionadas) * 100)
+                    : 0;
+                  const pesoRecibido = parseFloat(lote.peso_recibido || 0);
+                  const pesoTeorico = parseFloat(lote.peso_total || 0);
+                  const todasRecepcionadas = lote.todas_recepcionadas || (camionadasRecepcionadas === totalCamionadas && totalCamionadas > 0);
+
+                  return (
+                    <Card key={lote.id} className="border-2 border-blue-200 hover:border-blue-400 transition-all">
+                      {/* Card Header */}
+                      <div className="flex items-center justify-between mb-3">
+                        <div>
+                          <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                            <HiCube className="text-blue-600" />
+                            {lote.numero_lote
+                              ? <>Lote: {lote.numero_lote}</>
+                              : <span className="text-yellow-600 italic">Sin número de Lote</span>
+                            }
+                            <span className="text-sm font-normal text-gray-500">
+                              ({lote.empresa?.nombre || lote.empresa_nombre || '-'})
+                            </span>
+                          </h3>
+                          <p className="text-xs text-gray-500 mt-1">
+                            <HiOfficeBuilding className="inline mr-1" />
+                            {lote.planta?.nombre || lote.planta_nombre || '-'}
+                            {' | '}
+                            {totalCamionadas} camionada(s)
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {pendientesRecepcion > 0 && (
+                            <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-yellow-100 text-yellow-700 border border-yellow-300">
+                              {pendientesRecepcion} pendiente{pendientesRecepcion !== 1 ? 's' : ''}
+                            </span>
+                          )}
+                          <Badge color={todasRecepcionadas ? 'green' : 'blue'} size="sm">
+                            {todasRecepcionadas ? 'Listo para cerrar' : 'Abierto'}
+                          </Badge>
+                        </div>
+                      </div>
+
+                      {/* Stats del lote */}
+                      {totalCamionadas > 0 && (
+                        <div className="mb-3 space-y-2">
+                          {/* Peso y leyes */}
+                          <div className="grid grid-cols-3 gap-2">
+                            <div className="bg-green-50 rounded-lg px-3 py-2 text-center border border-green-100">
+                              <p className="text-[10px] text-gray-500 uppercase font-semibold">Peso Real</p>
+                              <p className="text-sm font-bold text-green-700">
+                                {pesoRecibido > 0 ? `${pesoRecibido.toFixed(2)} t` : '-'}
+                              </p>
+                              {pesoTeorico > 0 && (
+                                <p className="text-[10px] text-gray-400">Teórico: {pesoTeorico.toFixed(2)} t</p>
+                              )}
+                            </div>
+                            <div className="bg-orange-50 rounded-lg px-3 py-2 text-center border border-orange-100">
+                              <p className="text-[10px] text-gray-500 uppercase font-semibold">Ley Mezcla</p>
+                              <p className="text-sm font-bold text-orange-700">
+                                {lote.ley_lab_promedio != null ? `${parseFloat(lote.ley_lab_promedio).toFixed(2)}%` : 'N/A'}
+                              </p>
+                            </div>
+                            <div className="bg-amber-50 rounded-lg px-3 py-2 text-center border border-amber-100">
+                              <p className="text-[10px] text-gray-500 uppercase font-semibold">Ley Visual</p>
+                              <p className="text-sm font-bold text-amber-700">
+                                {lote.ley_visual_promedio != null ? `${parseFloat(lote.ley_visual_promedio).toFixed(2)}%` : 'N/A'}
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Barra de progreso recepción */}
+                          <div>
+                            <div className="flex justify-between text-xs mb-1">
+                              <span className="text-gray-600">Recepcionadas: {camionadasRecepcionadas}/{totalCamionadas}</span>
+                              <span className={`font-bold ${progresoRecepcion === 100 ? 'text-green-600' : 'text-blue-600'}`}>
+                                {progresoRecepcion}%
+                              </span>
+                            </div>
+                            <div className="w-full bg-gray-200 rounded-full h-2">
+                              <div
+                                className={`h-2 rounded-full transition-all ${progresoRecepcion === 100 ? 'bg-green-500' : 'bg-blue-500'}`}
+                                style={{ width: `${progresoRecepcion}%` }}
+                              ></div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Camionadas con recepción inline */}
+                      {lote.camionadas && lote.camionadas.length > 0 ? (
+                        <div className="space-y-1.5 mb-3">
+                          {lote.camionadas.map((cam) => {
+                            const esDespachado = cam.estado === 'Despachado';
+                            const isRecepcionando = recepcionandoId === cam.id;
+                            const yaRecepcionado = cam.peso_real !== null && cam.peso_real !== undefined;
+                            const loteNecesitaNombre = !lote.numero_lote;
+
+                            return (
+                              <div
+                                key={cam.id}
+                                className={`rounded-lg border p-2.5 transition-all ${
+                                  isRecepcionando
+                                    ? 'border-green-400 bg-green-50 shadow-sm'
+                                    : yaRecepcionado
+                                      ? 'border-green-200 bg-green-50/50'
+                                      : 'border-gray-200 bg-white hover:bg-gray-50'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  {/* Info camionada */}
+                                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                                    {/* Orden + flechas */}
+                                    <div className="flex items-center gap-0.5 flex-shrink-0">
+                                      <div className="flex flex-col">
+                                        <button
+                                          onClick={() => handleReordenarCamionada(cam.id, 'subir')}
+                                          className="text-gray-300 hover:text-blue-600 transition-colors p-0 leading-none"
+                                          title="Subir"
+                                        >
+                                          <HiChevronUp className="w-4 h-4" />
+                                        </button>
+                                        <button
+                                          onClick={() => handleReordenarCamionada(cam.id, 'bajar')}
+                                          className="text-gray-300 hover:text-blue-600 transition-colors p-0 leading-none"
+                                          title="Bajar"
+                                        >
+                                          <HiChevronDown className="w-4 h-4" />
+                                        </button>
+                                      </div>
+                                      <div className="w-7 h-7 bg-gray-100 rounded-full flex items-center justify-center text-xs font-bold text-gray-600">
+                                        {cam.numero_camionada}
+                                      </div>
+                                    </div>
+                                    <span className="font-mono font-bold text-gray-900 text-sm">{cam.patente}</span>
+                                    <span className="text-xs text-gray-500 hidden sm:inline">
+                                      <HiScale className="inline text-gray-400 mr-0.5" />
+                                      {parseFloat(cam.peso).toFixed(2)} t
+                                    </span>
+                                    <span className="text-xs text-blue-600 font-mono hidden md:inline">{cam.mezcla?.codigo || '-'}</span>
+                                    {cam.mezcla?.ley_lab != null && (
+                                      <span className="text-xs text-orange-600 font-semibold hidden sm:inline">
+                                        {parseFloat(cam.mezcla.ley_lab).toFixed(2)}%
+                                      </span>
+                                    )}
+                                    {yaRecepcionado && (
+                                      <span className="text-xs font-bold text-green-600">
+                                        <HiCheckCircle className="inline mr-0.5" />
+                                        {parseFloat(cam.peso_real).toFixed(2)} t
+                                      </span>
+                                    )}
+                                  </div>
+
+                                  {/* Estado o acciones de recepción */}
+                                  {!esDespachado ? (
+                                    <span className={`${getEstadoColor(cam.estado)} text-white px-2 py-0.5 rounded-full text-[10px] font-bold flex-shrink-0`}>
+                                      {cam.estado}
+                                    </span>
+                                  ) : (
+                                    <button
+                                      onClick={() => handleRecepcionModal({ ...cam, lote })}
+                                      className="flex items-center gap-1 px-2.5 py-1 bg-green-500 hover:bg-green-600 text-white text-xs font-bold rounded-md transition-colors flex-shrink-0"
+                                    >
+                                      <HiCheckCircle className="w-3.5 h-3.5" />
+                                      Recepcionar
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="text-center py-4 text-gray-400 text-sm border border-dashed border-gray-300 rounded-lg mb-3">
+                          Sin camionadas
+                        </div>
+                      )}
+
+                      {/* Card Actions */}
+                      <div className="flex gap-2 flex-wrap">
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          icon={HiPlus}
+                          onClick={() => handleAgregarCamionadaALote(lote.id)}
+                        >
+                          Agregar Recargo
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          icon={HiEye}
                           onClick={() => handleVerDetalleLote(lote.id)}
                         >
-                          <td className="py-3 px-4">
-                            <div className="font-bold text-gray-900">{lote.numero_lote}</div>
-                            {tabLotesActivo === 'abiertos' && !todasRecepcionadas && (
-                              <div className="text-xs text-yellow-600 mt-1">
-                                ⚠️ Faltan recepciones
-                              </div>
-                            )}
-                          </td>
-                          <td className="py-3 px-4">
-                            <div className="flex items-center gap-2">
-                              <HiOfficeBuilding className="w-4 h-4 text-blue-600" />
-                              <span className="text-gray-700">{lote.planta?.nombre || lote.planta_nombre || '-'}</span>
-                            </div>
-                          </td>
-                          <td className="py-3 px-4">
-                            <div className="flex items-center gap-2">
-                              <HiBriefcase className="w-4 h-4 text-purple-600" />
-                              <span className="text-gray-700">{lote.empresa?.nombre || lote.empresa_nombre || '-'}</span>
-                            </div>
-                          </td>
-                          <td className="py-3 px-4 text-center">
-                            <span className="inline-flex items-center px-2 py-1 rounded-full bg-blue-100 text-blue-800 font-semibold">
-                              <HiTruck className="w-4 h-4 mr-1" />
-                              {totalCamionadas}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4 text-right font-semibold text-gray-900">
-                            {parseFloat(totalPeso).toFixed(2)} t
-                          </td>
-                          <td className="py-3 px-4 text-center">
-                            {lote.ley_lote_promedio !== null && lote.ley_lote_promedio !== undefined
-                              ? (
-                                <span className="inline-flex items-center px-2 py-1 rounded-full bg-orange-100 text-orange-800 font-semibold text-xs">
-                                  {lote.ley_lote_promedio.toFixed(2)}%
-                                </span>
-                              )
-                              : <span className="text-gray-400 text-xs">N/A</span>}
-                          </td>
-                          <td className="py-3 px-4 text-center">
-                            {lote.ley_visual_promedio !== null && lote.ley_visual_promedio !== undefined
-                              ? (
-                                <span className="inline-flex items-center px-2 py-1 rounded-full bg-amber-100 text-amber-800 font-semibold text-xs">
-                                  {lote.ley_visual_promedio.toFixed(2)}%
-                                </span>
-                              )
-                              : <span className="text-gray-400 text-xs">N/A</span>}
-                          </td>
-                          {tabLotesActivo === 'abiertos' && (
+                          Ver
+                        </Button>
+                        <Button
+                          variant="success"
+                          size="sm"
+                          icon={HiCheckCircle}
+                          onClick={() => handleCerrarLote(lote)}
+                          disabled={!todasRecepcionadas}
+                          title={!todasRecepcionadas ? 'Debes recepcionar todas las camionadas' : 'Cerrar lote'}
+                        >
+                          Cerrar
+                        </Button>
+                        <Button
+                          variant="danger"
+                          size="sm"
+                          icon={HiTrash}
+                          onClick={() => {
+                            setLoteAEliminar(lote);
+                            setMostrarModalEliminarLote(true);
+                          }}
+                        >
+                          Eliminar
+                        </Button>
+                      </div>
+                    </Card>
+                  );
+                })}
+              </div>
+            )
+          ) : (
+            /* === TABLA DE LOTES COMPLETADOS === */
+            loading ? (
+              <Card>
+                <div className="text-center py-12">
+                  <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-200 border-t-blue-600 mx-auto"></div>
+                  <p className="text-gray-600 mt-4">Cargando lotes...</p>
+                </div>
+              </Card>
+            ) : lotes.length === 0 ? (
+              <Card>
+                <div className="text-center py-12">
+                  <HiCube className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-700 font-medium mb-2">No hay lotes completados</p>
+                  <p className="text-gray-500 text-sm">
+                    Los lotes completados aparecerán aquí una vez que cierres lotes abiertos
+                  </p>
+                </div>
+              </Card>
+            ) : (
+              <Card className="border-l-4 border-green-500">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gradient-to-r from-green-50 to-emerald-50 border-b-2 border-green-200">
+                      <tr>
+                        <th className="text-left py-3 px-4 font-bold text-green-900">Número Lote</th>
+                        <th className="text-left py-3 px-4 font-bold text-green-900">Planta</th>
+                        <th className="text-left py-3 px-4 font-bold text-green-900">Empresa</th>
+                        <th className="text-center py-3 px-4 font-bold text-green-900">Camionadas</th>
+                        <th className="text-right py-3 px-4 font-bold text-green-900">Peso Total</th>
+                        <th className="text-center py-3 px-4 font-bold text-green-900">Ley Mezcla</th>
+                        <th className="text-center py-3 px-4 font-bold text-green-900">Ley Visual</th>
+                        <th className="text-center py-3 px-4 font-bold text-green-900">Fecha</th>
+                        <th className="text-center py-3 px-4 font-bold text-green-900">Estado</th>
+                        <th className="text-center py-3 px-4 font-bold text-green-900">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {lotes.map((lote, index) => {
+                        const totalCamionadas = lote.numero_camionadas || lote.camionadas?.length || 0;
+                        const totalPeso = lote.peso_total || 0;
+
+                        return (
+                          <tr
+                            key={lote.id}
+                            className={`hover:bg-green-50 transition-colors cursor-pointer ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}
+                            onClick={() => handleVerDetalleLote(lote.id)}
+                          >
                             <td className="py-3 px-4">
-                              <div className="space-y-1">
-                                <div className="flex justify-between text-xs">
-                                  <span className="text-gray-600">{camionadasRecepcionadas}/{totalCamionadas}</span>
-                                  <span className={`font-bold ${progresoRecepcion === 100 ? 'text-green-600' : 'text-blue-600'}`}>
-                                    {progresoRecepcion}%
-                                  </span>
-                                </div>
-                                <div className="w-full bg-gray-200 rounded-full h-2">
-                                  <div
-                                    className={`h-2 rounded-full transition-all ${progresoRecepcion === 100 ? 'bg-green-500' : 'bg-blue-500'
-                                      }`}
-                                    style={{ width: `${progresoRecepcion}%` }}
-                                  ></div>
-                                </div>
+                              <div className="font-bold text-gray-900">{lote.numero_lote}</div>
+                            </td>
+                            <td className="py-3 px-4">
+                              <div className="flex items-center gap-2">
+                                <HiOfficeBuilding className="w-4 h-4 text-blue-600" />
+                                <span className="text-gray-700">{lote.planta?.nombre || lote.planta_nombre || '-'}</span>
                               </div>
                             </td>
-                          )}
-                          {tabLotesActivo === 'completados' && (
+                            <td className="py-3 px-4">
+                              <div className="flex items-center gap-2">
+                                <HiBriefcase className="w-4 h-4 text-purple-600" />
+                                <span className="text-gray-700">{lote.empresa?.nombre || lote.empresa_nombre || '-'}</span>
+                              </div>
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              <span className="inline-flex items-center px-2 py-1 rounded-full bg-blue-100 text-blue-800 font-semibold">
+                                <HiTruck className="w-4 h-4 mr-1" />
+                                {totalCamionadas}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-right font-semibold text-gray-900">
+                              {parseFloat(totalPeso).toFixed(2)} t
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              {lote.ley_lab_promedio !== null && lote.ley_lab_promedio !== undefined
+                                ? (
+                                  <span className="inline-flex items-center px-2 py-1 rounded-full bg-orange-100 text-orange-800 font-semibold text-xs">
+                                    {lote.ley_lab_promedio.toFixed(2)}%
+                                  </span>
+                                )
+                                : <span className="text-gray-400 text-xs">N/A</span>}
+                            </td>
+                            <td className="py-3 px-4 text-center">
+                              {lote.ley_visual_promedio !== null && lote.ley_visual_promedio !== undefined
+                                ? (
+                                  <span className="inline-flex items-center px-2 py-1 rounded-full bg-amber-100 text-amber-800 font-semibold text-xs">
+                                    {lote.ley_visual_promedio.toFixed(2)}%
+                                  </span>
+                                )
+                                : <span className="text-gray-400 text-xs">N/A</span>}
+                            </td>
                             <td className="py-3 px-4 text-center text-gray-600">
                               {lote.fecha_creacion ? new Date(lote.fecha_creacion).toLocaleDateString('es-CL') : '-'}
                             </td>
-                          )}
-                          <td className="py-3 px-4 text-center">
-                            <Badge color={lote.estado === 'Abierto' ? 'blue' : 'green'} size="sm">
-                              {lote.estado === 'Abierto' ? '🔓 Abierto' : '✅ Completado'}
-                            </Badge>
-                          </td>
-                          <td className="py-3 px-4">
-                            <div className="flex gap-2 justify-center" onClick={(e) => e.stopPropagation()}>
-                              <Button
-                                variant="secondary"
-                                size="sm"
-                                icon={HiEye}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleVerDetalleLote(lote.id);
-                                }}
-                              >
-                                Ver
-                              </Button>
-                              {lote.estado === 'Abierto' && (
-                                <>
-                                  <Button
-                                    variant="success"
-                                    size="sm"
-                                    icon={HiCheckCircle}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleCerrarLote(lote);
-                                    }}
-                                    disabled={!todasRecepcionadas}
-                                    title={!todasRecepcionadas ? 'Debes recepcionar todas las camionadas primero' : 'Cerrar lote'}
-                                  >
-                                    Cerrar
-                                  </Button>
-                                  <Button
-                                    variant="danger"
-                                    size="sm"
-                                    icon={HiTrash}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setLoteAEliminar(lote);
-                                      setMostrarModalEliminarLote(true);
-                                    }}
-                                    title="Eliminar lote con opciones para las camionadas"
-                                  >
-                                    Eliminar
-                                  </Button>
-                                </>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Paginación (solo para completados) */}
-              {tabLotesActivo === 'completados' && paginacionLotes.last_page > 1 && (
-                <div className="mt-6 pt-4 border-t border-gray-200 flex items-center justify-between">
-                  <div className="text-sm text-gray-600">
-                    Mostrando {((paginacionLotes.page - 1) * paginacionLotes.per_page) + 1} - {Math.min(paginacionLotes.page * paginacionLotes.per_page, paginacionLotes.total)} de {paginacionLotes.total} lotes
-                  </div>
-                  <div className="flex gap-2">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => handlePaginaLotesChange(paginacionLotes.page - 1)}
-                      disabled={paginacionLotes.page === 1}
-                    >
-                      ◄ Anterior
-                    </Button>
-                    <div className="flex gap-1">
-                      {[...Array(Math.min(5, paginacionLotes.last_page))].map((_, i) => {
-                        let pageNum;
-                        if (paginacionLotes.last_page <= 5) {
-                          pageNum = i + 1;
-                        } else if (paginacionLotes.page <= 3) {
-                          pageNum = i + 1;
-                        } else if (paginacionLotes.page >= paginacionLotes.last_page - 2) {
-                          pageNum = paginacionLotes.last_page - 4 + i;
-                        } else {
-                          pageNum = paginacionLotes.page - 2 + i;
-                        }
-
-                        return (
-                          <button
-                            key={pageNum}
-                            onClick={() => handlePaginaLotesChange(pageNum)}
-                            className={`px-3 py-1 rounded ${paginacionLotes.page === pageNum
-                                ? 'bg-blue-600 text-white font-bold'
-                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                              }`}
-                          >
-                            {pageNum}
-                          </button>
+                            <td className="py-3 px-4 text-center">
+                              <Badge color="green" size="sm">Completado</Badge>
+                            </td>
+                            <td className="py-3 px-4">
+                              <div className="flex gap-2 justify-center" onClick={(e) => e.stopPropagation()}>
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  icon={HiEye}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleVerDetalleLote(lote.id);
+                                  }}
+                                >
+                                  Ver
+                                </Button>
+                              </div>
+                            </td>
+                          </tr>
                         );
                       })}
-                    </div>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => handlePaginaLotesChange(paginacionLotes.page + 1)}
-                      disabled={paginacionLotes.page === paginacionLotes.last_page}
-                    >
-                      Siguiente ►
-                    </Button>
-                  </div>
+                    </tbody>
+                  </table>
                 </div>
-              )}
-            </Card>
+
+                {/* Paginación */}
+                {paginacionLotes.last_page > 1 && (
+                  <div className="mt-6 pt-4 border-t border-gray-200 flex items-center justify-between">
+                    <div className="text-sm text-gray-600">
+                      Mostrando {((paginacionLotes.page - 1) * paginacionLotes.per_page) + 1} - {Math.min(paginacionLotes.page * paginacionLotes.per_page, paginacionLotes.total)} de {paginacionLotes.total} lotes
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => handlePaginaLotesChange(paginacionLotes.page - 1)}
+                        disabled={paginacionLotes.page === 1}
+                      >
+                        Anterior
+                      </Button>
+                      <div className="flex gap-1">
+                        {[...Array(Math.min(5, paginacionLotes.last_page))].map((_, i) => {
+                          let pageNum;
+                          if (paginacionLotes.last_page <= 5) {
+                            pageNum = i + 1;
+                          } else if (paginacionLotes.page <= 3) {
+                            pageNum = i + 1;
+                          } else if (paginacionLotes.page >= paginacionLotes.last_page - 2) {
+                            pageNum = paginacionLotes.last_page - 4 + i;
+                          } else {
+                            pageNum = paginacionLotes.page - 2 + i;
+                          }
+
+                          return (
+                            <button
+                              key={pageNum}
+                              onClick={() => handlePaginaLotesChange(pageNum)}
+                              className={`px-3 py-1 rounded ${paginacionLotes.page === pageNum
+                                  ? 'bg-green-600 text-white font-bold'
+                                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                }`}
+                            >
+                              {pageNum}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => handlePaginaLotesChange(paginacionLotes.page + 1)}
+                        disabled={paginacionLotes.page === paginacionLotes.last_page}
+                      >
+                        Siguiente
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </Card>
+            )
           )}
         </div>
       )}
@@ -1509,10 +2101,10 @@ const DespachosView = () => {
                       </p>
                     </div>
                     <div className="bg-orange-50 rounded-lg p-4 border border-orange-200">
-                      <p className="text-xs text-gray-600 mb-1">Ley Lote Prom.</p>
+                      <p className="text-xs text-gray-600 mb-1">Ley Lab Prom.</p>
                       <p className="text-2xl font-bold text-orange-700">
-                        {loteSeleccionado.ley_lote_promedio !== null && loteSeleccionado.ley_lote_promedio !== undefined
-                          ? `${loteSeleccionado.ley_lote_promedio.toFixed(2)}%`
+                        {loteSeleccionado.ley_lab_promedio !== null && loteSeleccionado.ley_lab_promedio !== undefined
+                          ? `${loteSeleccionado.ley_lab_promedio.toFixed(2)}%`
                           : 'N/A'}
                       </p>
                     </div>
@@ -1543,7 +2135,7 @@ const DespachosView = () => {
                               <th className="px-3 py-2 text-left font-semibold text-gray-700">Patente</th>
                               <th className="px-3 py-2 text-left font-semibold text-gray-700">Fecha</th>
                               <th className="px-3 py-2 text-right font-semibold text-gray-700">Peso</th>
-                              <th className="px-3 py-2 text-center font-semibold text-gray-700">Ley Lote</th>
+                              <th className="px-3 py-2 text-center font-semibold text-gray-700">Ley Lab</th>
                               <th className="px-3 py-2 text-center font-semibold text-gray-700">Ley Visual</th>
                               <th className="px-3 py-2 text-center font-semibold text-gray-700">Estado</th>
                             </tr>
@@ -1575,10 +2167,10 @@ const DespachosView = () => {
                                   )}
                                 </td>
                                 <td className="px-3 py-2 text-center">
-                                  {camionada.mezcla?.ley_prom_lote !== null && camionada.mezcla?.ley_prom_lote !== undefined
+                                  {camionada.mezcla?.ley_lab !== null && camionada.mezcla?.ley_lab !== undefined
                                     ? (
                                       <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-orange-100 text-orange-800 font-semibold text-xs">
-                                        {parseFloat(camionada.mezcla.ley_prom_lote).toFixed(2)}%
+                                        {parseFloat(camionada.mezcla.ley_lab).toFixed(2)}%
                                       </span>
                                     )
                                     : <span className="text-gray-400 text-xs">N/A</span>}
@@ -1610,10 +2202,10 @@ const DespachosView = () => {
                                 }, 0).toFixed(2)} t
                               </td>
                               <td className="px-3 py-3 text-center">
-                                {loteSeleccionado.ley_lote_promedio !== null && loteSeleccionado.ley_lote_promedio !== undefined
+                                {loteSeleccionado.ley_lab_promedio !== null && loteSeleccionado.ley_lab_promedio !== undefined
                                   ? (
                                     <span className="inline-flex items-center px-2 py-1 rounded-full bg-orange-200 text-orange-900 font-bold text-xs">
-                                      {loteSeleccionado.ley_lote_promedio.toFixed(2)}%
+                                      {loteSeleccionado.ley_lab_promedio.toFixed(2)}%
                                     </span>
                                   )
                                   : <span className="text-gray-500 text-xs">N/A</span>}
@@ -1712,6 +2304,16 @@ const DespachosView = () => {
                 >
                   <HiBriefcase className="w-5 h-5" />
                   <span>Empresas</span>
+                </button>
+                <button
+                  onClick={() => setVistaPlantasActiva('camiones')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all ${vistaPlantasActiva === 'camiones'
+                      ? 'bg-orange-600 text-white shadow-lg'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                >
+                  <HiTruck className="w-5 h-5" />
+                  <span>Camiones</span>
                 </button>
               </div>
             </div>
@@ -1883,6 +2485,94 @@ const DespachosView = () => {
                                 size="sm"
                                 icon={HiTrash}
                                 onClick={() => handleEliminarClick(empresa, 'empresa')}
+                              >
+                                Eliminar
+                              </Button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Card>
+          )}
+
+          {/* Vista de Camiones */}
+          {vistaPlantasActiva === 'camiones' && (
+            <Card className="border-l-4 border-orange-400">
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-2xl font-bold text-gray-900">Camiones</h3>
+                <Button variant="primary" icon={HiPlus} onClick={handleNuevoClick}>
+                  Nuevo Camión
+                </Button>
+              </div>
+
+              {loading ? (
+                <div className="flex justify-center py-12">
+                  <Loader size="lg" />
+                </div>
+              ) : camionesLista.length === 0 ? (
+                <div className="text-center py-12">
+                  <HiTruck className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-600">No hay camiones registrados</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-gradient-to-r from-orange-50 to-yellow-50 border-b-2 border-orange-200">
+                        <th className="text-left py-3 px-3 font-bold text-orange-900">ID</th>
+                        <th className="text-left py-3 px-3 font-bold text-orange-900">Patente</th>
+                        <th className="text-left py-3 px-3 font-bold text-orange-900">Nombre</th>
+                        <th className="text-left py-3 px-3 font-bold text-orange-900">Categoría</th>
+                        <th className="text-left py-3 px-3 font-bold text-orange-900">Tonelaje</th>
+                        <th className="text-left py-3 px-3 font-bold text-orange-900">Estado</th>
+                        <th className="text-left py-3 px-3 font-bold text-orange-900">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {camionesLista.map((camion, index) => (
+                        <tr
+                          key={camion.id}
+                          className={`border-b hover:bg-orange-50 transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}
+                        >
+                          <td className="py-3 px-3 font-bold text-orange-700">#{camion.id}</td>
+                          <td className="py-3 px-3 font-mono font-bold">{camion.patente}</td>
+                          <td className="py-3 px-3">{camion.nombre}</td>
+                          <td className="py-3 px-3 text-xs">{camion.categoria || '-'}</td>
+                          <td className="py-3 px-3">{camion.tonelaje ? `${camion.tonelaje} t` : '-'}</td>
+                          <td className="py-3 px-3">
+                            <Badge color={camion.activo ? 'green' : 'gray'} size="sm">
+                              {camion.activo ? (
+                                <>
+                                  <HiCheckCircle className="inline mr-1" />
+                                  Activo
+                                </>
+                              ) : (
+                                <>
+                                  <HiXCircle className="inline mr-1" />
+                                  Inactivo
+                                </>
+                              )}
+                            </Badge>
+                          </td>
+                          <td className="py-3 px-3">
+                            <div className="flex gap-2">
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                icon={HiPencil}
+                                onClick={() => handleEditarClick(camion)}
+                              >
+                                Editar
+                              </Button>
+                              <Button
+                                variant="danger"
+                                size="sm"
+                                icon={HiTrash}
+                                onClick={() => handleEliminarClick(camion, 'camion')}
                               >
                                 Eliminar
                               </Button>
@@ -2134,10 +2824,127 @@ const DespachosView = () => {
         </div>
       )}
 
-      {/* Modal de Confirmación de Eliminación (solo para plantas/empresas) */}
+      {/* Modal de Formulario de Camión */}
+      {mostrarFormPlanta && vistaPlantasActiva === 'camiones' && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <Card className="max-w-2xl w-full">
+            <form onSubmit={handleSubmitCamion}>
+              <div className="flex items-center justify-between mb-6">
+                <h3 className="text-2xl font-bold text-gray-900">
+                  {modoFormPlanta === 'crear' ? 'Nuevo Camión' : 'Editar Camión'}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setMostrarFormPlanta(false)}
+                  className="text-gray-500 hover:text-gray-700 text-3xl font-bold"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Patente *
+                    </label>
+                    <input
+                      type="text"
+                      name="patente"
+                      value={formCamion.patente}
+                      onChange={(e) => handleFormChange(e, 'camion')}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 uppercase font-mono"
+                      required
+                      placeholder="ABC-1234"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Nombre *
+                    </label>
+                    <input
+                      type="text"
+                      name="nombre"
+                      value={formCamion.nombre}
+                      onChange={(e) => handleFormChange(e, 'camion')}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
+                      required
+                      placeholder="Camión Tolva 01"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Categoría
+                    </label>
+                    <input
+                      type="text"
+                      name="categoria"
+                      value={formCamion.categoria}
+                      onChange={(e) => handleFormChange(e, 'camion')}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
+                      placeholder="Tolva"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Tonelaje (t)
+                    </label>
+                    <input
+                      type="number"
+                      name="tonelaje"
+                      value={formCamion.tonelaje}
+                      onChange={(e) => handleFormChange(e, 'camion')}
+                      step="0.01"
+                      min="0"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500"
+                      placeholder="29.00"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    name="activo"
+                    checked={formCamion.activo}
+                    onChange={(e) => handleFormChange(e, 'camion')}
+                    className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500"
+                  />
+                  <label className="text-sm font-medium text-gray-700">
+                    Camión activo
+                  </label>
+                </div>
+              </div>
+
+              <div className="flex gap-3 justify-end mt-6">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={() => setMostrarFormPlanta(false)}
+                  disabled={loading}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  disabled={loading}
+                >
+                  {loading ? 'Guardando...' : modoFormPlanta === 'crear' ? 'Crear Camión' : 'Actualizar Camión'}
+                </Button>
+              </div>
+            </form>
+          </Card>
+        </div>
+      )}
+
+      {/* Modal de Confirmación de Eliminación */}
       <ConfirmModal
         show={deleteModal.show}
-        title={`Eliminar ${deleteModal.tipo === 'planta' ? 'Planta' : 'Empresa'}`}
+        title={`Eliminar ${deleteModal.tipo === 'planta' ? 'Planta' : deleteModal.tipo === 'empresa' ? 'Empresa' : deleteModal.tipo === 'camionada' ? 'Camionada' : 'Camión'}`}
         message={`¿Está seguro que desea eliminar "${deleteModal.nombre}"? Esta acción no se puede deshacer.`}
         confirmText="Eliminar"
         cancelText="Cancelar"
@@ -2168,6 +2975,127 @@ const DespachosView = () => {
           setLoteAEliminar(null);
         }}
       />
+
+      {/* Modal de Recepción Completa */}
+      {showModalRecepcion && camionadaParaRecepcion && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <Card className="max-w-lg w-full">
+            <form onSubmit={handleSubmitRecepcionModal}>
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                    <HiTruck className="text-green-600" />
+                    Recepcionar Camionada
+                  </h3>
+                  <p className="text-sm text-gray-500 mt-1">
+                    <span className="font-mono font-bold">{camionadaParaRecepcion.patente}</span>
+                    {' '}| Lote {camionadaParaRecepcion.lote?.numero_lote || '-'}
+                    {' '}| Peso teórico: {parseFloat(camionadaParaRecepcion.peso).toFixed(2)} t
+                  </p>
+                </div>
+                <button type="button" onClick={() => setShowModalRecepcion(false)} className="text-gray-400 hover:text-gray-600 text-2xl">
+                  <HiX />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                {/* Campo nombre del lote - solo si el lote no tiene nombre */}
+                {!camionadaParaRecepcion.lote?.numero_lote && (
+                  <div className="bg-yellow-50 border border-yellow-300 rounded-lg p-3">
+                    <label className="block text-sm font-bold text-yellow-800 mb-1">
+                      Nombre del Lote *
+                    </label>
+                    <input
+                      type="text"
+                      value={formRecepcionModal.numero_lote}
+                      onChange={(e) => setFormRecepcionModal(prev => ({ ...prev, numero_lote: e.target.value }))}
+                      placeholder="Ej: CN-001, Lote Enero..."
+                      className="w-full px-3 py-2 border-2 border-yellow-400 rounded-md focus:ring-2 focus:ring-yellow-500 font-bold"
+                      required
+                    />
+                    <p className="text-xs text-yellow-600 mt-1">Este es el primer despacho recepcionado. Asigne un nombre al lote.</p>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Fecha *</label>
+                    <input
+                      type="date"
+                      value={formRecepcionModal.fecha_recepcion}
+                      onChange={(e) => setFormRecepcionModal(prev => ({ ...prev, fecha_recepcion: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Hora *</label>
+                    <input
+                      type="time"
+                      value={formRecepcionModal.hora_recepcion}
+                      onChange={(e) => setFormRecepcionModal(prev => ({ ...prev, hora_recepcion: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500"
+                      required
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Peso Real (toneladas) *</label>
+                  <input
+                    type="number"
+                    value={formRecepcionModal.peso_real}
+                    onChange={(e) => setFormRecepcionModal(prev => ({ ...prev, peso_real: e.target.value }))}
+                    step="0.01"
+                    min="0"
+                    placeholder="Peso pesado en destino"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500"
+                    required
+                  />
+                  {formRecepcionModal.peso_real && (
+                    <div className="mt-2 flex items-center gap-4 text-xs">
+                      <span className="text-gray-600">
+                        Diferencia:{' '}
+                        <span className={`font-bold ${
+                          (parseFloat(formRecepcionModal.peso_real) - parseFloat(camionadaParaRecepcion.peso)) >= 0 ? 'text-green-600' : 'text-red-600'
+                        }`}>
+                          {(parseFloat(formRecepcionModal.peso_real) - parseFloat(camionadaParaRecepcion.peso)).toFixed(2)} t
+                        </span>
+                      </span>
+                      <span className="text-gray-600">
+                        Error:{' '}
+                        <span className="text-orange-600 font-bold">
+                          {((Math.abs(parseFloat(formRecepcionModal.peso_real) - parseFloat(camionadaParaRecepcion.peso)) / parseFloat(camionadaParaRecepcion.peso)) * 100).toFixed(2)}%
+                        </span>
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Observaciones</label>
+                  <textarea
+                    value={formRecepcionModal.observaciones_recepcion}
+                    onChange={(e) => setFormRecepcionModal(prev => ({ ...prev, observaciones_recepcion: e.target.value }))}
+                    rows="2"
+                    placeholder="Notas adicionales..."
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-green-500"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-3 justify-end mt-6">
+                <Button type="button" variant="secondary" onClick={() => setShowModalRecepcion(false)} disabled={submittingRecepcion}>
+                  Cancelar
+                </Button>
+                <Button type="submit" variant="success" icon={HiCheckCircle} disabled={submittingRecepcion}>
+                  {submittingRecepcion ? 'Recepcionando...' : 'Confirmar Recepción'}
+                </Button>
+              </div>
+            </form>
+          </Card>
+        </div>
+      )}
     </div>
   );
 };

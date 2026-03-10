@@ -123,11 +123,11 @@ export default function Header() {
                 {/* Menu Items */}
                 <div className="py-2">
                   <a
-                    href="http://localhost:5173/profile"
+                    href={`${import.meta.env.VITE_CENTRAL_URL}/profile`}
                     onClick={(e) => {
                       e.preventDefault();
                       setDropdownOpen(false);
-                      window.location.href = 'http://localhost:5173/profile';
+                      window.location.href = `${import.meta.env.VITE_CENTRAL_URL}/profile`;
                     }}
                     className="w-full px-4 py-2.5 text-left hover:bg-gray-50 flex items-center gap-3 text-gray-700 hover:text-orange-600 transition-colors block"
                   >

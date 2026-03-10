@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\Laboratorio\MuestreoController;
 use App\Http\Controllers\Api\Laboratorio\EmpresaController;
 use App\Http\Controllers\Api\Laboratorio\PlantaController;
 use App\Http\Controllers\Api\Laboratorio\CertificadoController;
+use App\Http\Controllers\Api\Dispatch\MuestraLibreController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -47,9 +48,15 @@ Route::get('/estadisticas', [LaboratorioController::class, 'estadisticas']);
 // Historial de análisis completados (para reportes/PDF)
 Route::get('/historial', [LaboratorioController::class, 'historial']);
 
+// Editar análisis de una dumpada del historial
+Route::put('/historial/{id}', [LaboratorioController::class, 'editarAnalisis']);
+
 // Empresas
 Route::get('/empresas', [EmpresaController::class, 'index']);
+Route::post('/empresas', [EmpresaController::class, 'store']);
 Route::get('/empresas/{id}', [EmpresaController::class, 'show']);
+Route::put('/empresas/{id}', [EmpresaController::class, 'update']);
+Route::delete('/empresas/{id}', [EmpresaController::class, 'destroy']);
 
 // Plantas
 Route::get('/plantas', [PlantaController::class, 'index']);
@@ -84,4 +91,13 @@ Route::get('/certificados/{numeroCertificado}/dumpadas', [CertificadoController:
 
 // Regenerar certificado existente
 Route::get('/certificados/{numeroCertificado}/regenerar', [CertificadoController::class, 'regenerar']);
+
+// ========================================
+// MÓDULO: MUESTRAS LIBRES
+// ========================================
+// Completar análisis de una muestra libre
+Route::put('/muestras-libres/{id}/completar', [MuestraLibreController::class, 'completarAnalisis']);
+
+// Editar análisis de una muestra libre ya completada
+Route::put('/muestras-libres/{id}/editar', [MuestraLibreController::class, 'editarAnalisis']);
 

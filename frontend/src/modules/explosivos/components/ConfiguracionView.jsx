@@ -13,15 +13,18 @@ import {
   HiMagnifyingGlass,
   HiUserPlus,
   HiUserMinus,
+  HiCalculator,
+  HiBuildingStorefront,
 } from 'react-icons/hi2';
 import Card from '../../../shared/components/atoms/Card';
 import Button from '../../../shared/components/atoms/Button';
 import Input from '../../../shared/components/atoms/Input';
 import ConfirmDialog from '../../../shared/components/molecules/ConfirmDialog';
+import FormulaExplosivosConfig from './FormulaExplosivosConfig';
 import explosivosService from '../services/explosivos';
 import useToast from '../../../hooks/useToast';
 
-export default function ConfiguracionView({ polvorin, categorias, tipos, faenaActual, onPolvorinCreated, onRefresh }) {
+export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin = false, faenas = [], categorias, tipos, faenaActual, onPolvorinCreated, onRefresh }) {
   const toast = useToast();
 
   // Tabs de configuración
@@ -50,6 +53,7 @@ export default function ConfiguracionView({ polvorin, categorias, tipos, faenaAc
     responsable: '',
     telefono_responsable: '',
     observaciones: '',
+    id_faena: faenaActual?.id || '',
   });
 
   const [formCategoria, setFormCategoria] = useState({
@@ -79,6 +83,8 @@ export default function ConfiguracionView({ polvorin, categorias, tipos, faenaAc
     { id: 'categorias', label: 'Categorías', icon: HiTag },
     { id: 'tipos', label: 'Tipos de Explosivos', icon: HiCube },
     { id: 'personal', label: 'Personal Autorizado', icon: HiUserGroup },
+    { id: 'proveedores', label: 'Proveedores', icon: HiBuildingStorefront },
+    { id: 'formulas', label: 'Fórmulas', icon: HiCalculator },
   ];
 
   // Estados para Personal Autorizado
@@ -88,10 +94,22 @@ export default function ConfiguracionView({ polvorin, categorias, tipos, faenaAc
   const [showModalPersonal, setShowModalPersonal] = useState(false);
   const [busquedaPersonal, setBusquedaPersonal] = useState('');
 
+  // Estados para Proveedores
+  const [proveedores, setProveedores] = useState([]);
+  const [loadingProveedores, setLoadingProveedores] = useState(false);
+  const [showModalProveedor, setShowModalProveedor] = useState(false);
+  const [editandoProveedor, setEditandoProveedor] = useState(null);
+  const [formProveedor, setFormProveedor] = useState({
+    nombre: '', rut: '', direccion: '', telefono: '', contacto: '',
+  });
+
   // Cargar personal autorizado cuando se cambia a la pestaña
   useEffect(() => {
     if (tabActual === 'personal' && faenaActual) {
       cargarPersonalAutorizado();
+    }
+    if (tabActual === 'proveedores') {
+      cargarProveedores();
     }
   }, [tabActual, faenaActual]);
 
@@ -158,6 +176,70 @@ export default function ConfiguracionView({ polvorin, categorias, tipos, faenaAc
       p.cargo?.toLowerCase().includes(busqueda)
     );
   });
+
+  // --- Proveedores ---
+  const cargarProveedores = async () => {
+    setLoadingProveedores(true);
+    try {
+      const data = await explosivosService.getProveedores();
+      setProveedores(Array.isArray(data) ? data : data.data || []);
+    } catch (error) {
+      toast.error('Error', 'No se pudieron cargar los proveedores');
+    } finally {
+      setLoadingProveedores(false);
+    }
+  };
+
+  const nuevoProveedor = () => {
+    setEditandoProveedor(null);
+    setFormProveedor({ nombre: '', rut: '', direccion: '', telefono: '', contacto: '' });
+    setShowModalProveedor(true);
+  };
+
+  const editarProveedor = (prov) => {
+    setEditandoProveedor(prov);
+    setFormProveedor({
+      nombre: prov.nombre || '',
+      rut: prov.rut || '',
+      direccion: prov.direccion || '',
+      telefono: prov.telefono || '',
+      contacto: prov.contacto || '',
+    });
+    setShowModalProveedor(true);
+  };
+
+  const guardarProveedor = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+    try {
+      if (editandoProveedor) {
+        await explosivosService.updateProveedor(editandoProveedor.id, formProveedor);
+        toast.success('Proveedor actualizado', 'Los datos fueron actualizados');
+      } else {
+        await explosivosService.createProveedor({
+          ...formProveedor,
+          id_faena: faenaActual?.id,
+        });
+        toast.success('Proveedor creado', 'El proveedor fue creado exitosamente');
+      }
+      setShowModalProveedor(false);
+      cargarProveedores();
+    } catch (error) {
+      toast.error('Error', error.response?.data?.mensaje || 'No se pudo guardar el proveedor');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const eliminarProveedor = async (prov) => {
+    try {
+      await explosivosService.deleteProveedor(prov.id);
+      toast.success('Proveedor eliminado', `${prov.nombre} fue eliminado`);
+      cargarProveedores();
+    } catch (error) {
+      toast.error('Error', 'No se pudo eliminar el proveedor');
+    }
+  };
 
   // Abrir modal de edición
   const editarPolvorin = () => {
@@ -229,12 +311,13 @@ export default function ConfiguracionView({ polvorin, categorias, tipos, faenaAc
   const nuevoPolvorin = () => {
     setEditandoPolvorin(null);
     setFormPolvorin({
-      nombre: `Polvorín ${faenaActual?.nombre || ''}`,
+      nombre: esAdmin ? '' : `Polvorín ${faenaActual?.nombre || ''}`,
       ubicacion: '',
       capacidad_maxima_kg: '',
       responsable: '',
       telefono_responsable: '',
       observaciones: '',
+      id_faena: faenaActual?.id || '',
     });
     setShowModalPolvorin(true);
   };
@@ -248,9 +331,15 @@ export default function ConfiguracionView({ polvorin, categorias, tipos, faenaAc
         await explosivosService.updatePolvorin(editandoPolvorin.id, formPolvorin);
         toast.success('Polvorín actualizado', 'Los datos del polvorín fueron actualizados');
       } else {
+        const idFaena = esAdmin ? formPolvorin.id_faena : faenaActual?.id;
+        if (!idFaena) {
+          toast.error('Error', 'Debe seleccionar una faena');
+          setSubmitting(false);
+          return;
+        }
         const nuevo = await explosivosService.createPolvorin({
           ...formPolvorin,
-          id_faena: faenaActual.id,
+          id_faena: idFaena,
         });
         toast.success('Polvorín creado', 'El polvorín fue creado exitosamente');
         onPolvorinCreated?.(nuevo.polvorin);
@@ -341,8 +430,8 @@ export default function ConfiguracionView({ polvorin, categorias, tipos, faenaAc
               className={`
                 flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all
                 ${isActive
-                  ? 'bg-gray-800 text-white shadow-md'
-                  : 'text-gray-600 hover:bg-gray-100'
+                  ? 'bg-red-600 text-white shadow-md'
+                  : 'text-gray-600 hover:bg-red-50 hover:text-red-600'
                 }
               `}
             >
@@ -357,15 +446,68 @@ export default function ConfiguracionView({ polvorin, categorias, tipos, faenaAc
       {tabActual === 'polvorin' && (
         <Card>
           <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-semibold text-gray-800">Polvorín de la Faena</h3>
-            {!polvorin && (
+            <h3 className="text-lg font-semibold text-gray-800">
+              {esAdmin ? 'Polvorines (Todas las Faenas)' : 'Polvorín de la Faena'}
+            </h3>
+            {(esAdmin || !polvorin) && (
               <Button variant="primary" icon={HiPlus} onClick={nuevoPolvorin}>
                 Crear Polvorín
               </Button>
             )}
           </div>
 
-          {polvorin ? (
+          {/* Vista Admin: lista de todos los polvorines */}
+          {esAdmin ? (
+            polvorines.length > 0 ? (
+              <div className="space-y-3">
+                {polvorines.map((p) => {
+                  const faenaNombre = faenas.find(f => f.id === p.id_faena)?.nombre || `Faena #${p.id_faena}`;
+                  return (
+                    <div key={p.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3">
+                          <span className="font-mono text-sm bg-white px-2 py-0.5 rounded border">{p.codigo}</span>
+                          <span className="font-medium text-lg">{p.nombre}</span>
+                        </div>
+                        <div className="flex items-center gap-4 mt-1 text-sm text-gray-500">
+                          <span>Faena: <span className="font-medium text-gray-700">{faenaNombre}</span></span>
+                          {p.ubicacion && <span>Ubicación: {p.ubicacion}</span>}
+                          {p.responsable && <span>Resp: {p.responsable}</span>}
+                          {p.capacidad_maxima_kg && (
+                            <span>Cap: {parseFloat(p.capacidad_maxima_kg).toLocaleString('es-CL')} kg</span>
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setEditandoPolvorin(p);
+                          setFormPolvorin({
+                            nombre: p.nombre || '',
+                            ubicacion: p.ubicacion || '',
+                            capacidad_maxima_kg: p.capacidad_maxima_kg || '',
+                            responsable: p.responsable || '',
+                            telefono_responsable: p.telefono_responsable || '',
+                            observaciones: p.observaciones || '',
+                            id_faena: p.id_faena || '',
+                          });
+                          setShowModalPolvorin(true);
+                        }}
+                        className="p-2 text-blue-600 hover:bg-blue-50 rounded"
+                      >
+                        <HiPencil className="w-5 h-5" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <HiArchiveBox className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                <p className="text-gray-500">No hay polvorines registrados</p>
+                <p className="text-sm text-gray-400 mt-1">Cree el primer polvorín para comenzar</p>
+              </div>
+            )
+          ) : polvorin ? (
             <div className="space-y-4">
               <div className="grid md:grid-cols-2 gap-6">
                 <div>
@@ -587,6 +729,79 @@ export default function ConfiguracionView({ polvorin, categorias, tipos, faenaAc
         </Card>
       )}
 
+      {tabActual === 'proveedores' && (
+        <Card>
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-800">Proveedores de Explosivos</h3>
+              <p className="text-sm text-gray-500 mt-1">Empresas proveedoras para registrar guías de despacho</p>
+            </div>
+            <Button variant="primary" icon={HiPlus} onClick={nuevoProveedor}>
+              Nuevo Proveedor
+            </Button>
+          </div>
+
+          {loadingProveedores ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-4 border-red-200 border-t-red-600"></div>
+            </div>
+          ) : proveedores.length === 0 ? (
+            <div className="text-center py-8">
+              <HiBuildingStorefront className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+              <p className="text-gray-500">No hay proveedores registrados</p>
+              <p className="text-sm text-gray-400 mt-1">Agregue los proveedores de explosivos</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {proveedores.map((prov) => (
+                <div key={prov.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                  <div>
+                    <p className="font-medium">{prov.nombre}</p>
+                    <div className="flex items-center gap-3 text-sm text-gray-500">
+                      {prov.rut && <span>{prov.rut}</span>}
+                      {prov.telefono && (
+                        <>
+                          <span>•</span>
+                          <span>{prov.telefono}</span>
+                        </>
+                      )}
+                      {prov.contacto && (
+                        <>
+                          <span>•</span>
+                          <span>{prov.contacto}</span>
+                        </>
+                      )}
+                    </div>
+                    {prov.direccion && <p className="text-xs text-gray-400 mt-1">{prov.direccion}</p>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => editarProveedor(prov)}
+                      className="p-2 text-blue-600 hover:bg-blue-50 rounded"
+                    >
+                      <HiPencil className="w-5 h-5" />
+                    </button>
+                    <button
+                      onClick={() => eliminarProveedor(prov)}
+                      className="p-2 text-red-600 hover:bg-red-50 rounded"
+                    >
+                      <HiTrash className="w-5 h-5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      )}
+
+      {tabActual === 'formulas' && (
+        <FormulaExplosivosConfig
+          tipos={tipos}
+          faenaActual={faenaActual}
+        />
+      )}
+
       {/* Modal Agregar Personal */}
       {showModalPersonal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -695,6 +910,22 @@ export default function ConfiguracionView({ polvorin, categorias, tipos, faenaAc
               </button>
             </div>
             <form onSubmit={guardarPolvorin} className="p-6 space-y-4">
+              {esAdmin && !editandoPolvorin && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Faena *</label>
+                  <select
+                    value={formPolvorin.id_faena}
+                    onChange={(e) => setFormPolvorin(prev => ({ ...prev, id_faena: e.target.value }))}
+                    required
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
+                  >
+                    <option value="">Seleccionar faena...</option>
+                    {faenas.map(f => (
+                      <option key={f.id} value={f.id}>{f.nombre}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <Input
                 label="Nombre"
                 required
@@ -910,6 +1141,62 @@ export default function ConfiguracionView({ polvorin, categorias, tipos, faenaAc
               </div>
               <div className="flex justify-end gap-3 pt-4 border-t">
                 <Button type="button" variant="secondary" onClick={() => setShowModalTipo(false)}>
+                  Cancelar
+                </Button>
+                <Button type="submit" variant="primary" disabled={submitting}>
+                  {submitting ? 'Guardando...' : 'Guardar'}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Proveedor */}
+      {showModalProveedor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full mx-4">
+            <div className="px-6 py-4 border-b flex items-center justify-between">
+              <h3 className="text-lg font-semibold">
+                {editandoProveedor ? 'Editar Proveedor' : 'Nuevo Proveedor'}
+              </h3>
+              <button onClick={() => setShowModalProveedor(false)} className="text-gray-500 hover:text-gray-700">
+                <HiXMark className="w-6 h-6" />
+              </button>
+            </div>
+            <form onSubmit={guardarProveedor} className="p-6 space-y-4">
+              <Input
+                label="Nombre de la Empresa"
+                required
+                value={formProveedor.nombre}
+                onChange={(e) => setFormProveedor(prev => ({ ...prev, nombre: e.target.value }))}
+                placeholder="FAMESA EXPLOSIVOS CHILE S.A."
+              />
+              <Input
+                label="RUT"
+                value={formProveedor.rut}
+                onChange={(e) => setFormProveedor(prev => ({ ...prev, rut: e.target.value }))}
+                placeholder="96.845.740-3"
+              />
+              <Input
+                label="Dirección"
+                value={formProveedor.direccion}
+                onChange={(e) => setFormProveedor(prev => ({ ...prev, direccion: e.target.value }))}
+              />
+              <div className="grid grid-cols-2 gap-4">
+                <Input
+                  label="Teléfono"
+                  value={formProveedor.telefono}
+                  onChange={(e) => setFormProveedor(prev => ({ ...prev, telefono: e.target.value }))}
+                />
+                <Input
+                  label="Persona de Contacto"
+                  value={formProveedor.contacto}
+                  onChange={(e) => setFormProveedor(prev => ({ ...prev, contacto: e.target.value }))}
+                />
+              </div>
+              <div className="flex justify-end gap-3 pt-4 border-t">
+                <Button type="button" variant="secondary" onClick={() => setShowModalProveedor(false)}>
                   Cancelar
                 </Button>
                 <Button type="submit" variant="primary" disabled={submitting}>

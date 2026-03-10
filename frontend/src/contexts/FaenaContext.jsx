@@ -13,6 +13,9 @@ export const FaenaProvider = ({ children }) => {
   // Acepta ambos formatos: 'Encargado Dispatch' o 'encargado_dispatch'
   const esUsuarioGlobal = roles.includes('Encargado Dispatch') || roles.includes('encargado_dispatch');
 
+  // Determinar si es Digitador Dispatch (solo ingreso de dumpadas)
+  const esDigitador = roles.includes('Digitador Dispatch') || roles.includes('digitador_dispatch');
+
   // Estado de faena seleccionada
   const [faenaSeleccionada, setFaenaSeleccionada] = useState(() => {
     // Usuarios globales: intentar recuperar de localStorage, sino null (ver todas)
@@ -80,6 +83,7 @@ export const FaenaProvider = ({ children }) => {
 
   const value = {
     esUsuarioGlobal,
+    esDigitador,
     faenaUsuario,
     faenaSeleccionada,
     cambiarFaena,

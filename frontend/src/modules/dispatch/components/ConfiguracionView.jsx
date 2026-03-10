@@ -30,6 +30,19 @@ const ConfiguracionView = () => {
   const [tonelajeInput, setTonelajeInput] = useState('4.6');
   const [tieneConfigEspecifica, setTieneConfigEspecifica] = useState(false);
 
+  // Estados para Capping de Ley
+  const [savingCapping, setSavingCapping] = useState(false);
+  const [cappingActual, setCappingActual] = useState(3.7);
+  const [cappingGlobal, setCappingGlobal] = useState(3.7);
+  const [cappingInput, setCappingInput] = useState('3.7');
+  const [tieneConfigCapping, setTieneConfigCapping] = useState(false);
+  const [configsCappingPorFaena, setConfigsCappingPorFaena] = useState([]);
+
+  // Estados para Peso de Palada
+  const [savingPalada, setSavingPalada] = useState(false);
+  const [paladaGlobal, setPaladaGlobal] = useState(1.82);
+  const [paladaInput, setPaladaInput] = useState('1.82');
+
   // Para Encargado Dispatch: configuraciones por faena
   const [configsPorFaena, setConfigsPorFaena] = useState([]);
   const [faenaSeleccionadaConfig, setFaenaSeleccionadaConfig] = useState(null);
@@ -52,6 +65,14 @@ const ConfiguracionView = () => {
       // Siempre cargar el valor global primero
       const dataGlobal = await configuracionService.getAll(null);
       setTonelajeGlobal(dataGlobal.tonelaje_dumpada_default || 4.6);
+      setCappingGlobal(dataGlobal.ley_capping_maximo || 3.7);
+      const paladaVal = dataGlobal.toneladas_por_palada || 1.82;
+      setPaladaGlobal(paladaVal);
+      setPaladaInput(paladaVal.toString());
+
+      // Cargar configs de capping por faena
+      const responseCapping = await configuracionService.getByKeyAllFaenas('ley_capping_maximo');
+      setConfigsCappingPorFaena(responseCapping.configuraciones || []);
 
       if (esUsuarioGlobal) {
         // Encargado: cargar todas las configuraciones por faena
@@ -65,16 +86,28 @@ const ConfiguracionView = () => {
           setTonelajeActual(valorFaena);
           setTonelajeInput(valorFaena.toString());
 
+          const valorCapping = dataFaena.ley_capping_maximo || 3.7;
+          setCappingActual(valorCapping);
+          setCappingInput(valorCapping.toString());
+
           // Verificar si tiene config especifica
           const configEspecifica = (response.configuraciones || []).find(
             c => c.id_faena === faenaSeleccionadaConfig
           );
           setTieneConfigEspecifica(!!configEspecifica);
+
+          const configCapping = (responseCapping.configuraciones || []).find(
+            c => c.id_faena === faenaSeleccionadaConfig
+          );
+          setTieneConfigCapping(!!configCapping);
         } else {
           // Sin faena seleccionada: mostrar global
           setTonelajeActual(dataGlobal.tonelaje_dumpada_default || 4.6);
           setTonelajeInput((dataGlobal.tonelaje_dumpada_default || 4.6).toString());
+          setCappingActual(dataGlobal.ley_capping_maximo || 3.7);
+          setCappingInput((dataGlobal.ley_capping_maximo || 3.7).toString());
           setTieneConfigEspecifica(false);
+          setTieneConfigCapping(false);
         }
       } else {
         // Operador: cargar config de su faena
@@ -83,12 +116,21 @@ const ConfiguracionView = () => {
         setTonelajeActual(valorFaena);
         setTonelajeInput(valorFaena.toString());
 
+        const valorCapping = dataFaena.ley_capping_maximo || 3.7;
+        setCappingActual(valorCapping);
+        setCappingInput(valorCapping.toString());
+
         // Verificar si tiene config especifica
         const response = await configuracionService.getByKeyAllFaenas('tonelaje_dumpada_default');
         const configEspecifica = (response.configuraciones || []).find(
           c => c.id_faena === faenaUsuario
         );
         setTieneConfigEspecifica(!!configEspecifica);
+
+        const configCapping = (responseCapping.configuraciones || []).find(
+          c => c.id_faena === faenaUsuario
+        );
+        setTieneConfigCapping(!!configCapping);
       }
     } catch (error) {
       console.error('Error cargando configuraciones:', error);
@@ -138,6 +180,70 @@ const ConfiguracionView = () => {
       toast.error('Error al guardar la configuracion');
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Guardar configuracion de capping
+  const guardarCapping = async () => {
+    const valor = parseFloat(cappingInput);
+
+    if (isNaN(valor) || valor <= 0) {
+      toast.error('El capping debe ser un numero mayor a 0');
+      return;
+    }
+
+    if (valor > 20) {
+      toast.error('El capping parece demasiado alto. Maximo: 20%');
+      return;
+    }
+
+    try {
+      setSavingCapping(true);
+      const idFaenaGuardar = faenaActiva;
+
+      await configuracionService.update('ley_capping_maximo', valor, idFaenaGuardar);
+
+      toast.success(
+        idFaenaGuardar
+          ? `Capping de ley actualizado para la faena seleccionada: ${valor}%`
+          : `Capping de ley global actualizado: ${valor}%`
+      );
+
+      configuracionService.clearCache();
+      await cargarConfiguraciones();
+    } catch (error) {
+      console.error('Error guardando capping:', error);
+      toast.error('Error al guardar el capping');
+    } finally {
+      setSavingCapping(false);
+    }
+  };
+
+  // Guardar peso de palada
+  const guardarPalada = async () => {
+    const valor = parseFloat(paladaInput);
+
+    if (isNaN(valor) || valor <= 0) {
+      toast.error('El peso de palada debe ser mayor a 0');
+      return;
+    }
+
+    if (valor > 20) {
+      toast.error('El peso parece demasiado alto. Maximo: 20 Ton');
+      return;
+    }
+
+    try {
+      setSavingPalada(true);
+      await configuracionService.update('toneladas_por_palada', valor, null); // Siempre global
+      toast.success(`Peso de palada actualizado: ${valor} Ton`);
+      configuracionService.clearCache();
+      await cargarConfiguraciones();
+    } catch (error) {
+      console.error('Error guardando peso de palada:', error);
+      toast.error('Error al guardar el peso de palada');
+    } finally {
+      setSavingPalada(false);
     }
   };
 
@@ -442,6 +548,190 @@ const ConfiguracionView = () => {
           )}
         </Card>
       </div>
+
+      {/* =============================================
+          SECCION: CAPPING DE LEY
+          ============================================= */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card>
+          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+            <HiCog className="w-5 h-5 text-orange-500" />
+            Capping de Ley (ley_cup)
+          </h3>
+
+          {/* Info faena seleccionada */}
+          {esUsuarioGlobal && (
+            <div className="mb-3 p-2 bg-gray-50 rounded-lg text-sm text-gray-600">
+              Configurando para: <strong>{faenaSeleccionadaConfig ? getNombreFaena(faenaSeleccionadaConfig) : 'Global (todas las faenas)'}</strong>
+            </div>
+          )}
+
+          {!esUsuarioGlobal && (
+            <div className="mb-3 p-2 bg-orange-50 rounded-lg text-sm text-orange-700">
+              Faena: <strong>{getNombreFaena(faenaUsuario)}</strong>
+            </div>
+          )}
+
+          {/* Input de Capping */}
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Ley maxima (Capping)
+            </label>
+            <div className="flex items-center gap-3">
+              <input
+                type="number"
+                step="0.1"
+                min="0.1"
+                max="20"
+                value={cappingInput}
+                onChange={(e) => setCappingInput(e.target.value)}
+                className="flex-1 px-4 py-3 text-lg font-semibold border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
+                placeholder="Ej: 3.7"
+              />
+              <span className="text-gray-500 font-medium">%</span>
+            </div>
+            <p className="mt-1 text-xs text-gray-500">
+              Si la ley de una dumpada supera este valor, se limita a este maximo al calcular la mezcla
+            </p>
+          </div>
+
+          {/* Info del valor */}
+          <div className="mb-4 space-y-2">
+            {tieneConfigCapping ? (
+              <div className="flex items-center gap-2 text-green-600 text-sm">
+                <HiCheckCircle className="w-5 h-5" />
+                <span>Esta faena tiene capping especifico: {cappingActual}%</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-yellow-600 text-sm">
+                <HiExclamationCircle className="w-5 h-5" />
+                <span>Usando valor global: {cappingGlobal}%</span>
+              </div>
+            )}
+          </div>
+
+          {/* Boton Guardar */}
+          <Button
+            variant="primary"
+            onClick={guardarCapping}
+            disabled={savingCapping}
+            className="w-full bg-orange-600 hover:bg-orange-700"
+          >
+            {savingCapping ? (
+              <>
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                Guardando...
+              </>
+            ) : (
+              <>
+                <HiSave className="w-5 h-5 mr-2" />
+                Guardar Capping
+              </>
+            )}
+          </Button>
+        </Card>
+
+        {/* Info Capping */}
+        <Card className="bg-gray-50">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+            <HiInformationCircle className="w-5 h-5 text-orange-500" />
+            Sobre el Capping
+          </h3>
+
+          <div className="space-y-4 text-sm text-gray-600">
+            <div className="p-3 bg-white rounded-lg border border-gray-200">
+              <h4 className="font-medium text-gray-900 mb-1">Que es el Capping?</h4>
+              <p>
+                Es el valor maximo de ley que se considera al agregar una dumpada a una mezcla.
+                Si la ley de laboratorio supera este valor, se usa el capping en su lugar para los calculos de la mezcla.
+              </p>
+            </div>
+
+            <div className="p-3 bg-white rounded-lg border border-gray-200">
+              <h4 className="font-medium text-gray-900 mb-1">Ejemplo</h4>
+              <p>
+                Con capping en <strong>{cappingGlobal}%</strong>: una dumpada con ley 4.6% se calcula como {cappingGlobal}% en la mezcla.
+                La dumpada mantiene su ley original (4.6%).
+              </p>
+            </div>
+
+            <div className="p-3 bg-white rounded-lg border border-gray-200">
+              <h4 className="font-medium text-gray-900 mb-1">Valor Global</h4>
+              <p>
+                <strong>Valor actual:</strong> {cappingGlobal}%
+              </p>
+            </div>
+          </div>
+
+          {/* Resumen de cappings por faena */}
+          {esUsuarioGlobal && configsCappingPorFaena.length > 0 && (
+            <div className="mt-4">
+              <h4 className="font-medium text-gray-900 mb-2">Faenas con capping especifico:</h4>
+              <div className="space-y-1">
+                {configsCappingPorFaena
+                  .filter(c => c.id_faena !== null)
+                  .map(config => (
+                    <div
+                      key={config.id}
+                      className="flex items-center justify-between p-2 bg-white rounded border border-gray-200 text-sm"
+                    >
+                      <span className="text-gray-700">{getNombreFaena(config.id_faena)}</span>
+                      <span className="font-semibold text-orange-600">{config.valor}%</span>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+        </Card>
+      </div>
+
+      {/* =============================================
+          SECCION: PESO DE PALADA
+          ============================================= */}
+      <Card className="mt-6">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+              <HiCog className="w-5 h-5 text-indigo-500" />
+              Peso por Palada
+            </h3>
+            <p className="text-sm text-gray-500 mt-0.5">
+              Toneladas que representa una palada al usar dumpadas parciales en mezclas
+            </p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Valor actual: <strong>{paladaGlobal} Ton/palada</strong> — Ej: una dumpada de 3.9 t tiene {Math.floor(3.9 / paladaGlobal)} paladas completas
+            </p>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            <input
+              type="number"
+              step="0.01"
+              min="0.1"
+              max="20"
+              value={paladaInput}
+              onChange={(e) => setPaladaInput(e.target.value)}
+              className="w-28 px-3 py-2 text-lg font-semibold border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-center"
+              placeholder="1.82"
+            />
+            <span className="text-gray-500 font-medium">Ton</span>
+            <Button
+              variant="primary"
+              onClick={guardarPalada}
+              disabled={savingPalada}
+              className="bg-indigo-600 hover:bg-indigo-700"
+            >
+              {savingPalada ? (
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
+              ) : (
+                <>
+                  <HiSave className="w-4 h-4 mr-1" />
+                  Guardar
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+      </Card>
 
       {/* =============================================
           SECCION: TONELAJE POR MAQUINA

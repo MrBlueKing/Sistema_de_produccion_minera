@@ -27,6 +27,7 @@ import FaenaMultiSelector from '../../../shared/components/molecules/FaenaMultiS
 import useDebounce from '../../../hooks/useDebounce';
 import useToast from '../../../hooks/useToast';
 import { useConfig } from '../../../hooks/useConfig';
+import { useAuth } from '../../../core/context/AuthContext';
 import dispatchService from '../services/dispatch';
 import mezclasService from '../services/mezclas';
 import acopiosService from '../../../services/acopios';
@@ -38,21 +39,41 @@ import faenaService from '../../../services/faenaService';
 // Para filtrar, especificar los IDs: const FAENAS_VISIBLES_DISPATCH = [1, 2, 4];
 const FAENAS_VISIBLES_DISPATCH = [1, 2, 4]; // Solo mostrar faenas 1, 2 y 4
 
+// Roles con acceso a pestañas avanzadas (Mapa de Terreno + Configuración)
+const ROLES_ADMIN_DISPATCH = ['admin_dispatch'];
+
 function DispatchContent() {
-  const { esUsuarioGlobal, faenaUsuario, faenaSeleccionada } = useFaena();
+  const { esUsuarioGlobal, esDigitador, faenaUsuario, faenaSeleccionada } = useFaena();
+  const { getRolActivo, getUserInfo } = useAuth();
   const navigate = useNavigate();
   const toast = useToast();
 
-  // Determinar la faena activa para cargar configuraciones
-  // - Operador: siempre su faena asignada
-  // - Encargado: la faena seleccionada en el header (o null si ve todas)
-  const faenaActivaConfig = esUsuarioGlobal ? faenaSeleccionada : faenaUsuario;
-  const { tonelajeDumpadaDefault, usarSistemaAcopios } = useConfig(faenaActivaConfig);
+  const rolActivo = getRolActivo();
+  const esAdmin = ROLES_ADMIN_DISPATCH.includes(rolActivo);
+
+  const userInfo = getUserInfo();
+  const userNombre = userInfo?.nombre || '';
+  const getSaludo = () => {
+    const h = new Date().getHours();
+    if (h < 12) return 'Buenos días';
+    if (h < 19) return 'Buenas tardes';
+    return 'Buenas noches';
+  };
+
   const [dumpadas, setDumpadas] = useState([]);
   const [frentes, setFrentes] = useState([]);
   const [rangos, setRangos] = useState([]);
   const [faenas, setFaenas] = useState([]);
   const [selectedFaenas, setSelectedFaenas] = useState([]); // ✅ Array de faenas seleccionadas
+
+  // Determinar la faena activa para cargar configuraciones (usado para mostrar en UI)
+  // - Operador: siempre su faena asignada
+  // - Encargado: usa la faena del selector si hay exactamente 1 seleccionada
+  // Nota: El tonelaje real se determina en el backend según la faena del frente de trabajo
+  const faenaActivaConfig = esUsuarioGlobal
+    ? (selectedFaenas.length === 1 ? selectedFaenas[0] : faenaSeleccionada)
+    : faenaUsuario;
+  const { tonelajeDumpadaDefault, usarSistemaAcopios } = useConfig(faenaActivaConfig);
   const [loading, setLoading] = useState(true);
   const [showInfo, setShowInfo] = useState(false);
   const [deleteModal, setDeleteModal] = useState({ show: false, id: null, acopio: '' });
@@ -83,8 +104,8 @@ function DispatchContent() {
   const [pendientesSearchTerm, setPendientesSearchTerm] = useState('');
   const debouncedPendientesSearch = useDebounce(pendientesSearchTerm, 500);
 
-  // Vista actual: 'ingreso', 'historial', 'acopios', 'mezclas', 'mapa', 'despachos' o 'configuracion'
-  const [vistaActual, setVistaActual] = useState('ingreso');
+  // Vista actual: 'menu', 'ingreso', 'historial', 'acopios', 'mezclas', 'mapa', 'despachos' o 'configuracion'
+  const [vistaActual, setVistaActual] = useState('menu');
 
   // Estados de filtros (solo para vista historial)
   const [searchTerm, setSearchTerm] = useState('');
@@ -102,6 +123,15 @@ function DispatchContent() {
 
   const jornadas = ['AM', 'PM', 'Madrugada', 'Noche'];
 
+  // Lista de máquinas/dumpers para el selector
+  const [maquinas, setMaquinas] = useState([]);
+
+  // Modal Muestra Libre
+  const [showMuestraLibreModal, setShowMuestraLibreModal] = useState(false);
+  const [muestraLibreForm, setMuestraLibreForm] = useState({ nombre: '', solicitante: '', id_frente_trabajo: '' });
+  const [savingMuestraLibre, setSavingMuestraLibre] = useState(false);
+  const [muestrasLibresPendientes, setMuestrasLibresPendientes] = useState([]);
+
   // Ingreso masivo: array de formularios
   const [formsIngresoMasivo, setFormsIngresoMasivo] = useState([
     {
@@ -109,6 +139,9 @@ function DispatchContent() {
       id_frente_trabajo: '',
       jornada: '',
       ley_visual: '',
+      id_maquina: '',
+      nombre_maquina: '',
+      ton: '',
     }
   ]);
 
@@ -123,6 +156,13 @@ function DispatchContent() {
   // Estados para Mezclas
   const [dumpadasDisponibles, setDumpadasDisponibles] = useState([]);
   const [mezclas, setMezclas] = useState([]);
+
+  // Nombre de la faena activa para mostrar en el banner
+  const [faenaNombreDisplay, setFaenaNombreDisplay] = useState('');
+
+  // KPIs semanales del hub
+  const [resumenSemana, setResumenSemana] = useState([]);
+  const [resumenSemanaInfo, setResumenSemanaInfo] = useState(null);
 
   // Estados para Modal de Acopios
   const [showAcopioModal, setShowAcopioModal] = useState(false);
@@ -139,8 +179,35 @@ function DispatchContent() {
   // Flag para saber si ya se inicializó (evita cargas duplicadas)
   const [initialized, setInitialized] = useState(false);
 
+  // Flag para la carga inicial (muestra full-page loader solo una vez)
+  const [isInitializing, setIsInitializing] = useState(true);
+
   // Ref para evitar cargas concurrentes
   const loadingRef = useRef(false);
+
+  // Cargar máquinas disponibles desde el sistema de petróleo
+  useEffect(() => {
+    const loadMaquinas = async () => {
+      try {
+        const res = await dispatchService.getMaquinas();
+        setMaquinas(res.data || []);
+      } catch (error) {
+        console.warn('⚠️ No se pudieron cargar máquinas:', error.message);
+      }
+    };
+    loadMaquinas();
+  }, []);
+
+  // Resolver nombre de la faena activa para el banner
+  useEffect(() => {
+    if (faenas.length === 0) return;
+
+    // Siempre mostrar la faena asignada del usuario
+    const idFaena = faenaUsuario?.id ?? faenaUsuario;
+    if (!idFaena) return;
+    const encontrada = faenas.find(f => String(f.id) === String(idFaena));
+    if (encontrada) setFaenaNombreDisplay(encontrada.ubicacion || encontrada.nombre || '');
+  }, [faenas, selectedFaenas, faenaUsuario, esUsuarioGlobal]);
 
   // Cargar maestros iniciales (faenas, rangos) - solo una vez
   useEffect(() => {
@@ -169,17 +236,17 @@ function DispatchContent() {
   useEffect(() => {
     if (faenas.length > 0 && selectedFaenas.length > 0) {
       if (!initialized) {
-        // Primera carga después de tener faenas
         setInitialized(true);
       }
-      if (vistaActual === 'historial' || vistaActual === 'ingreso') {
+      if (vistaActual === 'historial' || vistaActual === 'ingreso' || vistaActual === 'mezclas') {
         loadData();
       }
-      // Cargar pendientes si estamos en vista de ingreso
-      if (vistaActual === 'ingreso') {
+      if (vistaActual === 'ingreso' || vistaActual === 'envio_muestras') {
         loadPendientes();
       }
-      // También recargar frentes cuando cambian las faenas
+      if (vistaActual === 'menu') {
+        loadResumenSemana();
+      }
       loadFrentes();
     }
   }, [selectedFaenas]);
@@ -188,16 +255,18 @@ function DispatchContent() {
   useEffect(() => {
     if (initialized) {
       loadData();
-      // Cargar pendientes si cambiamos a vista de ingreso
-      if (vistaActual === 'ingreso') {
+      if (vistaActual === 'ingreso' || vistaActual === 'envio_muestras') {
         loadPendientes();
+      }
+      if (vistaActual === 'menu') {
+        loadResumenSemana();
       }
     }
   }, [vistaActual]);
 
-  // Cargar pendientes cuando cambian los filtros de pendientes o la página (solo en vista ingreso)
+  // Cargar pendientes cuando cambian los filtros o la página
   useEffect(() => {
-    if (initialized && vistaActual === 'ingreso') {
+    if (initialized && (vistaActual === 'ingreso' || vistaActual === 'envio_muestras')) {
       loadPendientes();
     }
   }, [pendientesPage, debouncedPendientesSearch, pendientesFilters, vistaActual, initialized, selectedFaenas]);
@@ -238,6 +307,7 @@ function DispatchContent() {
       toast.error('Error al cargar datos', error.response?.data?.message || error.message);
     } finally {
       setLoading(false);
+      setIsInitializing(false);
     }
   };
 
@@ -257,14 +327,29 @@ function DispatchContent() {
 
       const frentesRes = await ingenieriaService.getFrentesTrabajo(frentesParams);
 
-      console.log('✅ [DISPATCH] Frentes cargados:', frentesRes.data?.length || 0);
       setFrentes(frentesRes.data || []);
     } catch (error) {
       console.error('❌ Error cargando frentes:', error);
     }
   };
 
+  const loadResumenSemana = async () => {
+    try {
+      const params = {};
+      if (esUsuarioGlobal && selectedFaenas.length > 0) {
+        params.id_faena = selectedFaenas.join(',');
+      }
+      const res = await dispatchService.getResumenSemana(params);
+      setResumenSemana(res.data || []);
+      setResumenSemanaInfo(res.semana || null);
+    } catch (error) {
+      console.warn('⚠️ Error cargando resumen semanal:', error.message);
+    }
+  };
+
   const loadData = async () => {
+    // No cargar datos en el menú hub
+    if (vistaActual === 'menu') return;
     // Evitar cargas concurrentes
     if (loadingRef.current) {
       console.log('⏳ [DISPATCH] Carga en progreso, ignorando llamada duplicada');
@@ -276,20 +361,21 @@ function DispatchContent() {
 
     try {
       if (vistaActual === 'mezclas') {
-        console.log('🔄 [DISPATCH] Cargando datos de mezclas...');
+        // Filtrar por faena según rol
+        let idFaenaParam = undefined;
+        if (esUsuarioGlobal && selectedFaenas.length > 0) {
+          idFaenaParam = selectedFaenas.join(',');
+        } else if (!esUsuarioGlobal && faenaUsuario) {
+          idFaenaParam = faenaUsuario;
+        }
+
+        const mezclaParams = idFaenaParam ? { id_faena: idFaenaParam } : {};
 
         // Cargar datos para vista de mezclas
         const [disponibles, mezclasRes] = await Promise.all([
-          mezclasService.getDumpadasDisponibles(),
+          mezclasService.getDumpadasDisponibles(mezclaParams),
           mezclasService.getMezclas(),
         ]);
-
-        console.log("DATOS AQUI--------------------------------------------");
-        console.log('📦 [DISPATCH] Datos cargados:', {
-          dumpadasDisponibles: disponibles?.length || 0,
-          mezclas: mezclasRes?.data?.length || 0,
-          mezclasRes_completo: mezclasRes
-        });
 
         setDumpadasDisponibles(disponibles || []);
         // Laravel paginate devuelve {data: [], current_page: ..., total: ...}
@@ -308,13 +394,6 @@ function DispatchContent() {
           }
           // OPERADOR DISPATCH: No enviar nada, backend fuerza su faena
 
-          console.log('🔍 [DISPATCH] Preparando carga de dumpadas:', {
-            esUsuarioGlobal,
-            selectedFaenas,
-            idFaenaParam,
-            filters
-          });
-
           // Construir parámetros con filtros
           params = {
             page: currentPage,
@@ -331,21 +410,9 @@ function DispatchContent() {
           // Limpiar parámetros undefined
           Object.keys(params).forEach(key => params[key] === undefined && delete params[key]);
 
-          console.log('📤 [DISPATCH] Parámetros finales enviados:', params);
         }
 
         const dumpadasRes = await dispatchService.getDumpadas(params);
-
-        console.log('📥 [DISPATCH] Respuesta recibida:', {
-          total_en_backend: dumpadasRes.pagination?.total,
-          registros_recibidos: dumpadasRes.data?.length,
-          primeras_3_dumpadas: dumpadasRes.data?.slice(0, 3).map(d => ({
-            id: d.id,
-            numero_dumpada: d.numero_dumpada,
-            id_faena: d.id_faena,
-            faena_info: d.faena_info
-          }))
-        });
 
         setDumpadas(dumpadasRes.data || []);
 
@@ -398,6 +465,10 @@ function DispatchContent() {
         setPendientesTotalPages(response.pagination.last_page);
         setPendientesTotalRecords(response.pagination.total);
       }
+
+      // Cargar muestras libres pendientes en paralelo
+      const muestrasRes = await dispatchService.getMuestrasLibres();
+      setMuestrasLibresPendientes(muestrasRes.data || []);
     } catch (error) {
       console.error('❌ Error cargando pendientes:', error);
       toast.error('Error al cargar registros pendientes', error.message);
@@ -430,6 +501,9 @@ function DispatchContent() {
         id_frente_trabajo: '',
         jornada: '',
         ley_visual: '',
+        id_maquina: '',
+        nombre_maquina: '',
+        ton: '',
       }
     ]);
   };
@@ -441,6 +515,9 @@ function DispatchContent() {
       id_frente_trabajo: '',
       jornada: '',
       ley_visual: '',
+      id_maquina: '',
+      nombre_maquina: '',
+      ton: '',
     }]);
   };
 
@@ -466,6 +543,9 @@ function DispatchContent() {
         id_frente_trabajo: filaToDuplicate.id_frente_trabajo,
         jornada: filaToDuplicate.jornada,
         ley_visual: filaToDuplicate.ley_visual,
+        id_maquina: filaToDuplicate.id_maquina,
+        nombre_maquina: filaToDuplicate.nombre_maquina,
+        ton: filaToDuplicate.ton,
       };
       setFormsIngresoMasivo([...formsIngresoMasivo, newFila]);
       toast.success('Fila duplicada', 'Se ha agregado una nueva fila con los mismos datos');
@@ -498,6 +578,9 @@ function DispatchContent() {
         id_frente_trabajo: ingresoRapido.id_frente_trabajo,
         jornada: ingresoRapido.jornada,
         ley_visual: ingresoRapido.ley_visual,
+        id_maquina: '',
+        nombre_maquina: '',
+        ton: '',
       });
     }
 
@@ -557,7 +640,9 @@ function DispatchContent() {
         id_frente_trabajo: form.id_frente_trabajo,
         jornada: form.jornada,
         ley_visual: form.ley_visual,
-        ton: tonelajeDumpadaDefault
+        id_maquina: form.id_maquina ? parseInt(form.id_maquina) : null,
+        nombre_maquina: form.nombre_maquina || null,
+        ton: form.ton ? parseFloat(form.ton) : tonelajeDumpadaDefault,
       }));
 
       const bulkResponse = await dispatchService.createDumpadasBulk(dumpadasData);
@@ -1084,8 +1169,63 @@ function DispatchContent() {
     }
   };
 
+  // Crear muestra libre y enviar al laboratorio
+  const handleSubmitMuestraLibre = async (e) => {
+    e.preventDefault();
+    if (!muestraLibreForm.nombre.trim()) {
+      toast.warning('Atención', 'El nombre de la muestra es obligatorio');
+      return;
+    }
+    setSavingMuestraLibre(true);
+    try {
+      await dispatchService.createMuestraLibre({
+        nombre: muestraLibreForm.nombre.trim(),
+        solicitante: muestraLibreForm.solicitante.trim() || null,
+        id_frente_trabajo: muestraLibreForm.id_frente_trabajo || null,
+      });
+      toast.success('Muestra enviada al laboratorio', muestraLibreForm.nombre);
+      setShowMuestraLibreModal(false);
+      setMuestraLibreForm({ nombre: '', solicitante: '', id_frente_trabajo: '' });
+      await loadPendientes();
+    } catch (error) {
+      toast.error('Error al enviar muestra', error.response?.data?.message || error.message);
+    } finally {
+      setSavingMuestraLibre(false);
+    }
+  };
+
+  const handleDeleteMuestraLibre = async (id) => {
+    try {
+      await dispatchService.deleteMuestraLibre(id);
+      toast.success('Muestra eliminada');
+      await loadPendientes();
+    } catch (error) {
+      toast.error('Error al eliminar', error.response?.data?.message || error.message);
+    }
+  };
+
+  // Marcar dumpadas seleccionadas para muestreo de laboratorio (o quitar la marca)
+  const handleMarcarMuestreo = async (ids, valor) => {
+    if (ids.length === 0) return;
+    setLoading(true);
+    try {
+      const res = await dispatchService.marcarMuestreo(ids, valor);
+      toast.success(
+        valor === true ? 'Marcadas para Laboratorio' : 'Marca de Laboratorio quitada',
+        res.message || `${ids.length} dumpada(s) actualizadas`
+      );
+      clearSelection();
+      await loadPendientes();
+    } catch (error) {
+      console.error('❌ Error marcando muestreo:', error);
+      toast.error('Error al actualizar', error.response?.data?.message || error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleGoBack = () => {
-    window.location.href = 'http://localhost:5173';
+    window.location.href = import.meta.env.VITE_CENTRAL_URL;
   };
 
 
@@ -1141,13 +1281,13 @@ function DispatchContent() {
     return previousColor === colors[0] ? colors[1] : colors[0];
   };
 
-  if (loading && dumpadas.length === 0 && frentes.length === 0) {
+  if (isInitializing) {
     return (
       <div className="min-h-screen bg-gray-50">
         <Header />
         <div className="flex items-center justify-center h-96">
           <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-500 mx-auto mb-4"></div>
             <p className="text-gray-600">Cargando datos...</p>
           </div>
         </div>
@@ -1156,7 +1296,7 @@ function DispatchContent() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-blue-50">
+    <div className="min-h-screen bg-gray-100">
       <Header />
 
       <main className="max-w-7xl mx-auto px-4 py-6">
@@ -1166,21 +1306,37 @@ function DispatchContent() {
             items={[
               {
                 label: 'Dashboard Central',
-                href: 'http://localhost:5173',
-                onClick: (e) => {
-                  e.preventDefault();
-                  handleGoBack();
-                },
+                href: import.meta.env.VITE_CENTRAL_URL,
+                onClick: (e) => { e.preventDefault(); handleGoBack(); },
                 icon: HiHome
               },
-              {
-                label: 'Dispatch - Dumpadas'
-              }
+              ...(vistaActual !== 'menu'
+                ? [
+                    {
+                      label: 'Dispatch',
+                      href: '#',
+                      onClick: (e) => { e.preventDefault(); setVistaActual('menu'); }
+                    },
+                    {
+                      label:
+                        vistaActual === 'ingreso' ? 'Ingreso de Dumpadas' :
+                        vistaActual === 'envio_muestras' ? 'Envío de Muestras' :
+                        vistaActual === 'historial' ? 'Historial' :
+                        vistaActual === 'mezclas' ? 'Mezclas' :
+                        vistaActual === 'despachos' ? 'Despachos' :
+                        vistaActual === 'acopios' ? 'Acopios' :
+                        vistaActual === 'mapa' ? 'Mapa de Terreno' :
+                        vistaActual === 'configuracion' ? 'Configuración' : ''
+                    }
+                  ]
+                : [{ label: 'Dispatch' }]
+              )
             ]}
           />
         </div>
 
         {/* Selector Multi-Faena - Solo para encargado_dispatch */}
+        {/* TEMPORALMENTE OCULTO - descomentar para restaurar
         {esUsuarioGlobal && (
           <FaenaMultiSelector
             selectedFaenas={selectedFaenas}
@@ -1191,6 +1347,7 @@ function DispatchContent() {
             className="mb-6"
           />
         )}
+        */}
 
         {/* Modal de Confirmación de Eliminación */}
         <ConfirmModal
@@ -1239,159 +1396,348 @@ function DispatchContent() {
           steps={progressInfo.steps}
         />
 
-        {/* Header con Switch de Vista */}
-        <div className="bg-white rounded-xl shadow-md p-6 mb-6 border-l-4 border-blue-500">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-blue-500 bg-clip-text text-transparent">
-                Gestión de Dumpadas
+        {/* Modal Muestra Libre */}
+        {showMuestraLibreModal && (
+          <div className="fixed inset-0 backdrop-blur-sm bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
+              <div className="flex items-center justify-between p-5 border-b">
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900">Nueva Muestra</h3>
+                  <p className="text-sm text-gray-500 mt-0.5">Se enviará directamente al laboratorio</p>
+                </div>
+                <button onClick={() => setShowMuestraLibreModal(false)} className="text-gray-400 hover:text-gray-600">
+                  <HiXCircle className="w-6 h-6" />
+                </button>
+              </div>
+              <form onSubmit={handleSubmitMuestraLibre} className="p-5 space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">
+                    Nombre / Descripción <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={muestraLibreForm.nombre}
+                    onChange={(e) => setMuestraLibreForm(prev => ({ ...prev, nombre: e.target.value }))}
+                    placeholder="Ej: Muestra geología, Muestra Operaciones, etc."
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    required
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">
+                    Solicitante / Área
+                  </label>
+                  <input
+                    type="text"
+                    value={muestraLibreForm.solicitante}
+                    onChange={(e) => setMuestraLibreForm(prev => ({ ...prev, solicitante: e.target.value }))}
+                    placeholder="Ej: Geología, Operaciones, Gerencia..."
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">
+                    Frente de Trabajo <span className="text-gray-400 font-normal text-xs">(opcional)</span>
+                  </label>
+                  <SearchableSelect
+                    value={muestraLibreForm.id_frente_trabajo}
+                    onChange={(val) => setMuestraLibreForm(prev => ({ ...prev, id_frente_trabajo: val }))}
+                    options={frentes.map(f => ({ value: f.id, label: f.codigo_completo }))}
+                    placeholder="Sin frente específico"
+                    emptyMessage="No hay frentes disponibles"
+                  />
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="submit"
+                    disabled={savingMuestraLibre}
+                    className="flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    {savingMuestraLibre ? 'Enviando...' : 'Enviar al Laboratorio'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowMuestraLibreModal(false)}
+                    className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Hub de Dispatch */}
+        {vistaActual === 'menu' && (
+          <div className="space-y-6 mb-6">
+
+            {/* Banner operacional */}
+            <div className="bg-white rounded-2xl px-8 py-6 border border-gray-200 shadow-sm border-l-4 border-l-orange-500">
+              <p className="text-orange-500 text-xs font-bold uppercase tracking-widest mb-1">Módulo Dispatch</p>
+              <h2 className="text-2xl font-bold text-gray-900">
+                {faenaNombreDisplay || 'Cargando faena...'}
               </h2>
-              <p className="text-gray-600 mt-1">
-                {vistaActual === 'ingreso' ? 'Modo: Ingreso de nuevas dumpadas' : `Modo: Historial (${totalRecords} registros)`}
+              <p className="text-gray-400 text-sm mt-1 capitalize">
+                {new Date().toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
               </p>
             </div>
-            <div className="flex gap-3 items-center">
-              <Button
-                variant="secondary"
-                onClick={() => setShowInfo(!showInfo)}
-                icon={HiInformationCircle}
-              >
-                {showInfo ? 'Ocultar' : 'Ayuda'}
-              </Button>
-            </div>
-          </div>
 
-          {/* Tabs Mejorados */}
-          <div className="mt-6 border-b-2 border-gray-200">
-            <div className="flex gap-1 -mb-0.5">
+            {/* Grid de módulos */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+
               <button
-                onClick={() => {
-                  setVistaActual('ingreso');
-                }}
-                className={`relative flex items-center gap-2 px-6 py-3 font-semibold transition-all rounded-t-lg ${vistaActual === 'ingreso'
-                  ? 'bg-blue-600 text-white shadow-lg transform translate-y-0.5'
-                  : 'bg-gray-50 text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-                  }`}
+                onClick={() => setVistaActual('ingreso')}
+                className="group flex items-center gap-4 p-4 bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-orange-300 transition-all duration-200 text-left"
               >
-                <HiDocumentPlus className="w-5 h-5" />
-                <span>Ingreso de Dumpadas</span>
-                {vistaActual === 'ingreso' && (
-                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-white"></span>
-                )}
+                <div className="w-10 h-10 bg-orange-50 rounded-lg flex items-center justify-center flex-shrink-0 group-hover:bg-orange-500 transition-colors duration-200">
+                  <HiDocumentPlus className="w-5 h-5 text-orange-500 group-hover:text-white transition-colors duration-200" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-gray-800 text-sm">Ingreso de Dumpadas</p>
+                  <p className="text-xs text-gray-400 mt-0.5">Registro de nuevas dumpadas</p>
+                </div>
+                <HiChevronRight className="w-4 h-4 text-gray-300 group-hover:text-orange-500 flex-shrink-0 transition-colors" />
               </button>
+
               <button
-                onClick={() => {
-                  setVistaActual('historial');
-                  setCurrentPage(1);
-                }}
-                className={`relative flex items-center gap-2 px-6 py-3 font-semibold transition-all rounded-t-lg ${vistaActual === 'historial'
-                  ? 'bg-blue-600 text-white shadow-lg transform translate-y-0.5'
-                  : 'bg-gray-50 text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-                  }`}
+                onClick={() => setVistaActual('envio_muestras')}
+                className="group flex items-center gap-4 p-4 bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-orange-300 transition-all duration-200 text-left"
               >
-                <HiEye className="w-5 h-5" />
-                <span>Historial</span>
-                {totalRecords > 0 && (
-                  <span className={`px-2 py-0.5 text-xs font-bold rounded-full ${vistaActual === 'historial'
-                    ? 'bg-white text-blue-600'
-                    : 'bg-blue-100 text-blue-700'
-                    }`}>
-                    {totalRecords}
-                  </span>
-                )}
-                {vistaActual === 'historial' && (
-                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-white"></span>
-                )}
+                <div className="w-10 h-10 bg-orange-50 rounded-lg flex items-center justify-center flex-shrink-0 group-hover:bg-orange-500 transition-colors duration-200">
+                  <HiClipboardDocumentList className="w-5 h-5 text-orange-500 group-hover:text-white transition-colors duration-200" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-gray-800 text-sm">Envío de Muestras</p>
+                  <p className="text-xs text-gray-400 mt-0.5">Pendientes y muestras libres</p>
+                </div>
+                <HiChevronRight className="w-4 h-4 text-gray-300 group-hover:text-orange-500 flex-shrink-0 transition-colors" />
               </button>
-              {/* Tab de Acopios - Solo visible si el sistema de acopios está activado */}
-              {usarSistemaAcopios && (
+
+              {!esDigitador && (
                 <button
-                  onClick={() => {
-                    setVistaActual('acopios');
-                  }}
-                  className={`relative flex items-center gap-2 px-6 py-3 font-semibold transition-all rounded-t-lg ${vistaActual === 'acopios'
-                    ? 'bg-indigo-600 text-white shadow-lg transform translate-y-0.5'
-                    : 'bg-gray-50 text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-                    }`}
+                  onClick={() => { setVistaActual('historial'); setCurrentPage(1); }}
+                  className="group flex items-center gap-4 p-4 bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-orange-300 transition-all duration-200 text-left"
                 >
-                  <HiCube className="w-5 h-5" />
-                  <span>Acopios</span>
-                  {vistaActual === 'acopios' && (
-                    <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-white"></span>
-                  )}
+                  <div className="w-10 h-10 bg-orange-50 rounded-lg flex items-center justify-center flex-shrink-0 group-hover:bg-orange-500 transition-colors duration-200">
+                    <HiEye className="w-5 h-5 text-orange-500 group-hover:text-white transition-colors duration-200" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-gray-800 text-sm">Historial</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Registros y auditoría</p>
+                  </div>
+                  <HiChevronRight className="w-4 h-4 text-gray-300 group-hover:text-orange-500 flex-shrink-0 transition-colors" />
                 </button>
               )}
-              <button
-                onClick={() => {
-                  setVistaActual('mezclas');
-                }}
-                className={`relative flex items-center gap-2 px-6 py-3 font-semibold transition-all rounded-t-lg ${vistaActual === 'mezclas'
-                  ? 'bg-purple-600 text-white shadow-lg transform translate-y-0.5'
-                  : 'bg-gray-50 text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-                  }`}
-              >
-                <HiBeaker className="w-5 h-5" />
-                <span>Mezclas</span>
-                {mezclas.length > 0 && (
-                  <span className={`px-2 py-0.5 text-xs font-bold rounded-full ${vistaActual === 'mezclas'
-                    ? 'bg-white text-purple-600'
-                    : 'bg-purple-100 text-purple-700'
-                    }`}>
-                    {mezclas.length}
-                  </span>
+
+              {!esDigitador && (
+                <button
+                  onClick={() => setVistaActual('mezclas')}
+                  className="group flex items-center gap-4 p-4 bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-orange-300 transition-all duration-200 text-left"
+                >
+                  <div className="w-10 h-10 bg-orange-50 rounded-lg flex items-center justify-center flex-shrink-0 group-hover:bg-orange-500 transition-colors duration-200">
+                    <HiBeaker className="w-5 h-5 text-orange-500 group-hover:text-white transition-colors duration-200" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-gray-800 text-sm">Mezclas</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Composición y análisis</p>
+                  </div>
+                  <HiChevronRight className="w-4 h-4 text-gray-300 group-hover:text-orange-500 flex-shrink-0 transition-colors" />
+                </button>
+              )}
+
+              {!esDigitador && (
+                <button
+                  onClick={() => setVistaActual('despachos')}
+                  className="group flex items-center gap-4 p-4 bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-orange-300 transition-all duration-200 text-left"
+                >
+                  <div className="w-10 h-10 bg-orange-50 rounded-lg flex items-center justify-center flex-shrink-0 group-hover:bg-orange-500 transition-colors duration-200">
+                    <HiTruck className="w-5 h-5 text-orange-500 group-hover:text-white transition-colors duration-200" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-gray-800 text-sm">Despachos</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Control de despachos</p>
+                  </div>
+                  <HiChevronRight className="w-4 h-4 text-gray-300 group-hover:text-orange-500 flex-shrink-0 transition-colors" />
+                </button>
+              )}
+
+              {usarSistemaAcopios && !esDigitador && (
+                <button
+                  onClick={() => setVistaActual('acopios')}
+                  className="group flex items-center gap-4 p-4 bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-orange-300 transition-all duration-200 text-left"
+                >
+                  <div className="w-10 h-10 bg-orange-50 rounded-lg flex items-center justify-center flex-shrink-0 group-hover:bg-orange-500 transition-colors duration-200">
+                    <HiCube className="w-5 h-5 text-orange-500 group-hover:text-white transition-colors duration-200" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-gray-800 text-sm">Acopios</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Gestión de acopios</p>
+                  </div>
+                  <HiChevronRight className="w-4 h-4 text-gray-300 group-hover:text-orange-500 flex-shrink-0 transition-colors" />
+                </button>
+              )}
+
+              {esAdmin && (
+                <button
+                  onClick={() => setVistaActual('mapa')}
+                  className="group flex items-center gap-4 p-4 bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-orange-300 transition-all duration-200 text-left"
+                >
+                  <div className="w-10 h-10 bg-orange-50 rounded-lg flex items-center justify-center flex-shrink-0 group-hover:bg-orange-500 transition-colors duration-200">
+                    <HiMap className="w-5 h-5 text-orange-500 group-hover:text-white transition-colors duration-200" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-gray-800 text-sm">Mapa de Terreno</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Visualización del terreno</p>
+                  </div>
+                  <HiChevronRight className="w-4 h-4 text-gray-300 group-hover:text-orange-500 flex-shrink-0 transition-colors" />
+                </button>
+              )}
+
+              {esAdmin && (
+                <button
+                  onClick={() => setVistaActual('configuracion')}
+                  className="group flex items-center gap-4 p-4 bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-orange-300 transition-all duration-200 text-left"
+                >
+                  <div className="w-10 h-10 bg-orange-50 rounded-lg flex items-center justify-center flex-shrink-0 group-hover:bg-orange-500 transition-colors duration-200">
+                    <HiCog6Tooth className="w-5 h-5 text-orange-500 group-hover:text-white transition-colors duration-200" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-gray-800 text-sm">Configuración</p>
+                    <p className="text-xs text-gray-400 mt-0.5">Ajustes del sistema</p>
+                  </div>
+                  <HiChevronRight className="w-4 h-4 text-gray-300 group-hover:text-orange-500 flex-shrink-0 transition-colors" />
+                </button>
+              )}
+
+            </div>
+
+            {/* KPIs semanales por frente de trabajo */}
+            {!esDigitador && (
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <div>
+                    <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide">Resumen Semanal por Frente</h3>
+                    {resumenSemanaInfo && (
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        {new Date(resumenSemanaInfo.inicio + 'T12:00:00').toLocaleDateString('es-CL', { day: 'numeric', month: 'short' })}
+                        {' — '}
+                        {new Date(resumenSemanaInfo.fin + 'T12:00:00').toLocaleDateString('es-CL', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {resumenSemana.length === 0 ? (
+                  <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
+                    <p className="text-gray-400 text-sm">Sin registros esta semana</p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {resumenSemana.map((frente) => (
+                      <div key={frente.id_frente_trabajo} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                        {/* Header del frente */}
+                        <div className="bg-gray-900 px-4 py-3 flex items-center justify-between">
+                          <p className="text-white font-bold text-sm truncate">{frente.frente}</p>
+                          <div className="flex items-center gap-3 flex-shrink-0 ml-3">
+                            <div className="text-right">
+                              <p className="text-white font-bold text-lg leading-none">{frente.total_dumpadas}</p>
+                              <p className="text-gray-400 text-xs">dumpadas</p>
+                            </div>
+                            <div className="w-px h-8 bg-gray-700" />
+                            <div className="text-right">
+                              <p className="text-orange-400 font-bold text-lg leading-none">{frente.ton_total.toLocaleString('es-CL')}</p>
+                              <p className="text-gray-400 text-xs">ton</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Filas por jornada */}
+                        <div className="divide-y divide-gray-100">
+                          {frente.jornadas.map((j) => (
+                            <div key={j.jornada} className="px-4 py-2.5 flex items-center gap-3">
+                              {/* Badge jornada */}
+                              <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-bold flex-shrink-0 ${
+                                j.jornada === 'AM'        ? 'bg-yellow-100 text-yellow-700' :
+                                j.jornada === 'PM'        ? 'bg-blue-100 text-blue-700' :
+                                j.jornada === 'Noche'     ? 'bg-indigo-100 text-indigo-700' :
+                                                            'bg-purple-100 text-purple-700'
+                              }`}>{j.jornada}</span>
+
+                              {/* Stats */}
+                              <div className="flex items-center gap-3 flex-1 min-w-0">
+                                <span className="text-xs text-gray-600 font-medium">{j.total_dumpadas} dump</span>
+                                <span className="text-gray-300 text-xs">·</span>
+                                <span className="text-xs text-gray-600">{j.ton_total.toLocaleString('es-CL')} t</span>
+                                {j.ley_promedio !== null && (
+                                  <>
+                                    <span className="text-gray-300 text-xs">·</span>
+                                    <span className="text-xs font-semibold text-orange-600">Ley {j.ley_promedio}%</span>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+
+                          {/* Máquinas usadas */}
+                          {frente.jornadas.some(j => j.maquinas.length > 0) && (
+                            <div className="px-4 py-2 flex items-center gap-2 bg-gray-50">
+                              <HiTruck className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+                              <p className="text-xs text-gray-500 truncate">
+                                {[...new Set(frente.jornadas.flatMap(j => j.maquinas))].join(', ') || '—'}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 )}
-                {vistaActual === 'mezclas' && (
-                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-white"></span>
-                )}
-              </button>
-              <button
-                onClick={() => {
-                  setVistaActual('mapa');
-                }}
-                className={`relative flex items-center gap-2 px-6 py-3 font-semibold transition-all rounded-t-lg ${vistaActual === 'mapa'
-                  ? 'bg-green-600 text-white shadow-lg transform translate-y-0.5'
-                  : 'bg-gray-50 text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-                  }`}
-              >
-                <HiMap className="w-5 h-5" />
-                <span>Mapa de Terreno</span>
-                {vistaActual === 'mapa' && (
-                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-white"></span>
-                )}
-              </button>
-              <button
-                onClick={() => {
-                  setVistaActual('despachos');
-                }}
-                className={`relative flex items-center gap-2 px-6 py-3 font-semibold transition-all rounded-t-lg ${vistaActual === 'despachos'
-                  ? 'bg-orange-600 text-white shadow-lg transform translate-y-0.5'
-                  : 'bg-gray-50 text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-                  }`}
-              >
-                <HiTruck className="w-5 h-5" />
-                <span>Despachos</span>
-                {vistaActual === 'despachos' && (
-                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-white"></span>
-                )}
-              </button>
-              <button
-                onClick={() => {
-                  setVistaActual('configuracion');
-                }}
-                className={`relative flex items-center gap-2 px-6 py-3 font-semibold transition-all rounded-t-lg ${vistaActual === 'configuracion'
-                  ? 'bg-gray-600 text-white shadow-lg transform translate-y-0.5'
-                  : 'bg-gray-50 text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-                  }`}
-              >
-                <HiCog6Tooth className="w-5 h-5" />
-                <span>Configuracion</span>
-                {vistaActual === 'configuracion' && (
-                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-white"></span>
-                )}
-              </button>
+              </div>
+            )}
+
+          </div>
+        )}
+
+        {/* Header de sección activa */}
+        {vistaActual !== 'menu' && (
+          <div className="bg-white rounded-xl shadow-sm p-5 mb-6 border-l-4 border-orange-500">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-2xl font-bold text-gray-900">
+                  {vistaActual === 'ingreso' && 'Ingreso de Dumpadas'}
+                  {vistaActual === 'envio_muestras' && 'Envío de Muestras'}
+                  {vistaActual === 'historial' && 'Historial'}
+                  {vistaActual === 'mezclas' && 'Mezclas'}
+                  {vistaActual === 'despachos' && 'Despachos'}
+                  {vistaActual === 'acopios' && 'Acopios'}
+                  {vistaActual === 'mapa' && 'Mapa de Terreno'}
+                  {vistaActual === 'configuracion' && 'Configuración'}
+                </h2>
+                <p className="text-gray-500 text-sm mt-0.5">
+                  {vistaActual === 'ingreso' && 'Registro de nuevas dumpadas'}
+                  {vistaActual === 'envio_muestras' && 'Pendientes de laboratorio y muestras libres'}
+                  {vistaActual === 'historial' && `${totalRecords} registros`}
+                  {vistaActual === 'mezclas' && `${mezclas.length} mezclas activas`}
+                  {vistaActual === 'despachos' && 'Control de despachos'}
+                  {vistaActual === 'acopios' && 'Gestión de acopios'}
+                  {vistaActual === 'mapa' && 'Visualización del terreno'}
+                  {vistaActual === 'configuracion' && 'Ajustes del sistema'}
+                </p>
+              </div>
+              {vistaActual === 'ingreso' && (
+                <Button
+                  variant="secondary"
+                  onClick={() => setShowInfo(!showInfo)}
+                  icon={HiInformationCircle}
+                >
+                  {showInfo ? 'Ocultar' : 'Ayuda'}
+                </Button>
+              )}
             </div>
           </div>
-        </div>
+        )}
 
         {/* Panel de Información */}
         {showInfo && (
@@ -1458,11 +1804,10 @@ function DispatchContent() {
             <Card className="mb-6 border-l-4 border-green-500 bg-gradient-to-br from-green-50 to-white">
               <div className="mb-4">
                 <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
-                  <span className="text-2xl">⚡</span>
-                  Ingreso Rápido por Lotes
+                  Ingreso Masivo de Muestras
                 </h3>
                 <p className="text-sm text-gray-600 mt-1">
-                  Cree múltiples dumpadas de la misma frente y jornada en un solo paso
+                  Cree múltiples muestras de la misma frente y jornada en un solo paso
                 </p>
               </div>
 
@@ -1550,7 +1895,7 @@ function DispatchContent() {
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <h3 className="text-xl font-bold text-gray-900">
-                    📝 Ingreso Masivo de Dumpadas
+                    Ingreso Muestras
                   </h3>
                   <p className="text-sm text-gray-600 mt-1">
                     Registre múltiples dumpadas a la vez • Agregue o elimine filas según necesite
@@ -1566,6 +1911,14 @@ function DispatchContent() {
                   >
                     Agregar Fila
                   </Button>
+                  <button
+                    type="button"
+                    onClick={() => setShowMuestraLibreModal(true)}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold rounded-lg transition-colors shadow-sm"
+                  >
+                    <HiBeaker className="w-4 h-4" />
+                    + Añadir Muestra
+                  </button>
                 </div>
               </div>
 
@@ -1578,7 +1931,7 @@ function DispatchContent() {
                           <span className="font-bold text-white">{index + 1}</span>
                         </div>
 
-                        <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="flex-1 grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4">
                           <SearchableSelect
                             label="Frente de Trabajo *"
                             options={frentes.map(frente => ({
@@ -1619,6 +1972,47 @@ function DispatchContent() {
                             onChange={(e) => actualizarFilaIngreso(form.id, 'ley_visual', e.target.value)}
                             placeholder="Ej: 2.300"
                             required
+                          />
+
+                          <div>
+                            <label className="block text-sm font-semibold text-gray-700 mb-2">
+                              Máquina/Dumper
+                            </label>
+                            <select
+                              value={form.id_maquina}
+                              onChange={(e) => {
+                                const selectedId = e.target.value;
+                                const maquina = maquinas.find(m => String(m.id_maquina) === selectedId);
+                                setFormsIngresoMasivo(prev => prev.map(f =>
+                                  f.id === form.id
+                                    ? {
+                                        ...f,
+                                        id_maquina: selectedId,
+                                        nombre_maquina: maquina?.nombre_maquina || '',
+                                        ton: maquina ? String(maquina.tonelaje) : f.ton,
+                                      }
+                                    : f
+                                ));
+                              }}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white text-sm"
+                            >
+                              <option value="">Sin máquina</option>
+                              {maquinas.map((m) => (
+                                <option key={m.id_maquina} value={m.id_maquina}>
+                                  {m.nombre_maquina}{m.patente ? ` (${m.patente})` : ''}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <Input
+                            label={`Tonelaje (ton)`}
+                            type="number"
+                            step="0.01"
+                            min="0"
+                            value={form.ton}
+                            onChange={(e) => actualizarFilaIngreso(form.id, 'ton', e.target.value)}
+                            placeholder={`${tonelajeDumpadaDefault} (default)`}
                           />
                         </div>
 
@@ -1710,7 +2104,23 @@ function DispatchContent() {
                         </span>
                       </div>
 
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 flex-wrap">
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          onClick={() => handleMarcarMuestreo(selectedIds, true)}
+                          disabled={loading}
+                        >
+                          Enviar al Laboratorio
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => handleMarcarMuestreo(selectedIds, null)}
+                          disabled={loading}
+                        >
+                          Quitar del Laboratorio
+                        </Button>
                         <Button
                           variant="danger"
                           size="sm"
@@ -1791,6 +2201,7 @@ function DispatchContent() {
                         <th className="text-left py-2 px-2 font-bold text-yellow-900 text-xs whitespace-nowrap">N° Dump</th>
                         <th className="text-left py-2 px-2 font-bold text-yellow-900 text-xs">Jornada</th>
                         <th className="text-left py-2 px-2 font-bold text-yellow-900 text-xs">Fecha</th>
+                        <th className="text-left py-2 px-2 font-bold text-yellow-900 text-xs">Máquina</th>
                         <th className="text-left py-2 px-2 font-bold text-yellow-900 text-xs">Ton</th>
                         <th className="text-left py-2 px-2 font-bold text-yellow-900 text-xs">Ley</th>
                         <th className="text-left py-2 px-2 font-bold text-yellow-900 text-xs whitespace-nowrap">Ley Cup</th>
@@ -1798,6 +2209,7 @@ function DispatchContent() {
                         <th className="text-left py-2 px-2 font-bold text-yellow-900 text-xs whitespace-nowrap">Ley Visual</th>
                         <th className="text-left py-2 px-2 font-bold text-yellow-900 text-xs">Rango</th>
                         <th className="text-left py-2 px-2 font-bold text-yellow-900 text-xs">Estado</th>
+                        <th className="text-left py-2 px-2 font-bold text-yellow-900 text-xs">Muestreo</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1815,9 +2227,10 @@ function DispatchContent() {
                           <tr
                             key={dumpada.id}
                             style={{ backgroundColor }}
-                            className={`border-b border-gray-200 hover:bg-blue-50 transition-colors duration-150 ${selectedIds.includes(dumpada.id) ? 'bg-blue-100' : ''}`}
+                            className={`border-b border-gray-200 hover:bg-blue-50 transition-colors duration-150 cursor-pointer ${selectedIds.includes(dumpada.id) ? 'bg-blue-100' : ''}`}
+                            onClick={() => handleSelectOne(dumpada.id)}
                           >
-                            <td className="py-2 px-2 text-center">
+                            <td className="py-2 px-2 text-center" onClick={e => e.stopPropagation()}>
                               <input
                                 type="checkbox"
                                 checked={selectedIds.includes(dumpada.id)}
@@ -1849,6 +2262,13 @@ function DispatchContent() {
                                   </span>
                                 )}
                               </div>
+                            </td>
+                            <td className="py-2 px-2 text-xs text-gray-700">
+                              {dumpada.nombre_maquina ? (
+                                <span className="bg-indigo-100 text-indigo-800 px-1.5 py-0.5 rounded text-[10px] font-medium whitespace-nowrap">
+                                  {dumpada.nombre_maquina}
+                                </span>
+                              ) : '—'}
                             </td>
                             <td className="py-2 px-2 text-xs text-gray-700 font-semibold">
                               {dumpada.ton ? `${parseFloat(dumpada.ton).toFixed(2)}` : '-'}
@@ -1889,6 +2309,21 @@ function DispatchContent() {
                                 {dumpada.estado}
                               </span>
                             </td>
+                            <td className="py-2 px-2">
+                              {dumpada.ley != null ? (
+                                <span className="bg-green-500 text-white px-2 py-0.5 rounded-full text-xs font-bold whitespace-nowrap">
+                                  Con Ley
+                                </span>
+                              ) : dumpada.para_muestreo ? (
+                                <span className="bg-blue-500 text-white px-2 py-0.5 rounded-full text-xs font-bold whitespace-nowrap">
+                                  En Lab
+                                </span>
+                              ) : (
+                                <span className="bg-gray-400 text-white px-2 py-0.5 rounded-full text-xs font-bold whitespace-nowrap">
+                                  Sin Muestra
+                                </span>
+                              )}
+                            </td>
                           </tr>
                         );
                       })}
@@ -1906,6 +2341,68 @@ function DispatchContent() {
                   perPage={pendientesPerPage}
                   onPageChange={handlePendientesPageChange}
                 />
+              )}
+
+              {/* Muestras Libres Pendientes */}
+              {muestrasLibresPendientes.length > 0 && (
+                <div className="mt-6">
+                  <div className="flex items-center gap-2 mb-3">
+                    <h4 className="font-bold text-gray-800">
+                      Muestras 
+             
+                      <span className="ml-2 bg-purple-100 text-purple-700 text-xs font-bold px-2 py-0.5 rounded-full">
+                        {muestrasLibresPendientes.length}
+                      </span>
+                    </h4>
+                  </div>
+                  <div className="overflow-x-auto">
+
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b-2 border-purple-200 bg-gradient-to-r from-purple-50 to-purple-100">
+                          <th className="text-left py-2 px-3 font-bold text-purple-900 text-xs">Nombre / Descripción</th>
+                          <th className="text-left py-2 px-3 font-bold text-purple-900 text-xs">Solicitante</th>
+                          <th className="text-left py-2 px-3 font-bold text-purple-900 text-xs">Frente</th>
+                          <th className="text-left py-2 px-3 font-bold text-purple-900 text-xs">Fecha</th>
+                          <th className="text-left py-2 px-3 font-bold text-purple-900 text-xs">Estado</th>
+                          <th className="text-center py-2 px-3 font-bold text-purple-900 text-xs">Acción</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {muestrasLibresPendientes.map(m => (
+                          <tr key={m.id} className="border-b border-purple-100 hover:bg-purple-50 bg-purple-25">
+                            <td className="py-2 px-3">
+                              <span className="font-semibold text-purple-900 text-xs">{m.nombre}</span>
+                            </td>
+                            <td className="py-2 px-3 text-xs text-gray-600">
+                              {m.solicitante || '—'}
+                            </td>
+                            <td className="py-2 px-3 text-xs text-gray-600">
+                              {m.frente_trabajo?.codigo_completo || '—'}
+                            </td>
+                            <td className="py-2 px-3 text-xs text-gray-600">
+                              {formatearFecha(m.fecha)}
+                            </td>
+                            <td className="py-2 px-3">
+                              <span className="bg-purple-500 text-white px-2 py-0.5 rounded-full text-xs font-bold">
+                                En Lab
+                              </span>
+                            </td>
+                            <td className="py-2 px-3 text-center">
+                              <button
+                                onClick={() => handleDeleteMuestraLibre(m.id)}
+                                className="text-red-500 hover:text-red-700 transition-colors"
+                                title="Eliminar muestra"
+                              >
+                                <HiTrash className="w-4 h-4" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               )}
             </Card>
           </>
@@ -2075,11 +2572,8 @@ function DispatchContent() {
                     </thead>
                     <tbody>
                       {[...dumpadas].sort((a, b) => {
-                        // Ordenar por fecha desc, luego frente, jornada, y numero_jornada asc
-                        if (a.fecha !== b.fecha) return a.fecha < b.fecha ? 1 : -1;
-                        if (a.id_frente_trabajo !== b.id_frente_trabajo) return a.id_frente_trabajo - b.id_frente_trabajo;
-                        if (a.jornada !== b.jornada) return a.jornada.localeCompare(b.jornada);
-                        return (a.numero_jornada || 0) - (b.numero_jornada || 0);
+                        // Ordenar por ID descendente (últimos registros arriba)
+                        return b.id - a.id;
                       }).map((dumpada, index, sortedArray) => {
                         // Obtener el color según grupo (frente + jornada + fecha)
                         const backgroundColor = getBackgroundColorByGroup(sortedArray, index);
@@ -2254,8 +2748,8 @@ function DispatchContent() {
           />
         )}
 
-        {/* Vista de Mapa de Terreno */}
-        {vistaActual === 'mapa' && (
+        {/* Vista de Mapa de Terreno - Solo admin */}
+        {vistaActual === 'mapa' && esAdmin && (
           <MapaTerrenoMejorado
             toast={toast}
           />
@@ -2266,8 +2760,8 @@ function DispatchContent() {
           <DespachosView />
         )}
 
-        {/* Vista de Configuracion */}
-        {vistaActual === 'configuracion' && (
+        {/* Vista de Configuración - Solo admin */}
+        {vistaActual === 'configuracion' && esAdmin && (
           <ConfiguracionView />
         )}
       </main>
