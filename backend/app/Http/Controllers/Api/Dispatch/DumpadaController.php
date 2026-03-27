@@ -148,17 +148,17 @@ class DumpadaController extends Controller
     }
 
     /**
-     * Resumen semanal agrupado por frente de trabajo y jornada
+     * Resumen mensual agrupado por frente de trabajo y jornada
      */
     public function resumenSemana(Request $request)
     {
-        $idFaena = $request->get('id_faena');
-        $inicioSemana = Carbon::now()->startOfWeek(Carbon::MONDAY)->format('Y-m-d');
-        $finSemana    = Carbon::now()->endOfWeek(Carbon::SUNDAY)->format('Y-m-d');
+        $idFaena  = $request->get('id_faena');
+        $inicioMes = Carbon::now()->startOfMonth()->format('Y-m-d');
+        $finMes    = Carbon::now()->endOfMonth()->format('Y-m-d');
 
         $query = Dumpada::with('frenteTrabajo')
-            ->whereDate('fecha', '>=', $inicioSemana)
-            ->whereDate('fecha', '<=', $finSemana);
+            ->whereDate('fecha', '>=', $inicioMes)
+            ->whereDate('fecha', '<=', $finMes);
 
         if (!$this->esUsuarioGlobal($request)) {
             $query->where('id_faena', $request->auth_faena);
@@ -209,7 +209,7 @@ class DumpadaController extends Controller
         return response()->json([
             'success' => true,
             'data'    => $resultado,
-            'semana'  => ['inicio' => $inicioSemana, 'fin' => $finSemana],
+            'semana'  => ['inicio' => $inicioMes, 'fin' => $finMes],
         ]);
     }
 
@@ -259,7 +259,7 @@ class DumpadaController extends Controller
 
         // Generar código de acopio (código completo de la dumpada)
         $fechaFormateada = Carbon::parse($fecha)->format('d.m.Y');
-        $acopios = trim("{$frente->codigo_completo} {$fechaFormateada} {$request->jornada} {$numeroJornada}");
+        $acopios = trim("{$frente->codigo_completo} {$request->jornada} {$numeroJornada} {$numeroDumpada} {$fechaFormateada}");
 
         // Determinar el rango automáticamente basado en la ley
         $rango = $request->ley ? Dumpada::determinarRango($request->ley) : null;
@@ -377,7 +377,7 @@ class DumpadaController extends Controller
 
                 // Generar código de acopio (código completo de la dumpada)
                 $fechaFormateada = Carbon::parse($fecha)->format('d.m.Y');
-                $acopios = trim("{$frente->codigo_completo} {$fechaFormateada} {$dumpadaData['jornada']} {$numeroJornada}");
+                $acopios = trim("{$frente->codigo_completo} {$dumpadaData['jornada']} {$numeroJornada} {$numeroDumpada} {$fechaFormateada}");
 
                 // Determinar el rango automáticamente basado en la ley
                 $rango = isset($dumpadaData['ley'])
@@ -690,9 +690,9 @@ class DumpadaController extends Controller
         );
 
         // Generar código completo de la dumpada
-        // Formato: "{codigo_frente} {fecha} {jornada} {numero_jornada}"
+        // Formato: "{codigo_frente} {jornada} {numero_jornada} {numero_dumpada} {fecha}"
         $fechaFormateada = Carbon::parse($fecha)->format('d.m.Y');
-        $codigoCompleto = trim("{$frente->codigo_completo} {$fechaFormateada} {$request->jornada} {$numeroJornada}");
+        $codigoCompleto = trim("{$frente->codigo_completo} {$request->jornada} {$numeroJornada} {$numeroDumpada} {$fechaFormateada}");
 
         return response()->json([
             'success' => true,
