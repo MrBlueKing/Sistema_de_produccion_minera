@@ -125,6 +125,8 @@ class MezclaService
             $codigo = $datos['codigo'] ?? Mezcla::generarCodigo($plantaId);
 
             // 4. Crear la mezcla
+            $leyBase = $datos['ley_base'] ?? 'auto';
+
             $mezcla = Mezcla::create([
                 'codigo' => $codigo,
                 'fecha' => $datos['fecha'] ?? now(),
@@ -135,6 +137,7 @@ class MezclaService
                 'user_id' => $datos['user_id'] ?? null,
                 'observaciones' => $datos['observaciones'] ?? null,
                 'estado' => Mezcla::ESTADO_CONFIRMADO,
+                'ley_base' => $leyBase,
             ]);
 
             // 5. Agregar dumpadas desde ACOPIOS
@@ -143,7 +146,7 @@ class MezclaService
                 $dumpadasDelAcopio = $acopio->dumpadas;
 
                 foreach ($dumpadasDelAcopio as $dumpada) {
-                    MezclaDumpada::desdeDumpada($dumpada, $mezcla->id);
+                    MezclaDumpada::desdeDumpada($dumpada, $mezcla->id, null, $leyBase);
                 }
 
                 // Marcar el acopio como EN_MEZCLA
@@ -153,7 +156,7 @@ class MezclaService
             // 6. Agregar dumpadas individuales si existen (con soporte de paladas parciales)
             foreach ($dumpadas as $dumpada) {
                 $numeroPaladas = $dumpadasPaladasMap[$dumpada->id] ?? null;
-                MezclaDumpada::desdeDumpada($dumpada, $mezcla->id, $numeroPaladas);
+                MezclaDumpada::desdeDumpada($dumpada, $mezcla->id, $numeroPaladas, $leyBase);
             }
 
             // 7. Agregar remanentes de mezclas existentes si existen
@@ -348,7 +351,7 @@ class MezclaService
                         throw new Exception("La dumpada #{$dumpada->numero_dumpada} solo tiene {$paladasDisponibles} paladas disponibles, se solicitaron {$numeroPaladas}");
                     }
 
-                    MezclaDumpada::desdeDumpada($dumpada, $mezcla->id, $numeroPaladas);
+                    MezclaDumpada::desdeDumpada($dumpada, $mezcla->id, $numeroPaladas, $mezcla->ley_base);
 
                 } else {
                     // MODO DUMPADA COMPLETA (comportamiento legado)
@@ -360,7 +363,7 @@ class MezclaService
                         throw new Exception("La dumpada #{$dumpada->numero_dumpada} tiene uso parcial en otras mezclas. Especifique el número de paladas restantes.");
                     }
 
-                    MezclaDumpada::desdeDumpada($dumpada, $mezcla->id);
+                    MezclaDumpada::desdeDumpada($dumpada, $mezcla->id, null, $mezcla->ley_base);
                 }
             }
 
@@ -610,7 +613,7 @@ class MezclaService
         }
 
         $dumpadas = $query->with(['frenteTrabajo:id,codigo_completo'])
-            ->select(['id', 'numero_dumpada', 'acopios', 'fecha', 'ton', 'ley', 'ley_visual', 'jornada', 'id_frente_trabajo', 'estado', 'id_faena'])
+            ->select(['id', 'numero_dumpada', 'acopios', 'fecha', 'ton', 'ley', 'ley_visual', 'cu_soluble', 'cu_insoluble', 'jornada', 'id_frente_trabajo', 'estado', 'id_faena'])
             ->orderBy('id', 'desc')
             ->get();
 

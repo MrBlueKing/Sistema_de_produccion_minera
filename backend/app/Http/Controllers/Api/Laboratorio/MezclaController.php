@@ -96,6 +96,7 @@ class MezclaController extends Controller
             'remanentes.*.ley_visual' => 'nullable|numeric',
             'remanentes.*.ley_lote' => 'nullable|numeric',
             'observaciones' => 'nullable|string',
+            'ley_base' => 'nullable|string|in:auto,cu_insoluble,cu_soluble,cu_total',
         ]);
 
         if ($validator->fails()) {

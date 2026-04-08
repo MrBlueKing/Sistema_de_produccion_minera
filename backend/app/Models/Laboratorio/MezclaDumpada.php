@@ -85,7 +85,7 @@ class MezclaDumpada extends Model
      * @param float|null $numeroPaladas Número de paladas a tomar. NULL = dumpada completa (legado).
      *                                  Si se especifica, las toneladas se calculan como paladas × ton_por_palada.
      */
-    public static function desdeDumpada(Dumpada $dumpada, $mezclaId, $numeroPaladas = null)
+    public static function desdeDumpada(Dumpada $dumpada, $mezclaId, $numeroPaladas = null, $leyBase = 'auto')
     {
         // Calcular toneladas según modo (completo o parcial por paladas)
         if ($numeroPaladas !== null) {
@@ -95,8 +95,49 @@ class MezclaDumpada extends Model
             $toneladas = $dumpada->ton;
         }
 
-        // Aplicar capping a la ley de laboratorio antes de calcular factores
-        $leyLab = $dumpada->ley;
+        // Determinar la ley efectiva según ley_base de la mezcla
+        // Solo aplica si la dumpada tiene datos de cu_soluble/cu_insoluble (sistema nuevo)
+        // Para dumpadas antiguas sin esos datos → usa ley directo (comportamiento legado)
+        $cuInsoluble = $dumpada->cu_insoluble;
+        $cuSoluble   = $dumpada->cu_soluble;
+        $tieneFraccion = $cuInsoluble !== null || $cuSoluble !== null;
+
+        if ($tieneFraccion) {
+            switch ($leyBase) {
+                case 'cu_insoluble':
+                    $leyEfectiva = $cuInsoluble;
+                    $fuenteLey   = 'CU_INSOLUBLE';
+                    break;
+                case 'cu_soluble':
+                    $leyEfectiva = $cuSoluble;
+                    $fuenteLey   = 'CU_SOLUBLE';
+                    break;
+                case 'cu_total':
+                    $leyEfectiva = $dumpada->ley;
+                    $fuenteLey   = 'CU_TOTAL';
+                    break;
+                case 'auto':
+                default:
+                    // Usar la fracción más alta disponible
+                    $ins = $cuInsoluble ?? 0;
+                    $sol = $cuSoluble   ?? 0;
+                    if ($ins >= $sol) {
+                        $leyEfectiva = $cuInsoluble ?? $dumpada->ley;
+                        $fuenteLey   = 'AUTO→CU_INSOLUBLE';
+                    } else {
+                        $leyEfectiva = $cuSoluble ?? $dumpada->ley;
+                        $fuenteLey   = 'AUTO→CU_SOLUBLE';
+                    }
+                    break;
+            }
+        } else {
+            // Dumpada antigua: sin fracciones → comportamiento histórico
+            $leyEfectiva = $dumpada->ley;
+            $fuenteLey   = 'LEGACY';
+        }
+
+        // Aplicar capping a la ley efectiva
+        $leyLab = $leyEfectiva;
         if ($leyLab) {
             $leyLab = Dumpada::calcularCapping($leyLab, $dumpada->id_faena);
         }
@@ -121,15 +162,18 @@ class MezclaDumpada extends Model
         }
 
         \Log::info('🔧 [MEZCLA DETALLE] Guardando dumpada en mezcla', [
-            'dumpada_id' => $dumpada->id,
-            'numero_dumpada' => $dumpada->numero_dumpada,
-            'toneladas' => $toneladas,
-            'numero_paladas' => $numeroPaladas,
-            'ley_lab' => $leyLab,
-            'ley_visual' => $leyVisual,
-            'ley_dump_ajustada' => $leyDumpAjustada,
-            'ley_lote' => $leyLote,
-            'fuente' => $leyLab ? 'LAB' : 'VISUAL',
+            'dumpada_id'       => $dumpada->id,
+            'numero_dumpada'   => $dumpada->numero_dumpada,
+            'toneladas'        => $toneladas,
+            'numero_paladas'   => $numeroPaladas,
+            'ley_base'         => $leyBase,
+            'ley_efectiva'     => $leyEfectiva,
+            'fuente_ley'       => $fuenteLey,
+            'ley_lab'          => $leyLab,
+            'ley_visual'       => $leyVisual,
+            'ley_dump_ajustada'=> $leyDumpAjustada,
+            'ley_lote'         => $leyLote,
+            'fuente'           => $leyLab ? 'LAB' : 'VISUAL',
         ]);
 
         return self::create([

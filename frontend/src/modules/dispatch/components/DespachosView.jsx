@@ -54,6 +54,7 @@ const DespachosView = () => {
   const [formPlanta, setFormPlanta] = useState({
     nombre: '',
     codigo: '',
+    prefijo_codigo: '',
     descripcion: '',
     activo: true
   });
@@ -266,6 +267,7 @@ const DespachosView = () => {
     setFormPlanta({
       nombre: '',
       codigo: '',
+      prefijo_codigo: '',
       descripcion: '',
       activo: true
     });
@@ -313,6 +315,7 @@ const DespachosView = () => {
       setFormPlanta({
         nombre: item.nombre || '',
         codigo: item.codigo || '',
+        prefijo_codigo: item.prefijo_codigo || '',
         descripcion: item.descripcion || '',
         activo: item.activo !== undefined ? item.activo : true
       });
@@ -2346,6 +2349,7 @@ const DespachosView = () => {
                         <th className="text-left py-3 px-3 font-bold text-blue-900">ID</th>
                         <th className="text-left py-3 px-3 font-bold text-blue-900">Código</th>
                         <th className="text-left py-3 px-3 font-bold text-blue-900">Nombre</th>
+                        <th className="text-left py-3 px-3 font-bold text-blue-900">Prefijo mezclas</th>
                         <th className="text-left py-3 px-3 font-bold text-blue-900">Descripción</th>
                         <th className="text-left py-3 px-3 font-bold text-blue-900">Estado</th>
                         <th className="text-left py-3 px-3 font-bold text-blue-900">Acciones</th>
@@ -2361,6 +2365,12 @@ const DespachosView = () => {
                           <td className="py-3 px-3 font-bold text-blue-700">#{planta.id}</td>
                           <td className="py-3 px-3 font-mono font-bold">{planta.codigo}</td>
                           <td className="py-3 px-3">{planta.nombre}</td>
+                          <td className="py-3 px-3 text-center">
+                            {planta.prefijo_codigo
+                              ? <span className="font-mono font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded">{planta.prefijo_codigo}</span>
+                              : <span className="text-gray-400 text-xs">—</span>
+                            }
+                          </td>
                           <td className="py-3 px-3 text-xs text-gray-600">
                             {planta.descripcion || '-'}
                           </td>
@@ -2636,6 +2646,24 @@ const DespachosView = () => {
                       required
                     />
                   </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Prefijo de mezclas
+                  </label>
+                  <input
+                    type="text"
+                    name="prefijo_codigo"
+                    value={formPlanta.prefijo_codigo}
+                    onChange={(e) => handleFormChange(e, 'planta')}
+                    placeholder="Ej: CM, CZ, PL"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 uppercase"
+                    maxLength={5}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Opcional. Las mezclas de esta planta tendrán el formato <strong>{formPlanta.prefijo_codigo || 'XX'}1001</strong>, <strong>{formPlanta.prefijo_codigo || 'XX'}1002</strong>…
+                  </p>
                 </div>
 
                 <div>

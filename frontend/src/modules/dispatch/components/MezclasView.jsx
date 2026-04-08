@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { HiBeaker, HiCube, HiEye, HiTrash, HiPencil, HiCheck, HiXMark, HiChevronDown, HiChevronUp } from 'react-icons/hi2';
 import Button from '../../../shared/components/atoms/Button';
 import Input from '../../../shared/components/atoms/Input';
@@ -29,6 +29,13 @@ export default function MezclasView({
   // Obtener configuraciones desde BD
   const { factorAjusteLey, factorRemanenteVisual, leyCappingMaximo, usarSistemaAcopios, toneladas_por_palada } = useConfig();
 
+  // Evitar flash de "sin datos" antes del primer ciclo de carga
+  const hasEverLoaded = useRef(false);
+  useEffect(() => {
+    if (!loading) hasEverLoaded.current = true;
+  }, [loading]);
+  const showSpinner = loading || !hasEverLoaded.current;
+
   // Cambiar de dumpadas a acopios
   const [acopiosDisponibles, setAcopiosDisponibles] = useState([]);
   const [acopiosSeleccionados, setAcopiosSeleccionados] = useState([]);
@@ -42,6 +49,7 @@ export default function MezclasView({
     codigo: '',
     fecha: new Date().toISOString().split('T')[0],
     planta_id: '',
+    ley_base: 'auto',
     observaciones: '',
   });
   const [plantas, setPlantas] = useState([]);
@@ -421,19 +429,43 @@ export default function MezclasView({
           : parseFloat(d.ton || 0);
         return { ...d, _tonAUsar: tonAUsar };
       }).filter(Boolean);
+      const leyBase = formDataMezcla.ley_base || 'auto';
       dumpadasSel.forEach(d => {
         const ton = d._tonAUsar;
-        // Aplicar capping a la ley de laboratorio
-        const leyLabRaw = d.ley ? parseFloat(d.ley) : null;
+
+        // Seleccionar fracción efectiva según ley_base (espeja MezclaDumpada::desdeDumpada)
+        const cuInsoluble = d.cu_insoluble != null ? parseFloat(d.cu_insoluble) : null;
+        const cuSoluble   = d.cu_soluble   != null ? parseFloat(d.cu_soluble)   : null;
+        const tieneFraccion = cuInsoluble !== null || cuSoluble !== null;
+        let leyLabRaw;
+        if (tieneFraccion) {
+          switch (leyBase) {
+            case 'cu_insoluble': leyLabRaw = cuInsoluble; break;
+            case 'cu_soluble':   leyLabRaw = cuSoluble;   break;
+            case 'cu_total':     leyLabRaw = d.ley ? parseFloat(d.ley) : null; break;
+            case 'auto':
+            default: {
+              const ins = cuInsoluble ?? 0;
+              const sol = cuSoluble   ?? 0;
+              leyLabRaw = ins >= sol
+                ? (cuInsoluble ?? (d.ley ? parseFloat(d.ley) : null))
+                : (cuSoluble   ?? (d.ley ? parseFloat(d.ley) : null));
+            }
+          }
+        } else {
+          // Dumpada sin fracciones: usar ley (Cu Total) — comportamiento legacy
+          leyLabRaw = d.ley ? parseFloat(d.ley) : null;
+        }
+
         const leyLab = leyLabRaw ? Math.min(leyLabRaw, leyCappingMaximo) : null;
         const leyVisual = d.ley_visual ? parseFloat(d.ley_visual) : null;
 
         if (leyLab) {
-          sumaPonderadaDumpOrigen += ton * leyLab * factorAjusteLey;       // lab × 0.9
+          sumaPonderadaDumpOrigen += ton * leyLab * factorAjusteLey;                    // lab × 0.9
           sumaPonderadaLoteOrigen += ton * leyLab * factorAjusteLey * factorAjusteLey; // lab × 0.81
         } else if (leyVisual) {
-          sumaPonderadaDumpOrigen += ton * leyVisual;                       // visual directo
-          sumaPonderadaLoteOrigen += ton * leyVisual * factorAjusteLey;    // visual × 0.9
+          sumaPonderadaDumpOrigen += ton * leyVisual;                      // visual directo
+          sumaPonderadaLoteOrigen += ton * leyVisual * factorAjusteLey;   // visual × 0.9
         }
       });
     } else {
@@ -547,6 +579,7 @@ export default function MezclasView({
         codigo: formDataMezcla.codigo || null,
         fecha: new Date().toISOString().split('T')[0], // Siempre usar fecha actual
         planta_id: parseInt(formDataMezcla.planta_id),
+        ley_base: formDataMezcla.ley_base || 'auto',
         observaciones: formDataMezcla.observaciones || null,
       };
 
@@ -1048,6 +1081,7 @@ export default function MezclasView({
 
             {/* Filtros Profesionales */}
             <TableFilters
+              alwaysExpanded
               searchValue={searchDumpada}
               searchPlaceholder="Buscar por número, frente, jornada..."
               onSearchChange={handleSearchDumpadaChange}
@@ -1083,7 +1117,12 @@ export default function MezclasView({
               onClear={handleClearFiltersDumpada}
             />
 
-            {dumpadasDisponibles.length === 0 ? (
+            {showSpinner ? (
+              <div className="text-center py-10">
+                <div className="inline-block w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-3" />
+                <p className="text-gray-500 text-sm">Cargando dumpadas disponibles…</p>
+              </div>
+            ) : dumpadasDisponibles.length === 0 ? (
               <div className="text-center py-8">
                 <p className="text-gray-600">No hay dumpadas disponibles para mezclas</p>
                 <p className="text-sm text-gray-500 mt-1">Las dumpadas deben estar completadas y no asignadas a otra mezcla</p>
@@ -1119,7 +1158,9 @@ export default function MezclasView({
                       <th className="py-2 px-3 text-right font-bold text-gray-700">Ton total</th>
                       <th className="py-2 px-3 text-center font-bold text-gray-700">Paladas disp.</th>
                       <th className="py-2 px-3 text-center font-bold text-gray-700">Paladas a usar</th>
-                      <th className="py-2 px-3 text-right font-bold text-gray-700">Ley</th>
+                      <th className="py-2 px-3 text-right font-bold text-gray-700">Cu Total</th>
+                      <th className="py-2 px-3 text-right font-bold text-blue-700">Cu Ins.</th>
+                      <th className="py-2 px-3 text-right font-bold text-green-700">Cu Sol.</th>
                       <th className="py-2 px-3 text-right font-bold text-gray-700">Ley Visual</th>
                     </tr>
                   </thead>
@@ -1194,8 +1235,28 @@ export default function MezclasView({
                                   <span className="text-gray-300 text-xs">-</span>
                                 )}
                               </td>
-                              <td className="py-2 px-3 text-right font-semibold">
+                              <td className="py-2 px-3 text-right font-semibold text-gray-700">
                                 {dumpada.ley ? `${parseFloat(dumpada.ley).toFixed(2)}%` : <span className="text-gray-400">-</span>}
+                              </td>
+                              <td className="py-2 px-3 text-right font-semibold">
+                                {dumpada.cu_insoluble != null ? (
+                                  (() => {
+                                    const ins = parseFloat(dumpada.cu_insoluble);
+                                    const sol = parseFloat(dumpada.cu_soluble ?? 0);
+                                    const esAlta = formDataMezcla.ley_base === 'cu_insoluble' || (formDataMezcla.ley_base === 'auto' && ins >= sol);
+                                    return <span className={esAlta ? 'text-blue-700 font-bold bg-blue-50 px-1 rounded' : 'text-blue-500'}>{ins.toFixed(2)}%{esAlta && ' ↑'}</span>;
+                                  })()
+                                ) : <span className="text-gray-300">—</span>}
+                              </td>
+                              <td className="py-2 px-3 text-right font-semibold">
+                                {dumpada.cu_soluble != null ? (
+                                  (() => {
+                                    const sol = parseFloat(dumpada.cu_soluble);
+                                    const ins = parseFloat(dumpada.cu_insoluble ?? 0);
+                                    const esAlta = formDataMezcla.ley_base === 'cu_soluble' || (formDataMezcla.ley_base === 'auto' && sol > ins);
+                                    return <span className={esAlta ? 'text-green-700 font-bold bg-green-50 px-1 rounded' : 'text-green-600'}>{sol.toFixed(2)}%{esAlta && ' ↑'}</span>;
+                                  })()
+                                ) : <span className="text-gray-300">—</span>}
                               </td>
                               <td className="py-2 px-3 text-right font-semibold">
                                 {dumpada.ley_visual ? `${parseFloat(dumpada.ley_visual).toFixed(2)}%` : <span className="text-gray-400">-</span>}
@@ -1433,8 +1494,8 @@ export default function MezclasView({
               </div>
             </div>
 
-            {/* Configuración: Planta y Observaciones */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            {/* Configuración: Planta, Ley Base y Observaciones */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
               <div className="bg-white rounded-lg p-4 border-2 border-purple-200 shadow-sm">
                 <label className="block text-sm font-bold text-purple-800 mb-2">
                   🏭 Planta Destino <span className="text-red-500">*</span>
@@ -1461,6 +1522,29 @@ export default function MezclasView({
                   </p>
                 )}
               </div>
+
+              <div className="bg-white rounded-lg p-4 border-2 border-blue-200 shadow-sm">
+                <label className="block text-sm font-bold text-blue-800 mb-2">
+                  ⚗️ Ley base para cálculos
+                </label>
+                <select
+                  value={formDataMezcla.ley_base}
+                  onChange={(e) => setFormDataMezcla({ ...formDataMezcla, ley_base: e.target.value })}
+                  className="w-full px-4 py-3 border-2 border-blue-300 bg-blue-50 rounded-lg text-sm font-medium text-blue-900"
+                >
+                  <option value="auto">Auto (usar la fracción más alta)</option>
+                  <option value="cu_insoluble">Cu Insoluble (sulfuro)</option>
+                  <option value="cu_soluble">Cu Soluble (óxido)</option>
+                  <option value="cu_total">Cu Total</option>
+                </select>
+                <p className="text-xs text-blue-600 mt-1">
+                  {formDataMezcla.ley_base === 'auto' && 'El sistema compara Cu Ins. vs Cu Sol. y usa la más alta'}
+                  {formDataMezcla.ley_base === 'cu_insoluble' && 'Usa Cu Insoluble para ley_dump y ley_lote'}
+                  {formDataMezcla.ley_base === 'cu_soluble' && 'Usa Cu Soluble para ley_dump y ley_lote'}
+                  {formDataMezcla.ley_base === 'cu_total' && 'Usa Cu Total (comportamiento clásico)'}
+                </p>
+              </div>
+
               <div className="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
                 <label className="block text-sm font-bold text-gray-700 mb-2">
                   📝 Observaciones (opcional)

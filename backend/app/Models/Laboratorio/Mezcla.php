@@ -41,6 +41,7 @@ class Mezcla extends Model
         'motivo_ajuste',
         'ajustado_por_user_id',
         'fecha_ajuste',
+        'ley_base',
     ];
 
     protected $casts = [

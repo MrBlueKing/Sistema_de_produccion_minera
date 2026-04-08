@@ -33,3 +33,13 @@ Thumbs.db
 # Laravel
 storage/*.key
 .phpunit.result.cache
+
+# Archivos locales no versionados
+documentos/
+*.jpeg
+*.jpg
+*.png
+*.ico
+*.bat
+guia_despliegue_servidor.html
+plan_produccion.html

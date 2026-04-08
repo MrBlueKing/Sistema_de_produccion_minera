@@ -1,0 +1,8 @@
+---
+deployment:
+  tasks:
+    - /opt/cpanel/ea-php82/root/usr/bin/php /usr/local/bin/composer install --no-dev --optimize-autoloader --working-dir=/home/mhcl/public_html/produccion-api.m3h.cl/backend
+    - /opt/cpanel/ea-php82/root/usr/bin/php /home/mhcl/public_html/produccion-api.m3h.cl/backend/artisan migrate --force
+    - /opt/cpanel/ea-php82/root/usr/bin/php /home/mhcl/public_html/produccion-api.m3h.cl/backend/artisan config:cache
+    - /opt/cpanel/ea-php82/root/usr/bin/php /home/mhcl/public_html/produccion-api.m3h.cl/backend/artisan route:cache
+    - /opt/cpanel/ea-php82/root/usr/bin/php /home/mhcl/public_html/produccion-api.m3h.cl/backend/artisan storage:link

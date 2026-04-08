@@ -1,11 +1,12 @@
 import React, { useState, useMemo } from 'react';
-import { HiX, HiCheckCircle } from 'react-icons/hi';
+import { HiX, HiCheckCircle, HiChevronDown, HiChevronUp, HiInformationCircle } from 'react-icons/hi';
 import Button from '../../../shared/components/atoms/Button';
 import { useConfig } from '../../../hooks/useConfig';
 
 const CerrarLoteModal = ({ lote, onConfirm, onCancel }) => {
   const { config } = useConfig();
   const [cerrando, setCerrando] = useState(false);
+  const [mostrarOpciones, setMostrarOpciones] = useState(false);
   const [formData, setFormData] = useState({
     metodo: 'ninguno', // 'ninguno', 'paladas', o 'toneladas'
     numero_paladas: '',
@@ -15,11 +16,9 @@ const CerrarLoteModal = ({ lote, onConfirm, onCancel }) => {
 
   const toneladasPorPalada = config?.toneladas_por_palada || 1.82;
 
-  // Calcular resumen de remanentes por mezcla
   const resumenMezclas = useMemo(() => {
     if (!lote?.camionadas || lote.camionadas.length === 0) return [];
 
-    // Agrupar camionadas por mezcla
     const mezclasMap = {};
     lote.camionadas.forEach((cam) => {
       const mezclaId = cam.mezcla_id;
@@ -54,6 +53,16 @@ const CerrarLoteModal = ({ lote, onConfirm, onCancel }) => {
       return parseFloat(formData.toneladas_remanente);
     }
     return 0;
+  };
+
+  const handleToggleOpciones = () => {
+    setMostrarOpciones((prev) => {
+      if (prev) {
+        // Al colapsar, resetear selección
+        setFormData({ metodo: 'ninguno', numero_paladas: '', toneladas_remanente: '', observaciones_remanente: '' });
+      }
+      return !prev;
+    });
   };
 
   const handleSubmit = async (e) => {
@@ -109,7 +118,7 @@ const CerrarLoteModal = ({ lote, onConfirm, onCancel }) => {
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
-          {/* Resumen de remanentes por mezcla */}
+          {/* Resumen de mezclas */}
           {resumenMezclas.length > 0 && (
             <div>
               <h3 className="text-sm font-semibold text-gray-700 mb-3">Resumen de mezclas en este lote</h3>
@@ -168,125 +177,144 @@ const CerrarLoteModal = ({ lote, onConfirm, onCancel }) => {
             </div>
           )}
 
-          {/* Método de cálculo */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-3">
-              ¿Deseas crear un remanente adicional? (material recogido del suelo)
-            </label>
-            <div className="space-y-2">
-              <label className="flex items-center p-3 border-2 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors"
-                     style={{ borderColor: formData.metodo === 'ninguno' ? '#4f46e5' : '#d1d5db' }}>
-                <input
-                  type="radio"
-                  name="metodo"
-                  value="ninguno"
-                  checked={formData.metodo === 'ninguno'}
-                  onChange={(e) => setFormData({ ...formData, metodo: e.target.value })}
-                  className="w-4 h-4 text-indigo-600"
-                />
-                <div className="ml-3">
-                  <span className="font-medium text-gray-900">No, solo cerrar el lote</span>
-                  <p className="text-xs text-gray-500">Cierre normal - los remanentes de las mezclas se mantienen</p>
-                </div>
-              </label>
+          {/* Sección opcional: remanente recogido del suelo */}
+          <div className="border border-gray-200 rounded-lg overflow-hidden">
+            <button
+              type="button"
+              onClick={handleToggleOpciones}
+              className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors text-left"
+            >
+              <div className="flex items-center gap-2">
+                <HiInformationCircle className="w-5 h-5 text-indigo-500" />
+                <span className="text-sm font-medium text-gray-700">
+                  ¿Hubo material recogido del suelo durante el despacho?
+                </span>
+                {mostrarOpciones && formData.metodo !== 'ninguno' && (
+                  <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-medium">
+                    Remanente a registrar
+                  </span>
+                )}
+              </div>
+              {mostrarOpciones
+                ? <HiChevronUp className="w-5 h-5 text-gray-400" />
+                : <HiChevronDown className="w-5 h-5 text-gray-400" />
+              }
+            </button>
 
-              <label className="flex items-center p-3 border-2 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors"
-                     style={{ borderColor: formData.metodo === 'paladas' ? '#4f46e5' : '#d1d5db' }}>
-                <input
-                  type="radio"
-                  name="metodo"
-                  value="paladas"
-                  checked={formData.metodo === 'paladas'}
-                  onChange={(e) => setFormData({ ...formData, metodo: e.target.value })}
-                  className="w-4 h-4 text-indigo-600"
-                />
-                <div className="ml-3">
-                  <span className="font-medium text-gray-900">Por numero de paladas</span>
-                  <p className="text-xs text-gray-500">
-                    Registrar material recogido del suelo ({toneladasPorPalada} ton/palada)
-                  </p>
-                </div>
-              </label>
+            {mostrarOpciones && (
+              <div className="p-4 space-y-4">
+                <p className="text-xs text-gray-500">
+                  Durante la carga puede quedar material derramado en el suelo que fue recogido con pala cargadora.
+                  Si fue el caso, regístralo aquí para que quede disponible para futuros despachos.
+                </p>
 
-              <label className="flex items-center p-3 border-2 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors"
-                     style={{ borderColor: formData.metodo === 'toneladas' ? '#4f46e5' : '#d1d5db' }}>
-                <input
-                  type="radio"
-                  name="metodo"
-                  value="toneladas"
-                  checked={formData.metodo === 'toneladas'}
-                  onChange={(e) => setFormData({ ...formData, metodo: e.target.value })}
-                  className="w-4 h-4 text-indigo-600"
-                />
-                <div className="ml-3">
-                  <span className="font-medium text-gray-900">Ingresar toneladas directamente</span>
-                  <p className="text-xs text-gray-500">Peso exacto del material recogido</p>
+                <div className="space-y-2">
+                  <label
+                    className="flex items-start p-3 border-2 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors"
+                    style={{ borderColor: formData.metodo === 'paladas' ? '#4f46e5' : '#d1d5db' }}
+                  >
+                    <input
+                      type="radio"
+                      name="metodo"
+                      value="paladas"
+                      checked={formData.metodo === 'paladas'}
+                      onChange={(e) => setFormData({ ...formData, metodo: e.target.value })}
+                      className="w-4 h-4 text-indigo-600 mt-0.5"
+                    />
+                    <div className="ml-3">
+                      <span className="font-medium text-gray-900 text-sm">Por número de paladas</span>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        Ingresa cuántas paladas se recogieron — el sistema calcula el peso
+                        ({toneladasPorPalada} ton/palada)
+                      </p>
+                    </div>
+                  </label>
+
+                  <label
+                    className="flex items-start p-3 border-2 rounded-lg cursor-pointer hover:bg-gray-50 transition-colors"
+                    style={{ borderColor: formData.metodo === 'toneladas' ? '#4f46e5' : '#d1d5db' }}
+                  >
+                    <input
+                      type="radio"
+                      name="metodo"
+                      value="toneladas"
+                      checked={formData.metodo === 'toneladas'}
+                      onChange={(e) => setFormData({ ...formData, metodo: e.target.value })}
+                      className="w-4 h-4 text-indigo-600 mt-0.5"
+                    />
+                    <div className="ml-3">
+                      <span className="font-medium text-gray-900 text-sm">Ingresar toneladas directamente</span>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        Si tienes el peso exacto del material recogido (por báscula u otro medio)
+                      </p>
+                    </div>
+                  </label>
                 </div>
-              </label>
-            </div>
+
+                {/* Campos según método */}
+                {formData.metodo === 'paladas' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Número de paladas recogidas
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={formData.numero_paladas}
+                      onChange={(e) => setFormData({ ...formData, numero_paladas: e.target.value })}
+                      className="w-full px-4 py-3 text-lg border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-bold"
+                      placeholder="Ej: 12"
+                      required
+                    />
+                    {formData.numero_paladas && (
+                      <div className="mt-2 p-3 bg-green-50 border-l-4 border-green-500 rounded">
+                        <p className="text-sm text-green-900">
+                          <strong>Toneladas calculadas:</strong> {toneladasCalculadas.toFixed(2)} t
+                        </p>
+                        <p className="text-xs text-green-700 mt-1">
+                          {formData.numero_paladas} paladas × {toneladasPorPalada} ton/palada
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {formData.metodo === 'toneladas' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Toneladas del material recogido
+                    </label>
+                    <input
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      value={formData.toneladas_remanente}
+                      onChange={(e) => setFormData({ ...formData, toneladas_remanente: e.target.value })}
+                      className="w-full px-4 py-3 text-lg border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-bold"
+                      placeholder="0.00"
+                      required
+                    />
+                  </div>
+                )}
+
+                {formData.metodo !== 'ninguno' && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Observaciones (opcional)
+                    </label>
+                    <textarea
+                      value={formData.observaciones_remanente}
+                      onChange={(e) => setFormData({ ...formData, observaciones_remanente: e.target.value })}
+                      className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                      placeholder="Información adicional sobre el remanente..."
+                      rows="2"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
           </div>
-
-          {/* Campos según método */}
-          {formData.metodo === 'paladas' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Numero de Paladas Recogidas
-              </label>
-              <input
-                type="number"
-                min="1"
-                step="1"
-                value={formData.numero_paladas}
-                onChange={(e) => setFormData({ ...formData, numero_paladas: e.target.value })}
-                className="w-full px-4 py-3 text-lg border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-bold"
-                placeholder="Ej: 12"
-                required
-              />
-              {formData.numero_paladas && (
-                <div className="mt-2 p-3 bg-green-50 border-l-4 border-green-500 rounded">
-                  <p className="text-sm text-green-900">
-                    <strong>Toneladas calculadas:</strong> {toneladasCalculadas.toFixed(2)} t
-                  </p>
-                  <p className="text-xs text-green-700 mt-1">
-                    {formData.numero_paladas} paladas x {toneladasPorPalada} ton/palada
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {formData.metodo === 'toneladas' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Toneladas del Remanente
-              </label>
-              <input
-                type="number"
-                min="0.01"
-                step="0.01"
-                value={formData.toneladas_remanente}
-                onChange={(e) => setFormData({ ...formData, toneladas_remanente: e.target.value })}
-                className="w-full px-4 py-3 text-lg border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-bold"
-                placeholder="0.00"
-                required
-              />
-            </div>
-          )}
-
-          {formData.metodo !== 'ninguno' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Observaciones del Remanente (Opcional)
-              </label>
-              <textarea
-                value={formData.observaciones_remanente}
-                onChange={(e) => setFormData({ ...formData, observaciones_remanente: e.target.value })}
-                className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                placeholder="Informacion adicional sobre el remanente..."
-                rows="3"
-              />
-            </div>
-          )}
 
           {/* Botones */}
           <div className="flex justify-end gap-4 pt-4 border-t-2 border-gray-200">
