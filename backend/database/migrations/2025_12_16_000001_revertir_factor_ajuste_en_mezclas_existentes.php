@@ -24,7 +24,11 @@ return new class extends Migration
      */
     public function up(): void
     {
-        $factor = MezclaConfig::getFactorAjusteLey(); // 0.9
+        try {
+            $factor = MezclaConfig::getFactorAjusteLey();
+        } catch (\Exception $e) {
+            $factor = 0.9; // id_faena aún no existe en configuraciones_sistema
+        }
 
         echo "\n🔄 Actualizando mezclas existentes al nuevo formato...\n";
 
@@ -74,7 +78,11 @@ return new class extends Migration
      */
     public function down(): void
     {
-        $factor = MezclaConfig::getFactorAjusteLey(); // 0.9
+        try {
+            $factor = MezclaConfig::getFactorAjusteLey();
+        } catch (\Exception $e) {
+            $factor = 0.9;
+        }
 
         echo "\n⏪ Revirtiendo cambios...\n";
 
