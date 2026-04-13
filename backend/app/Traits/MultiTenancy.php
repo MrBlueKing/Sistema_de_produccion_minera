@@ -5,8 +5,9 @@ namespace App\Traits;
 trait MultiTenancy
 {
     /**
-     * Verifica si el usuario actual es global (Encargado Dispatch)
-     * Usuario global puede ver todas las faenas
+     * Verifica si el usuario actual es global (Admin Explosivos u otros admins)
+     * Usuario global puede ver todas las faenas.
+     * "Encargado Dispatch" y "Operador Dispatch" solo ven su propia faena.
      */
     protected function esUsuarioGlobal($request): bool
     {
@@ -25,12 +26,8 @@ trait MultiTenancy
         }
 
         // Buscar roles globales en diferentes formatos
+        // NOTA: "Encargado Dispatch" NO es global — solo ve su propia faena.
         $rolesGlobales = [
-            'Encargado Dispatch',
-            'encargado_dispatch',
-            'encargado dispatch',
-            'ENCARGADO DISPATCH',
-            'Encargado_Dispatch',
             'Admin Explosivos',
             'admin_explosivos',
             'admin explosivos',
@@ -46,9 +43,6 @@ trait MultiTenancy
 
         // También verificar con strtolower para mayor flexibilidad
         $rolesLower = array_map('strtolower', array_filter($rolesNombres));
-        if (in_array('encargado dispatch', $rolesLower) || in_array('encargado_dispatch', $rolesLower)) {
-            return true;
-        }
         if (in_array('admin explosivos', $rolesLower) || in_array('admin_explosivos', $rolesLower)) {
             return true;
         }

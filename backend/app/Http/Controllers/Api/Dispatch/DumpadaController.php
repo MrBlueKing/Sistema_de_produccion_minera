@@ -64,11 +64,11 @@ class DumpadaController extends Controller
         ]);
 
         if (!$this->esUsuarioGlobal($request)) {
-            // OPERADOR DISPATCH: Solo su faena
+            // OPERADOR / ENCARGADO DISPATCH: Solo su faena
             $query->where('id_faena', $request->auth_faena);
             Log::info('🔒 [DUMPADAS] Filtrando por faena de operador', ['id_faena' => $request->auth_faena]);
         } else {
-            // ENCARGADO DISPATCH: Permite filtrar por múltiples faenas
+            // ADMIN GLOBAL: Permite filtrar por múltiples faenas
             if ($idFaena) {
                 // Si contiene comas, es una lista de faenas
                 if (strpos($idFaena, ',') !== false) {
