@@ -9,9 +9,9 @@ export const FaenaProvider = ({ children }) => {
   const faenaUsuario = userSession.faena || null; // ID o nombre de faena del usuario
   const roles = userSession.roles || [];
 
-  // Determinar si es usuario global (Encargado Dispatch)
-  // Acepta ambos formatos: 'Encargado Dispatch' o 'encargado_dispatch'
-  const esUsuarioGlobal = roles.includes('Encargado Dispatch') || roles.includes('encargado_dispatch');
+  // Determinar si es usuario global (solo roles de admin cross-faena)
+  // "Encargado Dispatch" NO es global — solo ve su propia faena asignada
+  const esUsuarioGlobal = roles.includes('Admin Explosivos') || roles.includes('admin_explosivos');
 
   // Determinar si es Digitador Dispatch (solo ingreso de dumpadas)
   const esDigitador = roles.includes('Digitador Dispatch') || roles.includes('digitador_dispatch');
