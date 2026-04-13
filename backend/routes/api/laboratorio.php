@@ -90,7 +90,7 @@ Route::get('/certificados/generados', [CertificadoController::class, 'certificad
 Route::get('/certificados/{numeroCertificado}/dumpadas', [CertificadoController::class, 'dumpadasPorCertificado']);
 
 // Regenerar certificado existente
-Route::get('/certificados/{numeroCertificado}/regenerar', [CertificadoController::class, 'regenerar']);
+Route::post('/certificados/{numeroCertificado}/regenerar', [CertificadoController::class, 'regenerar']);
 
 // ========================================
 // MÓDULO: MUESTRAS LIBRES

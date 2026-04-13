@@ -183,32 +183,18 @@ export default function BulkCompleteModal({ show, dumpadas = [], onConfirm, onCa
                 >
                   {/* Cabecera de tarjeta */}
                   <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex-1 min-w-0">
                       {dumpada.tipo === 'muestra_libre' ? (
                         <span className="text-xs font-bold bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full">
                           {dumpada.nombre || 'Muestra libre'}
                         </span>
                       ) : (
-                        <span className="text-sm font-bold font-mono text-gray-800">
-                          #{dumpada.numero_dumpada || '—'}
-                        </span>
-                      )}
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
-                        dumpada.tipo === 'muestra_libre'
-                          ? 'bg-purple-100 text-purple-900'
-                          : 'bg-blue-100 text-blue-900'
-                      }`}>
-                        {dumpada.tipo === 'muestra_libre'
-                          ? dumpada.solicitante || '—'
-                          : dumpada.frente_trabajo?.codigo_completo || '—'}
-                      </span>
-                      {dumpada.tipo !== 'muestra_libre' && dumpada.jornada && (
-                        <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-900 font-semibold">
-                          {dumpada.jornada}{dumpada.numero_jornada ? `-${dumpada.numero_jornada}` : ''}
+                        <span className="text-xs font-mono font-bold text-gray-800 break-all">
+                          {dumpada.acopios || '—'}
                         </span>
                       )}
                     </div>
-                    <span className="text-lg flex-shrink-0">
+                    <span className="text-lg flex-shrink-0 ml-2">
                       {hasError ? '✗' : isComplete ? '✓' : '○'}
                     </span>
                   </div>
@@ -275,9 +261,7 @@ export default function BulkCompleteModal({ show, dumpadas = [], onConfirm, onCa
                 <thead>
                   <tr className="bg-gray-50 border-b-2 border-gray-200">
                     <th className="text-center py-3 px-2 font-bold text-gray-600 text-xs w-8">✓</th>
-                    <th className="text-left py-3 px-3 font-bold text-gray-600 text-xs">N° Dump</th>
-                    <th className="text-left py-3 px-3 font-bold text-gray-600 text-xs">Frente</th>
-                    <th className="text-left py-3 px-3 font-bold text-gray-600 text-xs">Jornada</th>
+                    <th className="text-left py-3 px-3 font-bold text-gray-600 text-xs">Código</th>
                     <th className="text-left py-3 px-3 font-bold text-gray-600 text-xs min-w-[130px]">
                       Cu Total (%) <span className="text-red-500">*</span>
                     </th>
@@ -321,31 +305,11 @@ export default function BulkCompleteModal({ show, dumpadas = [], onConfirm, onCa
                         <td className="py-2 px-3">
                           {dumpada.tipo === 'muestra_libre' ? (
                             <span className="text-xs font-bold bg-purple-100 text-purple-800 px-2 py-0.5 rounded-full">
-                              {dumpada.nombre || 'Muestra'}
+                              {dumpada.nombre || 'Muestra libre'}
                             </span>
                           ) : (
-                            <span className="font-mono font-bold text-gray-800 text-sm">
-                              {dumpada.numero_dumpada ? String(dumpada.numero_dumpada) : '—'}
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-2 px-3">
-                          <span className={`text-xs px-2 py-0.5 rounded-full font-semibold whitespace-nowrap ${
-                            dumpada.tipo === 'muestra_libre'
-                              ? 'bg-purple-100 text-purple-900'
-                              : 'bg-blue-100 text-blue-900'
-                          }`}>
-                            {dumpada.tipo === 'muestra_libre'
-                              ? dumpada.solicitante || '—'
-                              : dumpada.frente_trabajo?.codigo_completo || '—'}
-                          </span>
-                        </td>
-                        <td className="py-2 px-3">
-                          {dumpada.tipo === 'muestra_libre' ? (
-                            <span className="text-gray-400 text-xs">—</span>
-                          ) : (
-                            <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-900 font-semibold whitespace-nowrap">
-                              {dumpada.jornada}{dumpada.numero_jornada ? `-${dumpada.numero_jornada}` : ''}
+                            <span className="font-mono text-gray-800 text-xs">
+                              {dumpada.acopios || '—'}
                             </span>
                           )}
                         </td>

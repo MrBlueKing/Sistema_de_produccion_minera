@@ -21,7 +21,7 @@ class CertificadoPdfService
      * Generar PDF de certificado.
      * Acepta dumpadas, muestras específicas, o ambos tipos mezclados.
      */
-    public function generarCertificado(array $dumpadaIds, ?string $numeroCertificado = null, bool $guardarNumero = true, array $muestraLibreIds = [])
+    public function generarCertificado(array $dumpadaIds, ?string $numeroCertificado = null, bool $guardarNumero = true, array $muestraLibreIds = [], ?string $para = null)
     {
         $dumpadas = empty($dumpadaIds) ? collect() : Dumpada::with('frenteTrabajo')
             ->whereIn('id', $dumpadaIds)
@@ -63,7 +63,7 @@ class CertificadoPdfService
             'numeroCertificado' => $numeroCertificado,
             'fechaEmision'      => Carbon::now()->format('d M. Y'),
             'muestras'          => $muestrasData,
-            'laboratorio'       => $this->getDatosLaboratorio(),
+            'laboratorio'       => $this->getDatosLaboratorio($para),
         ];
 
         $pdf = Pdf::loadView('pdf.certificado', $data);
@@ -73,16 +73,10 @@ class CertificadoPdfService
     }
 
     /**
-     * Regenerar un certificado PDF existente por su número
-     *
-     * @param string $numeroCertificado El número del certificado a regenerar
-     * @return \Barryvdh\DomPDF\PDF
-     */
-    /**
      * Regenerar un certificado existente por su número.
      * Incluye automáticamente dumpadas y muestras específicas con ese certificado.
      */
-    public function regenerarCertificado(string $numeroCertificado)
+    public function regenerarCertificado(string $numeroCertificado, ?string $para = null)
     {
         $dumpadas = Dumpada::with('frenteTrabajo')
             ->where('certificado', $numeroCertificado)
@@ -107,7 +101,7 @@ class CertificadoPdfService
             'numeroCertificado' => $numeroCertificado,
             'fechaEmision'      => Carbon::now()->format('d M. Y'),
             'muestras'          => $muestrasData,
-            'laboratorio'       => $this->getDatosLaboratorio(),
+            'laboratorio'       => $this->getDatosLaboratorio($para),
         ];
 
         $pdf = Pdf::loadView('pdf.certificado', $data);
@@ -149,13 +143,13 @@ class CertificadoPdfService
     /**
      * Datos fijos del laboratorio CIMAEF
      */
-    private function getDatosLaboratorio()
+    private function getDatosLaboratorio(?string $para = null)
     {
         return [
             'nombre' => 'CIMAEF',
             'titulo' => 'CENTRO INTEGRAL PARA LA MINERIA',
             'origen' => 'Laboratorio Cimaef 3H Copper',
-            'destino' => 'Mra 3H Copper Spa',
+            'destino' => $para ?? 'Mra 3H Copper Spa',
             'departamento' => 'Operaciones',
             'estado' => 'Mineral',
             'analisis' => 'Cobre',

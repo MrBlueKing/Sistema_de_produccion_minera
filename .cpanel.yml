@@ -6,3 +6,4 @@ deployment:
     - /opt/cpanel/ea-php82/root/usr/bin/php /home/mhcl/public_html/produccion-api.m3h.cl/backend/artisan config:cache
     - /opt/cpanel/ea-php82/root/usr/bin/php /home/mhcl/public_html/produccion-api.m3h.cl/backend/artisan route:cache
     - /opt/cpanel/ea-php82/root/usr/bin/php /home/mhcl/public_html/produccion-api.m3h.cl/backend/artisan storage:link
+

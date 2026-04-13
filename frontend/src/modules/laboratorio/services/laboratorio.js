@@ -86,11 +86,12 @@ class LaboratorioService {
   }
 
   // Generar y descargar certificado PDF (acepta dumpadas, muestras específicas, o ambos)
-  async generarCertificadoPdf(dumpadaIds = [], numeroCertificado = null, muestraLibreIds = []) {
+  async generarCertificadoPdf(dumpadaIds = [], numeroCertificado = null, muestraLibreIds = [], para = null) {
     const body = {};
     if (numeroCertificado) body.numero_certificado = numeroCertificado;
     if (dumpadaIds.length > 0) body.dumpada_ids = dumpadaIds;
     if (muestraLibreIds.length > 0) body.muestra_libre_ids = muestraLibreIds;
+    if (para) body.para = para;
 
     const response = await api.post('/laboratorio/certificados/generar', body, {
       responseType: 'blob'
@@ -110,8 +111,8 @@ class LaboratorioService {
   }
 
   // Regenerar certificado existente (descarga PDF de un certificado ya generado)
-  async regenerarCertificado(numeroCertificado) {
-    const response = await api.get(`/laboratorio/certificados/${numeroCertificado}/regenerar`, {
+  async regenerarCertificado(numeroCertificado, para = null) {
+    const response = await api.post(`/laboratorio/certificados/${numeroCertificado}/regenerar`, { para }, {
       responseType: 'blob'
     });
     return response;

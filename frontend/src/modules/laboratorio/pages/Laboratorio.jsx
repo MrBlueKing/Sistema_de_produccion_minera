@@ -27,12 +27,16 @@ export default function Laboratorio() {
 
   // Selección múltiple (para vista pendientes)
   const [selectedIds, setSelectedIds] = useState([]);
+  const [selectedDumpadas, setSelectedDumpadas] = useState([]); // objetos completos cross-página
   const [showBulkCompleteModal, setShowBulkCompleteModal] = useState(false);
 
   // Selección múltiple (para vista historial - certificados)
   const [selectedHistorialIds, setSelectedHistorialIds] = useState([]);
   const [generandoPdf, setGenerandoPdf] = useState(false);
   const [regenerandoCertificado, setRegenerandoCertificado] = useState(null); // Para tracking del botón específico
+
+  // Modal "Para" antes de generar certificado
+  const [paraModal, setParaModal] = useState({ show: false, para: '', pendingAction: null });
 
   // Edición de análisis
   const [editModal, setEditModal] = useState({ show: false, dumpada: null });
@@ -213,6 +217,7 @@ export default function Laboratorio() {
 
   // Funciones de selección múltiple
   const handleSelectOne = (id) => {
+    const dumpada = dumpadas.find(d => d._key === id);
     setSelectedIds(prev => {
       if (prev.includes(id)) {
         return prev.filter(itemId => itemId !== id);
@@ -220,19 +225,34 @@ export default function Laboratorio() {
         return [...prev, id];
       }
     });
+    setSelectedDumpadas(prev => {
+      if (prev.some(d => d._key === id)) {
+        return prev.filter(d => d._key !== id);
+      } else {
+        return dumpada ? [...prev, dumpada] : prev;
+      }
+    });
   };
 
   const handleSelectAll = (dumpadasList) => {
     const allKeys = dumpadasList.map(d => d._key);
-    if (selectedIds.length === allKeys.length) {
-      setSelectedIds([]);
+    const allSelected = allKeys.every(k => selectedIds.includes(k));
+    if (allSelected) {
+      // Deseleccionar solo los de esta página
+      setSelectedIds(prev => prev.filter(id => !allKeys.includes(id)));
+      setSelectedDumpadas(prev => prev.filter(d => !allKeys.includes(d._key)));
     } else {
-      setSelectedIds(allKeys);
+      // Agregar los de esta página que no estén ya seleccionados
+      const nuevosIds = allKeys.filter(k => !selectedIds.includes(k));
+      const nuevasDumpadas = dumpadasList.filter(d => !selectedIds.includes(d._key));
+      setSelectedIds(prev => [...prev, ...nuevosIds]);
+      setSelectedDumpadas(prev => [...prev, ...nuevasDumpadas]);
     }
   };
 
   const clearSelection = () => {
     setSelectedIds([]);
+    setSelectedDumpadas([]);
     setSelectedHistorialIds([]);
   };
 
@@ -325,15 +345,11 @@ export default function Laboratorio() {
   };
 
   // Generar certificado PDF
-  const handleGenerarCertificado = async () => {
+  const handleGenerarCertificado = () => {
     if (selectedHistorialIds.length === 0) {
       toast.warning('Atención', 'Selecciona al menos una muestra para generar el certificado');
       return;
     }
-
-    // Separar dumpadas y muestras específicas por _key
-    const dumpadaIds      = selectedHistorialIds.filter(k => k.startsWith('d_')).map(k => parseInt(k.slice(2)));
-    const muestraLibreIds = selectedHistorialIds.filter(k => k.startsWith('ml_')).map(k => parseInt(k.slice(3)));
 
     const certificadoActual = getCertificadoSeleccionado();
     if (certificadoActual === 'CONFLICTO') {
@@ -346,10 +362,18 @@ export default function Laboratorio() {
       return;
     }
 
+    setParaModal({ show: true, para: '', pendingAction: 'generar' });
+  };
+
+  const ejecutarGenerarCertificado = async (para) => {
+    const dumpadaIds      = selectedHistorialIds.filter(k => k.startsWith('d_')).map(k => parseInt(k.slice(2)));
+    const muestraLibreIds = selectedHistorialIds.filter(k => k.startsWith('ml_')).map(k => parseInt(k.slice(3)));
+    const certificadoActual = getCertificadoSeleccionado();
+
     setGenerandoPdf(true);
 
     try {
-      const response = await laboratorioService.generarCertificadoPdf(dumpadaIds, null, muestraLibreIds);
+      const response = await laboratorioService.generarCertificadoPdf(dumpadaIds, null, muestraLibreIds, para);
 
       // Crear blob y descargar
       const blob = new Blob([response.data], { type: 'application/pdf' });
@@ -394,6 +418,19 @@ export default function Laboratorio() {
     }
   };
 
+  // Confirmar modal "Para"
+  const handleParaConfirm = () => {
+    const para = paraModal.para.trim() || null;
+    const action = paraModal.pendingAction;
+    setParaModal(prev => ({ ...prev, show: false }));
+
+    if (action === 'generar') {
+      ejecutarGenerarCertificado(para);
+    } else if (action?.tipo === 'regenerar') {
+      ejecutarRegenerarCertificado(action.numeroCertificado, para);
+    }
+  };
+
   // Editar análisis
   const handleEditClick = (dumpada, e) => {
     e?.stopPropagation();
@@ -435,19 +472,27 @@ export default function Laboratorio() {
     }
   };
 
-  // Regenerar certificado existente (descarga directa desde botón de fila)
-  const handleRegenerarCertificado = async (numeroCertificado, e) => {
-    e?.stopPropagation(); // Evitar que se seleccione la fila
+  // Regenerar certificado existente (descarga directa, sin modal por defecto)
+  const handleRegenerarCertificado = (numeroCertificado, e, cambiarPara = false) => {
+    e?.stopPropagation();
 
     if (!numeroCertificado) {
       toast.warning('Sin certificado', 'Esta dumpada aún no tiene un certificado generado');
       return;
     }
 
+    if (cambiarPara) {
+      setParaModal({ show: true, para: '', pendingAction: { tipo: 'regenerar', numeroCertificado } });
+    } else {
+      ejecutarRegenerarCertificado(numeroCertificado, null);
+    }
+  };
+
+  const ejecutarRegenerarCertificado = async (numeroCertificado, para) => {
     setRegenerandoCertificado(numeroCertificado);
 
     try {
-      const response = await laboratorioService.regenerarCertificado(numeroCertificado);
+      const response = await laboratorioService.regenerarCertificado(numeroCertificado, para);
 
       // Crear blob y descargar
       const blob = new Blob([response.data], { type: 'application/pdf' });
@@ -475,6 +520,7 @@ export default function Laboratorio() {
   // Completar análisis
   const handleCompletar = (dumpada) => {
     setSelectedIds([dumpada._key]);
+    setSelectedDumpadas([dumpada]);
     setShowBulkCompleteModal(true);
   };
 
@@ -680,10 +726,48 @@ export default function Laboratorio() {
         {/* Modal de Completar Análisis (Wizard) */}
         <BulkCompleteModal
           show={showBulkCompleteModal}
-          dumpadas={dumpadas.filter(d => selectedIds.includes(d._key)).map(d => ({ ...d, id: d._key }))}
+          dumpadas={selectedDumpadas.map(d => ({ ...d, id: d._key }))}
           onConfirm={handleBulkCompleteConfirm}
           onCancel={handleBulkCompleteCancel}
         />
+
+        {/* Modal "Para" — editar destinatario del certificado */}
+        {paraModal.show && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+              <div className="bg-gradient-to-r from-green-600 to-green-500 text-white px-6 py-4 rounded-t-2xl">
+                <h3 className="text-lg font-bold flex items-center gap-2">
+                  <HiDocumentText className="w-5 h-5" />
+                  Destinatario del certificado
+                </h3>
+                <p className="text-green-100 text-xs mt-0.5">Puedes modificar el campo "Para" antes de generar el PDF</p>
+              </div>
+              <div className="p-6">
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Para: <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={paraModal.para}
+                  onChange={e => setParaModal(prev => ({ ...prev, para: e.target.value }))}
+                  onKeyDown={e => e.key === 'Enter' && handleParaConfirm()}
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm"
+                  placeholder="Ej: Mra 3H Copper Spa"
+                  autoFocus
+                />
+                <p className="text-xs text-gray-500 mt-1.5">Este valor aparecerá en el PDF como "Para:"</p>
+              </div>
+              <div className="px-6 pb-5 flex gap-3 justify-end">
+                <Button variant="secondary" onClick={() => setParaModal(prev => ({ ...prev, show: false }))}>
+                  Cancelar
+                </Button>
+                <Button variant="success" icon={HiDocumentText} onClick={handleParaConfirm}>
+                  Generar PDF
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Header con estadísticas */}
         <div className="bg-white rounded-xl shadow-md p-6 mb-6 border-l-4 border-orange-500">
@@ -978,13 +1062,15 @@ export default function Laboratorio() {
                           <input
                             type="checkbox"
                             onChange={() => handleSelectAll(dumpadas)}
-                            checked={dumpadas.length > 0 && selectedIds.length === dumpadas.length}
+                            checked={dumpadas.length > 0 && dumpadas.every(d => selectedIds.includes(d._key))}
                             className="w-4 h-4 rounded border-orange-300 text-orange-600 focus:ring-orange-500"
                           />
                         </th>
                         <th className="text-left py-3 px-2 font-bold text-orange-900 text-xs">Tipo</th>
-                        <th className="text-left py-3 px-2 font-bold text-orange-900 text-xs">N° Muestra</th>
+                        <th className="text-left py-3 px-2 font-bold text-orange-900 text-xs">Frente</th>
                         <th className="text-left py-3 px-2 font-bold text-orange-900 text-xs">Fecha</th>
+                        <th className="text-left py-3 px-2 font-bold text-orange-900 text-xs">Jornada</th>
+                        <th className="text-left py-3 px-2 font-bold text-orange-900 text-xs">Código</th>
                         <th className="text-left py-3 px-2 font-bold text-orange-900 text-xs">Estado</th>
                         <th className="text-left py-3 px-2 font-bold text-orange-900 text-xs">Acción</th>
                       </tr>
@@ -1021,17 +1107,35 @@ export default function Laboratorio() {
                             </td>
                             <td className="py-3 px-2">
                               {esMuestraLibre ? (
-                                <span className="font-bold text-purple-900 bg-purple-100 px-3 py-1.5 rounded-lg text-sm font-mono">
-                                  {dumpada.codigo || `ME-${String(dumpada.id).padStart(5, '0')}`}
-                                </span>
+                                <span className="text-xs text-gray-400 italic">—</span>
                               ) : (
-                                <span className="font-bold text-orange-900 bg-orange-100 px-3 py-1.5 rounded-lg text-sm font-mono">
-                                  {dumpada.acopios || dumpada.numero_dumpada || dumpada.id}
+                                <span className="text-xs font-semibold text-gray-800">
+                                  {dumpada.frente_trabajo?.codigo_completo || '—'}
                                 </span>
                               )}
                             </td>
-                            <td className="py-3 px-2 text-xs text-gray-800">
+                            <td className="py-3 px-2 text-xs text-gray-800 whitespace-nowrap">
                               {formatearFecha(dumpada.fecha)}
+                            </td>
+                            <td className="py-3 px-2">
+                              {esMuestraLibre ? (
+                                <span className="text-xs text-gray-400 italic">—</span>
+                              ) : (
+                                <span className="text-xs font-semibold bg-purple-100 text-purple-900 px-2 py-0.5 rounded-full whitespace-nowrap">
+                                  {dumpada.jornada || '—'}
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3 px-2">
+                              {esMuestraLibre ? (
+                                <span className="font-bold text-purple-900 bg-purple-100 px-3 py-1.5 rounded-lg text-xs font-mono">
+                                  {dumpada.codigo || `ME-${String(dumpada.id).padStart(5, '0')}`}
+                                </span>
+                              ) : (
+                                <span className="font-bold text-orange-900 bg-orange-100 px-3 py-1.5 rounded-lg text-xs font-mono">
+                                  {dumpada.acopios || dumpada.numero_dumpada || dumpada.id}
+                                </span>
+                              )}
                             </td>
                             <td className="py-3 px-2">
                               <span className={`${getEstadoColor(dumpada.estado)} text-white px-2 py-1 rounded-full text-xs font-bold`}>
@@ -1199,6 +1303,7 @@ export default function Laboratorio() {
                                       <span className="font-mono text-xs text-amber-800 bg-amber-100 px-2 py-1 rounded font-semibold">
                                         {dumpada.certificado}
                                       </span>
+                                      {/* Descargar PDF */}
                                       <button
                                         onClick={(e) => handleRegenerarCertificado(dumpada.certificado, e)}
                                         disabled={regenerandoCertificado === dumpada.certificado}
@@ -1207,13 +1312,22 @@ export default function Laboratorio() {
                                             ? 'bg-gray-200 cursor-wait'
                                             : 'bg-green-100 hover:bg-green-200 text-green-700 hover:text-green-800 shadow-sm'
                                         }`}
-                                        title={`Descargar PDF del certificado ${dumpada.certificado}`}
+                                        title="Descargar PDF"
                                       >
                                         {regenerandoCertificado === dumpada.certificado ? (
                                           <div className="animate-spin rounded-full h-4 w-4 border-2 border-gray-300 border-t-gray-600"></div>
                                         ) : (
                                           <HiDocumentArrowDown className="w-4 h-4" />
                                         )}
+                                      </button>
+                                      {/* Cambiar destinatario (Para) */}
+                                      <button
+                                        onClick={(e) => handleRegenerarCertificado(dumpada.certificado, e, true)}
+                                        disabled={regenerandoCertificado === dumpada.certificado}
+                                        className="p-1.5 rounded-lg transition-all bg-orange-100 hover:bg-orange-200 text-orange-700 hover:text-orange-800 shadow-sm"
+                                        title='Cambiar destinatario "Para" y re-descargar'
+                                      >
+                                        <HiPencil className="w-4 h-4" />
                                       </button>
                                     </>
                                   ) : (

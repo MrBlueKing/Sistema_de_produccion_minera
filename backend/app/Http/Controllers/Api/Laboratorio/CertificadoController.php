@@ -142,6 +142,7 @@ class CertificadoController extends Controller
             'muestra_libre_ids'   => 'nullable|array',
             'muestra_libre_ids.*' => 'integer|exists:muestras_libres,id',
             'forzar_regenerar'    => 'nullable|boolean',
+            'para'                => 'nullable|string|max:200',
         ]);
 
         if ($validator->fails()) {
@@ -150,6 +151,7 @@ class CertificadoController extends Controller
 
         $dumpadaIds      = $request->input('dumpada_ids', []);
         $muestraLibreIds = $request->input('muestra_libre_ids', []);
+        $para            = $request->input('para');
 
         if (empty($dumpadaIds) && empty($muestraLibreIds)) {
             return response()->json(['success' => false, 'message' => 'Debe seleccionar al menos una muestra.'], 422);
@@ -183,12 +185,12 @@ class CertificadoController extends Controller
                         'message' => 'No puede mezclar muestras de diferentes certificados: ' . $certificadosUnicos->implode(', ')
                     ], 400);
                 }
-                $pdf = $this->certificadoService->regenerarCertificado($certificadosUnicos->first());
+                $pdf = $this->certificadoService->regenerarCertificado($certificadosUnicos->first(), $para);
                 return $pdf->download("certificado_{$certificadosUnicos->first()}.pdf");
             }
 
             // Generar nuevo certificado con ambos tipos
-            $pdf = $this->certificadoService->generarCertificado($dumpadaIds, null, true, $muestraLibreIds);
+            $pdf = $this->certificadoService->generarCertificado($dumpadaIds, null, true, $muestraLibreIds, $para);
             return $pdf->download('certificado_' . date('Y-m-d_His') . '.pdf');
 
         } catch (\Exception $e) {
@@ -254,7 +256,8 @@ class CertificadoController extends Controller
     public function regenerar(Request $request, string $numeroCertificado)
     {
         try {
-            $pdf = $this->certificadoService->regenerarCertificado($numeroCertificado);
+            $para = $request->input('para');
+            $pdf = $this->certificadoService->regenerarCertificado($numeroCertificado, $para);
             return $pdf->download('certificado_' . $numeroCertificado . '.pdf');
         } catch (\Exception $e) {
             return response()->json([
