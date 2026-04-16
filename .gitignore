@@ -43,3 +43,4 @@ documentos/
 *.bat
 guia_despliegue_servidor.html
 plan_produccion.html
+backend/error_log
