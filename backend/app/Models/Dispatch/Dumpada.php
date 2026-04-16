@@ -215,19 +215,20 @@ class Dumpada extends Model
      *
      * @return int
      */
-    public static function generarNumeroDumpada()
+    public static function generarNumeroDumpada($idFaena)
     {
         // IMPORTANTE: numero_dumpada es tipo string en la BD, pero contiene números
         // MAX() sobre strings ordena alfabéticamente: "999" > "4307" (incorrecto)
-        // Solución: Obtener TODOS los valores, convertir a int y obtener el máximo en PHP
+        // Solución: Obtener TODOS los valores de la faena, convertir a int y obtener el máximo en PHP
 
-        $maxDumpada = self::whereNotNull('numero_dumpada')
+        $maxDumpada = self::where('id_faena', $idFaena)
+            ->whereNotNull('numero_dumpada')
             ->where('numero_dumpada', '!=', '')
             ->pluck('numero_dumpada')
-            ->map(fn($val) => (int) $val) // Convertir cada valor a entero
-            ->max(); // Obtener el máximo numérico real
+            ->map(fn($val) => (int) $val)
+            ->max();
 
-        // Si no hay registros, empezar en 1
+        // Si no hay registros para esta faena, empezar en 1
         return $maxDumpada ? ($maxDumpada + 1) : 1;
     }
 

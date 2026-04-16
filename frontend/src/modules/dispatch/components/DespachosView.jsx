@@ -1498,16 +1498,31 @@ const DespachosView = () => {
             </div>
           )}
 
-          {/* Form Camionada desde Card de Lote */}
+          {/* Modal Agregar Recargo desde Card de Lote */}
           {mostrarFormCamionada && loteIdParaCamionada && tabLotesActivo === 'abiertos' && (
-            <CamionadasMultiplesForm
-              loteIdPreseleccionado={loteIdParaCamionada}
-              onSuccess={handleCamionadaCreadaDesdeLote}
-              onCancel={() => {
-                setMostrarFormCamionada(false);
-                setLoteIdParaCamionada(null);
-              }}
-            />
+            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-start justify-center z-50 p-4 overflow-y-auto">
+              <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl my-8">
+                <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+                  <h2 className="text-lg font-semibold text-gray-800">Agregar Recargo al Lote</h2>
+                  <button
+                    onClick={() => { setMostrarFormCamionada(false); setLoteIdParaCamionada(null); }}
+                    className="text-gray-400 hover:text-gray-600 transition-colors"
+                  >
+                    <HiX className="w-5 h-5" />
+                  </button>
+                </div>
+                <div className="p-6">
+                  <CamionadasMultiplesForm
+                    loteIdPreseleccionado={loteIdParaCamionada}
+                    onSuccess={handleCamionadaCreadaDesdeLote}
+                    onCancel={() => {
+                      setMostrarFormCamionada(false);
+                      setLoteIdParaCamionada(null);
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
           )}
 
           {/* Resumen General por Planta > Empresa */}
@@ -1689,7 +1704,7 @@ const DespachosView = () => {
                             <div className="bg-orange-50 rounded-lg px-3 py-2 text-center border border-orange-100">
                               <p className="text-[10px] text-gray-500 uppercase font-semibold">Ley Mezcla</p>
                               <p className="text-sm font-bold text-orange-700">
-                                {lote.ley_lab_promedio != null ? `${parseFloat(lote.ley_lab_promedio).toFixed(2)}%` : 'N/A'}
+                                {lote.ley_lote_promedio != null ? `${parseFloat(lote.ley_lote_promedio).toFixed(2)}%` : 'N/A'}
                               </p>
                             </div>
                             <div className="bg-amber-50 rounded-lg px-3 py-2 text-center border border-amber-100">
@@ -1769,9 +1784,9 @@ const DespachosView = () => {
                                       {parseFloat(cam.peso).toFixed(2)} t
                                     </span>
                                     <span className="text-xs text-blue-600 font-mono hidden md:inline">{cam.mezcla?.codigo || '-'}</span>
-                                    {cam.mezcla?.ley_lab != null && (
+                                    {cam.mezcla?.ley_prom_lote != null && (
                                       <span className="text-xs text-orange-600 font-semibold hidden sm:inline">
-                                        {parseFloat(cam.mezcla.ley_lab).toFixed(2)}%
+                                        {parseFloat(cam.mezcla.ley_prom_lote).toFixed(2)}%
                                       </span>
                                     )}
                                     {yaRecepcionado && (
@@ -1925,10 +1940,10 @@ const DespachosView = () => {
                               {parseFloat(totalPeso).toFixed(2)} t
                             </td>
                             <td className="py-3 px-4 text-center">
-                              {lote.ley_lab_promedio !== null && lote.ley_lab_promedio !== undefined
+                              {lote.ley_lote_promedio !== null && lote.ley_lote_promedio !== undefined
                                 ? (
                                   <span className="inline-flex items-center px-2 py-1 rounded-full bg-orange-100 text-orange-800 font-semibold text-xs">
-                                    {lote.ley_lab_promedio.toFixed(2)}%
+                                    {lote.ley_lote_promedio.toFixed(2)}%
                                   </span>
                                 )
                                 : <span className="text-gray-400 text-xs">N/A</span>}

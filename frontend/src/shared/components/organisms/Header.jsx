@@ -44,27 +44,27 @@ export default function Header() {
       {/* Línea inferior sutil */}
       <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-black/20" />
 
-      <div className="flex items-center h-[78px]">
+      <div className="flex items-center h-[60px] sm:h-[78px]">
 
         {/* Logo solo */}
-        <div className="flex items-center px-6 h-full">
-          <img src={logo} alt="Logo Empresa" className="h-14 w-auto object-contain drop-shadow-md" />
+        <div className="flex items-center px-3 sm:px-6 h-full">
+          <img src={logo} alt="Logo Empresa" className="h-9 sm:h-14 w-auto object-contain drop-shadow-md" />
         </div>
 
         {/* Separador */}
         <div className="w-px h-9 bg-white/30 flex-shrink-0" />
 
         {/* Título */}
-        <div className="flex-1 px-7">
-          <div className="flex items-baseline gap-2 flex-wrap">
-            <span className="text-white font-black text-[26px] tracking-tight leading-none drop-shadow-sm">
+        <div className="flex-1 px-3 sm:px-7 min-w-0">
+          <div className="flex items-baseline gap-1 sm:gap-2">
+            <span className="text-white font-black text-[13px] sm:text-[26px] tracking-tight leading-none drop-shadow-sm truncate">
               SISTEMA DE PRODUCCIÓN
             </span>
-            <span className="text-white/75 font-black text-[26px] tracking-tight leading-none drop-shadow-sm">
+            <span className="text-white/75 font-black text-[13px] sm:text-[26px] tracking-tight leading-none drop-shadow-sm flex-shrink-0">
               MINERA
             </span>
           </div>
-          <p className="text-white/60 text-[10px] tracking-[0.28em] uppercase font-semibold mt-1.5">
+          <p className="hidden sm:block text-white/60 text-[10px] tracking-[0.28em] uppercase font-semibold mt-1.5">
             Producción &nbsp;·&nbsp; Gestión &nbsp;·&nbsp; Control Integrado
           </p>
         </div>
@@ -73,7 +73,7 @@ export default function Header() {
         <div className="w-px h-9 bg-white/30 flex-shrink-0" />
 
         {/* Usuario */}
-        <div className="relative h-full flex items-center px-5" ref={dropdownRef}>
+        <div className="relative h-full flex items-center px-2 sm:px-5" ref={dropdownRef}>
           <button
             onClick={() => setDropdownOpen(!dropdownOpen)}
             className="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-black/10 transition-all duration-200 group"

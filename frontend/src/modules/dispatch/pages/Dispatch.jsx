@@ -798,7 +798,7 @@ function DispatchContent() {
           <div className="space-y-6 mb-6">
 
             {/* Banner operacional */}
-            <div className="bg-white rounded-2xl px-8 py-6 border border-gray-200 shadow-sm border-l-4 border-l-orange-500">
+            <div className="bg-white rounded-2xl px-4 sm:px-8 py-4 sm:py-6 border border-gray-200 shadow-sm border-l-4 border-l-orange-500">
               <p className="text-orange-500 text-xs font-bold uppercase tracking-widest mb-1">Módulo Dispatch</p>
               <h2 className="text-2xl font-bold text-gray-900">
                 {faenaNombreDisplay || 'Cargando faena...'}
@@ -1136,7 +1136,7 @@ function DispatchContent() {
                   type: 'select',
                   options: jornadas.map(j => ({ value: j, label: j }))
                 },
-                {
+                ...(esUsuarioGlobal ? [{
                   name: 'id_faena',
                   label: 'Faena',
                   type: 'select',
@@ -1144,7 +1144,7 @@ function DispatchContent() {
                     value: f.id,
                     label: f.ubicacion || f.nombre || `ID: ${f.id}`
                   }))
-                },
+                }] : []),
                 {
                   name: 'id_frente_trabajo',
                   label: 'Frente de Trabajo',

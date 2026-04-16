@@ -244,8 +244,8 @@ class DumpadaController extends Controller
         // MULTI-FAENA: Validar acceso a la faena del frente
         $this->validarAccesoFaena($request, $frente->id_faena);
 
-        // Generar número de dumpada automáticamente (consecutivo único)
-        $numeroDumpada = Dumpada::generarNumeroDumpada();
+        // Generar número de dumpada automáticamente (consecutivo por faena)
+        $numeroDumpada = Dumpada::generarNumeroDumpada($frente->id_faena);
 
         // Usar la fecha proporcionada o la fecha actual, convertida al formato correcto
         $fecha = $this->convertirFecha($request->fecha) ?? now()->format('Y-m-d');
@@ -360,8 +360,8 @@ class DumpadaController extends Controller
                 // Obtener el frente de trabajo
                 $frente = FrenteTrabajo::find($dumpadaData['id_frente_trabajo']);
 
-                // Generar número de dumpada automáticamente (consecutivo único)
-                $numeroDumpada = Dumpada::generarNumeroDumpada();
+                // Generar número de dumpada automáticamente (consecutivo por faena)
+                $numeroDumpada = Dumpada::generarNumeroDumpada($frente->id_faena);
 
                 // Usar la fecha proporcionada o la fecha actual
                 $fecha = isset($dumpadaData['fecha'])
@@ -676,8 +676,8 @@ class DumpadaController extends Controller
         // Obtener el frente de trabajo
         $frente = FrenteTrabajo::find($request->id_frente_trabajo);
 
-        // Generar número de dumpada automáticamente (consecutivo único global)
-        $numeroDumpada = Dumpada::generarNumeroDumpada();
+        // Generar número de dumpada automáticamente (consecutivo por faena)
+        $numeroDumpada = Dumpada::generarNumeroDumpada($frente->id_faena);
 
         // Usar la fecha proporcionada o la fecha actual, convertida al formato correcto
         $fecha = $this->convertirFecha($request->fecha) ?? now()->format('Y-m-d');

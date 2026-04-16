@@ -994,7 +994,7 @@ export default function MezclasView({
                       <td className="py-2 px-2 text-xs">
                         {acopio.frente_trabajo?.codigo_completo || acopio.nombre || 'Manual'}
                       </td>
-                      <td className="py-2 px-2 text-xs font-semibold text-purple-700">
+                      <td className="py-2 px-2 text-xs font-semibold text-orange-700">
                         {acopio.cantidad_dumpadas || 0}
                       </td>
                       <td className="py-2 px-2 text-xs font-semibold text-orange-700">
@@ -1349,7 +1349,7 @@ export default function MezclasView({
                         <td className="py-2 px-2 text-xs">
                           {mezcla.ley_prom_dump ? `${parseFloat(mezcla.ley_prom_dump).toFixed(2)}%` : '-'}
                         </td>
-                        <td className="py-2 px-2 text-xs text-purple-700 font-semibold">
+                        <td className="py-2 px-2 text-xs text-orange-700 font-semibold">
                           {(() => {
                             // FÓRMULA: Ley Visual para remanentes = ley_prom_lote × 1.11
                             // NO revertir el factor 0.9, la fórmula trabaja con leyes ajustadas
@@ -1455,11 +1455,11 @@ export default function MezclasView({
 
         {/* Preview de la Mezcla - Solo aparece cuando hay acopios/dumpadas o remanentes seleccionados */}
         {((usarSistemaAcopios ? acopiosSeleccionados.length > 0 : dumpadasSeleccionadas.length > 0) || remanentesSeleccionados.length > 0) && (
-          <Card className="mb-6 border-2 border-purple-500 bg-gradient-to-br from-purple-50 via-white to-blue-50 shadow-lg">
+          <Card className="mb-6 border-2 border-orange-500 bg-gradient-to-br from-orange-50 via-white to-blue-50 shadow-lg">
             {/* Header con título y botones */}
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-4 gap-3">
               <div>
-                <h4 className="text-2xl font-bold text-purple-900 flex items-center gap-2">
+                <h4 className="text-2xl font-bold text-orange-900 flex items-center gap-2">
                   <HiBeaker className="w-7 h-7" />
                   Nueva Mezcla
                 </h4>
@@ -1496,8 +1496,8 @@ export default function MezclasView({
 
             {/* Configuración: Planta, Ley Base y Observaciones */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-              <div className="bg-white rounded-lg p-4 border-2 border-purple-200 shadow-sm">
-                <label className="block text-sm font-bold text-purple-800 mb-2">
+              <div className="bg-white rounded-lg p-4 border-2 border-orange-200 shadow-sm">
+                <label className="block text-sm font-bold text-orange-800 mb-2">
                   🏭 Planta Destino <span className="text-red-500">*</span>
                 </label>
                 <select
@@ -1554,18 +1554,18 @@ export default function MezclasView({
                   placeholder="Notas adicionales..."
                   value={formDataMezcla.observaciones}
                   onChange={(e) => setFormDataMezcla({ ...formDataMezcla, observaciones: e.target.value })}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-orange-500 focus:border-transparent"
                 />
               </div>
             </div>
 
             {/* Resumen de totales */}
             <div className="grid grid-cols-2 md:grid-cols-7 gap-3 mb-4">
-              <div className="bg-white rounded-xl p-3 border border-purple-200 text-center shadow-sm">
+              <div className="bg-white rounded-xl p-3 border border-orange-200 text-center shadow-sm">
                 <p className="text-xs text-gray-500 uppercase font-medium">
                   {usarSistemaAcopios ? 'Dumpadas' : 'Seleccionadas'}
                 </p>
-                <p className="text-2xl font-bold text-purple-700">{calcularTotalesMezcla().cantidadDumpadas}</p>
+                <p className="text-2xl font-bold text-orange-700">{calcularTotalesMezcla().cantidadDumpadas}</p>
               </div>
               <div className="bg-white rounded-xl p-3 border border-orange-200 text-center shadow-sm">
                 <p className="text-xs text-gray-500 uppercase font-medium">Remanentes</p>
@@ -1594,9 +1594,9 @@ export default function MezclasView({
             </div>
 
             {/* Tabla de acopios o dumpadas seleccionados */}
-            <div className="bg-white rounded-lg border border-purple-200 overflow-hidden shadow-sm">
-              <div className="bg-gradient-to-r from-purple-100 to-purple-50 px-4 py-2 border-b border-purple-200">
-                <p className="text-sm font-bold text-purple-800">
+            <div className="bg-white rounded-lg border border-orange-200 overflow-hidden shadow-sm">
+              <div className="bg-gradient-to-r from-orange-100 to-orange-50 px-4 py-2 border-b border-orange-200">
+                <p className="text-sm font-bold text-orange-800">
                   📦 Composición de la mezcla ({usarSistemaAcopios ? 'Acopios' : 'Dumpadas'})
                 </p>
               </div>
@@ -1629,12 +1629,12 @@ export default function MezclasView({
                     {usarSistemaAcopios ? (
                       // MODO ACOPIOS
                       calcularTotalesMezcla().acopiosDetalle.map((acopio, idx) => (
-                        <tr key={acopio.id} className={`border-b border-gray-100 hover:bg-purple-50 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
-                          <td className="py-2 px-3 font-mono font-bold text-purple-700">
+                        <tr key={acopio.id} className={`border-b border-gray-100 hover:bg-orange-50 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                          <td className="py-2 px-3 font-mono font-bold text-orange-700">
                             {acopio.codigo_acopio}
                           </td>
                           <td className="py-2 px-3 text-gray-600">{acopio.frente_trabajo?.codigo_completo || acopio.nombre || 'Manual'}</td>
-                          <td className="py-2 px-3 text-right font-semibold text-purple-600">{acopio.cantidad_dumpadas || 0}</td>
+                          <td className="py-2 px-3 text-right font-semibold text-orange-600">{acopio.cantidad_dumpadas || 0}</td>
                           <td className="py-2 px-3 text-right font-semibold">{acopio.total_toneladas ? parseFloat(acopio.total_toneladas).toFixed(2) : '0.00'}</td>
                           <td className="py-2 px-3 text-right">{acopio.ley_promedio ? `${parseFloat(acopio.ley_promedio).toFixed(2)}%` : '-'}</td>
                           <td className="py-2 px-3 text-center">
@@ -1773,8 +1773,9 @@ export default function MezclasView({
         )}
 
       {/* Historial de Mezclas */}
+      {/* pb-20: espacio para que la barra sticky no tape el contenido cuando está visible */}
       <LoadingOverlay isLoading={loading} text="Cargando mezclas...">
-        <Card className="border-l-4 border-purple-400 mt-6">
+        <Card className="border-l-4 border-orange-400 mt-6 pb-20">
           <h3 className="text-2xl font-bold text-gray-900 mb-6">📦 Historial de Mezclas (Lote Interno)</h3>
 
           {mezclas.length === 0 ? (
@@ -1787,23 +1788,23 @@ export default function MezclasView({
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b-2 border-purple-200 bg-gradient-to-r from-purple-50 to-purple-100">
-                  <th className="text-left py-2 px-2 font-bold text-purple-900 text-xs">Código</th>
-                  <th className="text-left py-2 px-2 font-bold text-purple-900 text-xs">Fecha</th>
-                  <th className="text-left py-2 px-2 font-bold text-purple-900 text-xs">Total Ton</th>
-                  <th className="text-left py-2 px-2 font-bold text-purple-900 text-xs">Ley Prom</th>
-                  <th className="text-left py-2 px-2 font-bold text-purple-900 text-xs">Estado</th>
-                  <th className="text-left py-2 px-2 font-bold text-purple-900 text-xs">Acciones</th>
+                <tr className="border-b-2 border-orange-200 bg-gradient-to-r from-orange-50 to-orange-100">
+                  <th className="text-left py-2 px-2 font-bold text-orange-900 text-xs">Código</th>
+                  <th className="text-left py-2 px-2 font-bold text-orange-900 text-xs">Fecha</th>
+                  <th className="text-left py-2 px-2 font-bold text-orange-900 text-xs">Total Ton</th>
+                  <th className="text-left py-2 px-2 font-bold text-orange-900 text-xs">Ley Prom</th>
+                  <th className="text-left py-2 px-2 font-bold text-orange-900 text-xs">Estado</th>
+                  <th className="text-left py-2 px-2 font-bold text-orange-900 text-xs">Acciones</th>
                 </tr>
               </thead>
               <tbody>
                 {mezclas.map((mezcla, index) => (
                   <tr
                     key={mezcla.id}
-                    className={`border-b border-gray-200 hover:bg-purple-50 transition-all ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
+                    className={`border-b border-gray-200 hover:bg-orange-50 transition-all ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
                       }`}
                   >
-                    <td className="py-2 px-2 font-bold text-purple-900">
+                    <td className="py-2 px-2 font-bold text-orange-900">
                       {mezcla.codigo}
                     </td>
                     <td className="py-2 px-2 text-xs">
@@ -1856,7 +1857,7 @@ export default function MezclasView({
         <div className="fixed inset-0 bg-transparent bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fadeIn">
           <div className="bg-white rounded-2xl shadow-2xl max-w-6xl w-full max-h-[90vh] overflow-hidden flex flex-col">
             {/* Header del modal con gradiente */}
-            <div className="bg-gradient-to-r from-purple-600 via-purple-500 to-indigo-600 px-6 py-5 flex items-center justify-between">
+            <div className="bg-gradient-to-r from-orange-600 via-orange-500 to-indigo-600 px-6 py-5 flex items-center justify-between">
               <div className="flex items-center gap-4">
                 <div className="bg-white/20 backdrop-blur-sm rounded-xl p-3">
                   <HiBeaker className="w-8 h-8 text-white" />
@@ -1865,7 +1866,7 @@ export default function MezclasView({
                   <h3 className="text-2xl font-bold text-white flex items-center gap-2">
                     Mezcla {mezclaSeleccionada.codigo}
                   </h3>
-                  <p className="text-purple-100 text-sm mt-1">
+                  <p className="text-orange-100 text-sm mt-1">
                     {formatearFecha(mezclaSeleccionada.fecha)}
                   </p>
                 </div>
@@ -1877,7 +1878,7 @@ export default function MezclasView({
                     size="sm"
                     onClick={handleAbrirAgregarDumpadas}
                     disabled={loading}
-                    className="bg-white text-purple-600 hover:bg-purple-50 border-2 border-white"
+                    className="bg-white text-orange-600 hover:bg-orange-50 border-2 border-white"
                   >
                     + Agregar Dumpadas
                   </Button>
@@ -1978,7 +1979,7 @@ export default function MezclasView({
               {/* Tarjetas de resumen principal */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 {/* Total Toneladas */}
-                <div className="bg-white rounded-xl shadow-md p-4 border-t-4 border-purple-500">
+                <div className="bg-white rounded-xl shadow-md p-4 border-t-4 border-orange-500">
                   <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">Total</p>
                   <p className="text-2xl font-bold text-gray-900 mt-1">
                     {parseFloat(mezclaSeleccionada.total_ton).toFixed(2)}
@@ -2052,7 +2053,7 @@ export default function MezclasView({
                   {/* Header colapsable */}
                   <button
                     onClick={() => setMostrarComposicion(!mostrarComposicion)}
-                    className="w-full bg-gradient-to-r from-indigo-500 to-purple-600 px-5 py-3 flex items-center justify-between rounded-t-xl hover:from-indigo-600 hover:to-purple-700 transition-all"
+                    className="w-full bg-gradient-to-r from-indigo-500 to-orange-600 px-5 py-3 flex items-center justify-between rounded-t-xl hover:from-indigo-600 hover:to-orange-700 transition-all"
                   >
                     <h4 className="font-bold text-white text-base flex items-center gap-2">
                       <HiCube className="w-5 h-5" />
@@ -2066,7 +2067,7 @@ export default function MezclasView({
 
                   {/* Tabla colapsable */}
                   {mostrarComposicion && (
-                  <div className="overflow-x-auto max-h-[400px] overflow-y-auto bg-gradient-to-r from-indigo-50 to-purple-50 border-b-2 border-indigo-200">
+                  <div className="overflow-x-auto max-h-[400px] overflow-y-auto bg-gradient-to-r from-indigo-50 to-orange-50 border-b-2 border-indigo-200">
                     <table className="w-full text-sm">
                       <thead className="sticky top-0 z-10">
                         <tr className="bg-indigo-100 shadow-sm">
@@ -2129,7 +2130,7 @@ export default function MezclasView({
                           </tr>
                         ))}
                         {/* Fila de totales */}
-                        <tr className="bg-gradient-to-r from-indigo-100 via-purple-100 to-pink-100 border-t-4 border-indigo-400 font-bold">
+                        <tr className="bg-gradient-to-r from-indigo-100 via-orange-100 to-pink-100 border-t-4 border-indigo-400 font-bold">
                           <td className="py-4 px-4 text-sm text-indigo-900" colSpan="2">
                             <div className="flex items-center gap-2">
                               <HiBeaker className="w-5 h-5" />
@@ -2769,6 +2770,81 @@ export default function MezclasView({
         confirmText="Eliminar"
         cancelText="Cancelar"
       />
+
+      {/* ===== BARRA STICKY DE MEZCLA EN PROGRESO ===== */}
+      {((usarSistemaAcopios ? acopiosSeleccionados.length > 0 : dumpadasSeleccionadas.length > 0) || remanentesSeleccionados.length > 0) && (() => {
+        const totales = calcularTotalesMezcla();
+        return (
+          <div className="fixed bottom-0 left-0 right-0 z-40 bg-orange-900 text-white shadow-2xl border-t-2 border-orange-400">
+            <div className="max-w-7xl mx-auto px-3 sm:px-6 py-2 sm:py-3">
+              <div className="flex items-center gap-2 sm:gap-4">
+
+                {/* Etiqueta */}
+                <div className="flex-shrink-0">
+                  <HiBeaker className="w-5 h-5 text-orange-300" />
+                </div>
+
+                {/* Métricas */}
+                <div className="flex items-center gap-2 sm:gap-5 flex-1 min-w-0 overflow-x-auto">
+
+                  <div className="flex-shrink-0 text-center">
+                    <p className="text-[10px] text-orange-300 uppercase font-semibold leading-none">Dump</p>
+                    <p className="text-sm sm:text-base font-bold leading-tight">{totales.cantidadDumpadas}</p>
+                  </div>
+
+                  {totales.cantidadRemanentes > 0 && (
+                    <div className="flex-shrink-0 text-center">
+                      <p className="text-[10px] text-orange-200 uppercase font-semibold leading-none">Rem</p>
+                      <p className="text-sm sm:text-base font-bold text-orange-200 leading-tight">{totales.cantidadRemanentes}</p>
+                    </div>
+                  )}
+
+                  <div className="w-px h-6 bg-orange-700 flex-shrink-0" />
+
+                  <div className="flex-shrink-0 text-center">
+                    <p className="text-[10px] text-orange-300 uppercase font-semibold leading-none">Ton</p>
+                    <p className="text-sm sm:text-base font-bold text-blue-300 leading-tight">{totales.totalTon} t</p>
+                  </div>
+
+                  <div className="w-px h-6 bg-orange-700 flex-shrink-0" />
+
+                  <div className="flex-shrink-0 text-center">
+                    <p className="text-[10px] text-orange-300 uppercase font-semibold leading-none">Ley Dump</p>
+                    <p className="text-sm sm:text-base font-bold text-amber-300 leading-tight">{totales.leyAjustada}%</p>
+                  </div>
+
+                  <div className="hidden sm:block w-px h-6 bg-orange-700 flex-shrink-0" />
+
+                  <div className="hidden sm:block flex-shrink-0 text-center">
+                    <p className="text-[10px] text-orange-300 uppercase font-semibold leading-none">Ley Visual</p>
+                    <p className="text-sm sm:text-base font-bold text-green-300 leading-tight">{totales.leyVisual}%</p>
+                  </div>
+
+                  <div className="w-px h-6 bg-orange-700 flex-shrink-0" />
+
+                  <div className="flex-shrink-0 text-center">
+                    <p className="text-[10px] text-orange-300 uppercase font-semibold leading-none">Ley Lote</p>
+                    <p className="text-sm sm:text-base font-bold text-yellow-300 leading-tight">{totales.leyLote}%</p>
+                  </div>
+
+                </div>
+
+                {/* Botón Crear */}
+                <button
+                  onClick={handleCrearMezcla}
+                  disabled={loading || !formDataMezcla.planta_id}
+                  className="flex-shrink-0 flex items-center gap-1.5 bg-orange-500 hover:bg-orange-400 disabled:bg-orange-800 disabled:text-orange-600 disabled:cursor-not-allowed text-white font-bold text-xs sm:text-sm px-3 sm:px-4 py-2 rounded-lg transition-colors"
+                  title={!formDataMezcla.planta_id ? 'Selecciona una planta primero' : 'Crear mezcla'}
+                >
+                  <HiBeaker className="w-4 h-4 flex-shrink-0" />
+                  <span className="hidden xs:inline">{loading ? 'Creando...' : 'Crear'}</span>
+                </button>
+
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </>
   );
 }

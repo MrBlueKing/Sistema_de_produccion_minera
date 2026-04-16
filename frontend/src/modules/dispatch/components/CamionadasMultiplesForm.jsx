@@ -15,7 +15,7 @@ const CamionadasMultiplesForm = ({ onSuccess, onCancel, loteIdPreseleccionado = 
   const [empresas, setEmpresas] = useState([]);
   const [maquinas, setMaquinas] = useState([]);
   const [lotesAbiertos, setLotesAbiertos] = useState([]);
-  const [cargandoMaquinas, setCargandoMaquinas] = useState(false);
+  const [cargandoMaquinas, setCargandoMaquinas] = useState(true);
   const [mezclaSeleccionada, setMezclaSeleccionada] = useState(null);
   const [pesoCamionDefault, setPesoCamionDefault] = useState(29);
 
@@ -489,17 +489,18 @@ const CamionadasMultiplesForm = ({ onSuccess, onCancel, loteIdPreseleccionado = 
             <Button
               type="submit"
               variant="primary"
-              disabled={loading || maquinas.length === 0}
+              disabled={loading || cargandoMaquinas || maquinas.length === 0}
               icon={HiSave}
               className="px-8 py-3 text-lg bg-blue-600 hover:bg-blue-700"
             >
               {loading ? 'Creando...' :
+               cargandoMaquinas ? 'Cargando...' :
                maquinas.length === 0 ? 'Sin camiones disponibles' :
                `Crear ${camionadas.filter(c => c.patente && c.peso > 0).length} Camionada(s)`}
             </Button>
           </div>
 
-          {maquinas.length === 0 && !loading && (
+          {maquinas.length === 0 && !loading && !cargandoMaquinas && (
             <p className="text-center text-red-600 text-sm font-semibold bg-red-50 p-3 rounded-md border border-red-200">
               No hay camiones registrados. Registre camiones en la pestaña Plantas &gt; Camiones.
             </p>

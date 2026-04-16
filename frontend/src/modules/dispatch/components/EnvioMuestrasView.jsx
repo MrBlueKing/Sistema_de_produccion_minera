@@ -456,12 +456,7 @@ export default function EnvioMuestrasView({
                 </tr>
               </thead>
               <tbody>
-                {[...pendientesData].sort((a, b) => {
-                  if (a.fecha !== b.fecha) return a.fecha > b.fecha ? 1 : -1;
-                  if (a.id_frente_trabajo !== b.id_frente_trabajo) return a.id_frente_trabajo - b.id_frente_trabajo;
-                  if (a.jornada !== b.jornada) return a.jornada.localeCompare(b.jornada);
-                  return (a.numero_jornada || 0) - (b.numero_jornada || 0);
-                }).map((dumpada, index, sortedArray) => {
+                {[...pendientesData].sort((a, b) => b.id - a.id).map((dumpada, index, sortedArray) => {
                   const backgroundColor = getBackgroundColorByGroup(sortedArray, index);
                   return (
                     <tr

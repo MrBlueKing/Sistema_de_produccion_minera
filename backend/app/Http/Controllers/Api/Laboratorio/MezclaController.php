@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Laboratorio;
 use App\Http\Controllers\Controller;
 use App\Models\Laboratorio\Mezcla;
 use App\Services\Laboratorio\MezclaService;
+use App\Traits\MultiTenancy;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Exception;
@@ -12,6 +13,7 @@ use Illuminate\Support\Facades\Log;
 
 class MezclaController extends Controller
 {
+    use MultiTenancy;
     protected $mezclaService;
 
     public function __construct(MezclaService $mezclaService)
@@ -31,6 +33,7 @@ class MezclaController extends Controller
                 'id',
                 'codigo',
                 'fecha',
+                'id_faena',
                 'planta_id', // Agregar planta_id
                 'total_ton',
                 'toneladas_disponibles',
@@ -49,6 +52,12 @@ class MezclaController extends Controller
                 'ajuste_toneladas',
                 'created_at'
             ]);
+
+        // ✅ MULTI-FAENA: Filtrar por faena del usuario si no es global
+        if (!$this->esUsuarioGlobal($request)) {
+            $query->where('id_faena', $request->auth_faena);
+            Log::info('🔒 [MEZCLAS] Filtrando por faena de usuario', ['id_faena' => $request->auth_faena]);
+        }
 
         // Filtros opcionales
         if ($request->has('fecha_desde')) {
@@ -356,11 +365,17 @@ class MezclaController extends Controller
      */
     public function dumpadasDisponibles(Request $request)
     {
+        // ✅ MULTI-FAENA: Forzar id_faena del usuario si no es global
+        $filtros = $request->only(['fecha_desde', 'fecha_hasta', 'id_faena']);
+        if (!$this->esUsuarioGlobal($request)) {
+            $filtros['id_faena'] = $request->auth_faena;
+        }
+
         Log::info('🔍 [MEZCLAS] Solicitando dumpadas disponibles', [
-            'filtros' => $request->only(['fecha_desde', 'fecha_hasta', 'id_faena'])
+            'filtros' => $filtros,
+            'es_global' => $this->esUsuarioGlobal($request)
         ]);
 
-        $filtros = $request->only(['fecha_desde', 'fecha_hasta', 'id_faena']);
         $dumpadas = $this->mezclaService->obtenerDumpadasDisponibles($filtros);
 
         Log::info('✅ [MEZCLAS] Dumpadas disponibles encontradas', [
@@ -380,10 +395,10 @@ class MezclaController extends Controller
      * 2. Aún tiene material disponible (toneladas_disponibles > 0)
      * 3. Es de un lote que fue cerrado (estado En Despacho o Despachado)
      */
-    public function remanentesDisponibles()
+    public function remanentesDisponibles(Request $request)
     {
         try {
-            $mezclas = Mezcla::where('toneladas_disponibles', '>', 0.01)
+            $query = Mezcla::where('toneladas_disponibles', '>', 0.01)
                 ->where('toneladas_despachadas', '>', 0) // Solo si ya se despachó algo
                 ->whereIn('estado', ['En Despacho', 'Despachado']) // Solo mezclas en proceso o completadas
                 ->where('es_descarte', false) // Excluir descartados
@@ -391,6 +406,7 @@ class MezclaController extends Controller
                     'id',
                     'codigo',
                     'fecha',
+                    'id_faena',
                     'total_ton',
                     'toneladas_disponibles',
                     'toneladas_despachadas',
@@ -401,9 +417,15 @@ class MezclaController extends Controller
                     'estado',
                     'es_descarte',
                     'ajuste_aplicado'
-                ])
-                ->orderBy('fecha', 'desc')
-                ->get();
+                ]);
+
+            // ✅ MULTI-FAENA: Filtrar por faena del usuario si no es global
+            if (!$this->esUsuarioGlobal($request)) {
+                $query->where('id_faena', $request->auth_faena);
+                Log::info('🔒 [MEZCLAS REMANENTES] Filtrando por faena de usuario', ['id_faena' => $request->auth_faena]);
+            }
+
+            $mezclas = $query->orderBy('fecha', 'desc')->get();
 
             return response()->json($mezclas);
 

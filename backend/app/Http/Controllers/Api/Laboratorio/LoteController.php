@@ -6,12 +6,14 @@ use App\Http\Controllers\Controller;
 use App\Models\Laboratorio\Lote;
 use App\Services\Laboratorio\LoteService;
 use App\Services\Laboratorio\CamionadaService;
+use App\Traits\MultiTenancy;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Exception;
 
 class LoteController extends Controller
 {
+    use MultiTenancy;
     protected $loteService;
     protected $camionadaService;
 
@@ -38,6 +40,11 @@ class LoteController extends Controller
     public function index(Request $request)
     {
         $query = Lote::with(['planta', 'empresa', 'camionadas']);
+
+        // ✅ MULTI-FAENA: Filtrar por faena del usuario si no es global
+        if (!$this->esUsuarioGlobal($request)) {
+            $query->where('id_faena', $request->auth_faena);
+        }
 
         // Búsqueda por texto
         if ($request->has('search') && !empty($request->search)) {

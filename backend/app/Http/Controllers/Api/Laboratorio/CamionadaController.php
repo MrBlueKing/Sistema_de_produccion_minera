@@ -5,11 +5,13 @@ namespace App\Http\Controllers\Api\Laboratorio;
 use App\Http\Controllers\Controller;
 use App\Services\Laboratorio\CamionadaService;
 use App\Models\Laboratorio\Camionada;
+use App\Traits\MultiTenancy;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 
 class CamionadaController extends Controller
 {
+    use MultiTenancy;
     protected $camionadaService;
 
     public function __construct(CamionadaService $camionadaService)
@@ -24,6 +26,11 @@ class CamionadaController extends Controller
     public function index(Request $request)
     {
         $query = Camionada::with(['mezcla', 'lote.planta', 'lote.empresa']);
+
+        // ✅ MULTI-FAENA: Filtrar por faena del usuario si no es global
+        if (!$this->esUsuarioGlobal($request)) {
+            $query->where('id_faena', $request->auth_faena);
+        }
 
         // Filtros
         if ($request->has('mezcla_id')) {
