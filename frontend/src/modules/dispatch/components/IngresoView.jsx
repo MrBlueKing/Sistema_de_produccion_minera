@@ -396,62 +396,46 @@ export default function IngresoView({
         {/* Panel: Flujo del dato (colapsable) */}
         {showInfo && (
           <div className="mb-5 p-4 bg-blue-50 border border-blue-200 rounded-xl">
-            <p className="text-xs font-bold text-blue-800 uppercase tracking-wide mb-3">¿Qué ocurre con la dumpada después del ingreso?</p>
-            <div className="space-y-1.5">
 
-              {/* Paso 1 */}
-              <div className="flex items-start gap-2.5">
-                <div className="w-5 h-5 rounded-full bg-orange-500 text-white text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">1</div>
-                <div className="flex-1 bg-white border border-orange-200 rounded-lg px-3 py-2">
-                  <p className="text-xs font-bold text-orange-700">Ingreso <span className="font-normal text-gray-400 ml-1">— estás aquí</span></p>
-                  <p className="text-xs text-gray-500 mt-0.5">Se registra Frente, Jornada y Ley Visual. Si no se indica tonelaje se usa el valor por defecto de {tonelajeDumpadaDefault} ton. La dumpada queda en estado <strong className="text-yellow-600">Ingresado</strong>.</p>
-                </div>
+            {/* ── Flujo del dato ── */}
+            <div className="mb-4 pb-4 border-b border-blue-100">
+              <p className="text-[9px] font-bold text-blue-400 uppercase tracking-widest mb-2.5">Flujo del dato</p>
+              <div className="flex items-start">
+                {[
+                  { n: 1, label: 'Ingreso', color: 'bg-orange-500', active: true },
+                  { n: 2, label: 'Envío\nMuestras', color: 'bg-teal-500', active: false },
+                  { n: 3, label: 'Lab', color: 'bg-green-600', active: false },
+                  { n: 4, label: 'Mezclas', color: 'bg-purple-600', active: false },
+                  { n: 5, label: 'Despacho', color: 'bg-indigo-600', active: false },
+                ].flatMap((p, i, arr) => [
+                  <div key={`s${i}`} className={`flex flex-col items-center ${!p.active ? 'opacity-35' : ''}`} style={{minWidth:'44px'}}>
+                    <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white ${p.active ? p.color : 'bg-gray-300'}`}>{p.n}</div>
+                    <span className={`mt-1 text-[9px] font-semibold text-center leading-tight whitespace-pre-line ${p.active ? 'text-gray-700' : 'text-gray-400'}`}>{p.label}</span>
+                  </div>,
+                  ...(i < arr.length - 1 ? [<div key={`l${i}`} className="flex-1 h-px bg-gray-200 mt-3.5 mx-0.5 min-w-[8px]" />] : [])
+                ])}
               </div>
+            </div>
 
-              <div className="ml-2.5 text-gray-300 text-sm leading-none pl-0.5">▼</div>
-
-              {/* Paso 2 */}
-              <div className="flex items-start gap-2.5">
-                <div className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">2</div>
-                <div className="flex-1 bg-white border border-blue-200 rounded-lg px-3 py-2">
-                  <p className="text-xs font-bold text-blue-700">Envío de Muestras</p>
-                  <p className="text-xs text-gray-500 mt-0.5">Desde el módulo <strong>Envío de Muestras</strong> se selecciona cuáles dumpadas se enviarán a analizar.</p>
-                </div>
+            {/* ── Específico: Ingreso ── */}
+            <p className="text-xs font-bold text-blue-800 uppercase tracking-wide mb-2.5">¿Cómo funciona el Ingreso?</p>
+            <div className="space-y-2">
+              <div className="bg-white border border-orange-200 rounded-lg px-3 py-2">
+                <p className="text-xs font-bold text-orange-700">Qué se registra</p>
+                <p className="text-xs text-gray-500 mt-0.5">Por cada dumpada se ingresa: <strong>Frente de trabajo</strong>, <strong>Jornada</strong>, <strong>Máquina</strong> y opcionalmente la <strong>Ley Visual</strong> tomada en terreno. Sin ley visual, la dumpada igualmente queda registrada. La dumpada queda en estado <strong className="text-yellow-600">Ingresado</strong>.</p>
               </div>
-
-              <div className="ml-2.5 text-gray-300 text-sm leading-none pl-0.5">▼</div>
-
-              {/* Paso 3 */}
-              <div className="flex items-start gap-2.5">
-                <div className="w-5 h-5 rounded-full bg-green-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">3</div>
-                <div className="flex-1 bg-white border border-green-200 rounded-lg px-3 py-2">
-                  <p className="text-xs font-bold text-green-700">Análisis de Laboratorio</p>
-                  <p className="text-xs text-gray-500 mt-0.5">El laboratorio ingresa Cu Total y Cu Soluble. El sistema calcula automáticamente Cu Insoluble. La dumpada pasa a estado <strong className="text-green-600">Completado</strong>.</p>
-                </div>
+              <div className="bg-white border border-orange-200 rounded-lg px-3 py-2">
+                <p className="text-xs font-bold text-orange-700">Tonelaje</p>
+                <p className="text-xs text-gray-500 mt-0.5">Si no se indica tonelaje, el sistema usa el valor configurado por defecto ({tonelajeDumpadaDefault} ton). Cada máquina también puede tener su propio tonelaje individual asignado. Ambos valores son modificables — contactar al administrador del sistema.</p>
               </div>
-
-              <div className="ml-2.5 text-gray-300 text-sm leading-none pl-0.5">▼</div>
-
-              {/* Paso 4 */}
-              <div className="flex items-start gap-2.5">
-                <div className="w-5 h-5 rounded-full bg-purple-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">4</div>
-                <div className="flex-1 bg-white border border-purple-200 rounded-lg px-3 py-2">
-                  <p className="text-xs font-bold text-purple-700">Mezcla</p>
-                  <p className="text-xs text-gray-500 mt-0.5">Las dumpadas se combinan para formar una mezcla. Pueden usarse con ley de laboratorio o solo con ley visual. El sistema calcula el promedio ponderado por tonelaje.</p>
-                </div>
+              <div className="bg-white border border-orange-200 rounded-lg px-3 py-2">
+                <p className="text-xs font-bold text-orange-700">Frentes de trabajo</p>
+                <p className="text-xs text-gray-500 mt-0.5">Los frentes disponibles son configurados por el equipo de Ingeniería. Si un frente no aparece en la lista o hay que agregar uno nuevo, contactar al administrador del sistema.</p>
               </div>
-
-              <div className="ml-2.5 text-gray-300 text-sm leading-none pl-0.5">▼</div>
-
-              {/* Paso 5 */}
-              <div className="flex items-start gap-2.5">
-                <div className="w-5 h-5 rounded-full bg-gray-500 text-white text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">5</div>
-                <div className="flex-1 bg-white border border-gray-200 rounded-lg px-3 py-2">
-                  <p className="text-xs font-bold text-gray-700">Despacho</p>
-                  <p className="text-xs text-gray-500 mt-0.5">Las mezclas se despachan en camionadas agrupadas en un lote hacia la planta de destino.</p>
-                </div>
+              <div className="bg-white border border-orange-200 rounded-lg px-3 py-2">
+                <p className="text-xs font-bold text-orange-700">Siguiente paso</p>
+                <p className="text-xs text-gray-500 mt-0.5">Una vez ingresada, la dumpada queda disponible en <strong>Envío de Muestras</strong> para ser enviada al laboratorio y obtener su ley química.</p>
               </div>
-
             </div>
           </div>
         )}

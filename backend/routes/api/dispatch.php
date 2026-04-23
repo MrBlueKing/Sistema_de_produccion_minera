@@ -207,6 +207,9 @@ Route::prefix('camionadas')->group(function () {
     // Recepcionar camionada (con peso real y datos de recepción)
     Route::post('/{id}/recepcionar', [CamionadaController::class, 'recepcionar']);
 
+    // Anular recepción de una camionada
+    Route::post('/{id}/anular-recepcion', [CamionadaController::class, 'anularRecepcion']);
+
     // Actualizar ley de laboratorio
     Route::post('/{id}/ley-laboratorio', [CamionadaController::class, 'actualizarLeyLaboratorio']);
 });

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { HiHome, HiPencil, HiTrash, HiCheckCircle, HiXCircle, HiEye, HiChevronLeft, HiChevronRight, HiBeaker, HiCube, HiMap, HiTruck, HiClipboardDocumentList, HiCog6Tooth, HiDocumentPlus } from 'react-icons/hi2';
+import { HiHome, HiPencil, HiTrash, HiCheckCircle, HiXCircle, HiEye, HiChevronLeft, HiChevronRight, HiBeaker, HiCube, HiMap, HiTruck, HiClipboardDocumentList, HiCog6Tooth, HiDocumentPlus, HiInformationCircle } from 'react-icons/hi2';
 import { HiClipboardCheck, HiFilter } from "react-icons/hi";
 import { useNavigate } from 'react-router-dom';
 import Header from '../../../shared/components/organisms/Header';
@@ -13,6 +13,7 @@ import Pagination from '../../../shared/components/molecules/Pagination';
 import TableFilters from '../../../shared/components/molecules/TableFilters';
 import RangoTooltip from '../../../shared/components/molecules/RangoTooltip';
 import MezclasView from '../components/MezclasView';
+import LoteDetalleView from '../components/LoteDetalleView';
 import MapaTerrenoMejorado from '../components/MapaTerrenoMejorado';
 import DespachosView from '../components/DespachosView';
 import AcopiosView from '../components/AcopiosView';
@@ -27,6 +28,7 @@ import { useConfig } from '../../../hooks/useConfig';
 import { useAuth } from '../../../core/context/AuthContext';
 import dispatchService from '../services/dispatch';
 import mezclasService from '../services/mezclas';
+import laboratorioService from '../../../services/laboratorio';
 import ingenieriaService from '../../ingenieria/services/ingenieria';
 import faenaService from '../../../services/faenaService';
 
@@ -97,6 +99,7 @@ function DispatchContent() {
 
   // Vista actual: 'menu', 'ingreso', 'historial', 'acopios', 'mezclas', 'mapa', 'despachos' o 'configuracion'
   const [vistaActual, setVistaActual] = useState('menu');
+  const [showInfoHistorial, setShowInfoHistorial] = useState(false);
 
   // Estados de filtros (solo para vista historial)
   const [searchTerm, setSearchTerm] = useState('');
@@ -127,6 +130,14 @@ function DispatchContent() {
   // KPIs semanales del hub
   const [resumenSemana, setResumenSemana] = useState([]);
   const [resumenSemanaInfo, setResumenSemanaInfo] = useState(null);
+
+  // Lotes del mes para el hub
+  const [lotesDelMes, setLotesDelMes] = useState([]);
+  const [loadingLotes, setLoadingLotes] = useState(false);
+
+  // Detalle de lote desde el hub
+  const [loteDetalle, setLoteDetalle] = useState(null);
+  const [loadingLoteDetalle, setLoadingLoteDetalle] = useState(false);
 
   // Flag para saber si ya se inicializó (evita cargas duplicadas)
   const [initialized, setInitialized] = useState(false);
@@ -195,6 +206,7 @@ function DispatchContent() {
       }
       if (vistaActual === 'menu') {
         loadResumenSemana();
+        loadLotesDelMes();
       }
       loadFrentes();
     }
@@ -206,6 +218,7 @@ function DispatchContent() {
       loadData();
       if (vistaActual === 'menu') {
         loadResumenSemana();
+        loadLotesDelMes();
       }
     }
   }, [vistaActual]);
@@ -283,6 +296,31 @@ function DispatchContent() {
       setResumenSemanaInfo(res.semana || null);
     } catch (error) {
       console.warn('⚠️ Error cargando resumen semanal:', error.message);
+    }
+  };
+
+  const loadLotesDelMes = async () => {
+    setLoadingLotes(true);
+    try {
+      const hoy = new Date();
+      const primerDia = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+      const fmt = (d) => d.toISOString().split('T')[0];
+      const res = await laboratorioService.getLotes({
+        fecha_desde: fmt(primerDia),
+        fecha_hasta: fmt(hoy),
+      });
+      const data = res?.data || res || [];
+      const lotes = Array.isArray(data) ? data : [];
+      // Abiertos primero, luego completados, dentro de cada grupo por fecha desc
+      lotes.sort((a, b) => {
+        if (a.estado === b.estado) return 0;
+        return a.estado === 'Abierto' ? -1 : 1;
+      });
+      setLotesDelMes(lotes);
+    } catch (error) {
+      console.warn('⚠️ Error cargando lotes del mes:', error.message);
+    } finally {
+      setLoadingLotes(false);
     }
   };
 
@@ -639,6 +677,18 @@ function DispatchContent() {
     window.location.href = import.meta.env.VITE_CENTRAL_URL;
   };
 
+  const handleVerDetalleLote = async (loteId) => {
+    setLoadingLoteDetalle(true);
+    try {
+      const lote = await laboratorioService.getLote(loteId);
+      setLoteDetalle(lote);
+    } catch (error) {
+      toast.error('Error al cargar el detalle del lote');
+    } finally {
+      setLoadingLoteDetalle(false);
+    }
+  };
+
 
   const getEstadoColor = (estado) => {
     const colors = {
@@ -707,7 +757,7 @@ function DispatchContent() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div className="min-h-screen bg-gray-50">
       <Header />
 
       <main className="max-w-7xl mx-auto px-4 py-6">
@@ -740,7 +790,16 @@ function DispatchContent() {
                         vistaActual === 'configuracion' ? 'Configuración' : ''
                     }
                   ]
-                : [{ label: 'Dispatch' }]
+                : loteDetalle
+                  ? [
+                      {
+                        label: 'Dispatch',
+                        href: '#',
+                        onClick: (e) => { e.preventDefault(); setLoteDetalle(null); }
+                      },
+                      { label: `Lote ${loteDetalle.numero_lote} — ${loteDetalle.empresa?.nombre}` }
+                    ]
+                  : [{ label: 'Dispatch' }]
               )
             ]}
           />
@@ -793,233 +852,429 @@ function DispatchContent() {
           onCancel={handleBulkCompleteCancel}
         />
 
-        {/* Hub de Dispatch */}
-        {vistaActual === 'menu' && (
-          <div className="space-y-6 mb-6">
+        {/* Detalle de lote desde el hub */}
+        {vistaActual === 'menu' && loteDetalle && (
+          <LoteDetalleView lote={loteDetalle} onBack={() => setLoteDetalle(null)} />
+        )}
 
-            {/* Banner operacional */}
-            <div className="bg-white rounded-2xl px-4 sm:px-8 py-4 sm:py-6 border border-gray-200 shadow-sm border-l-4 border-l-orange-500">
-              <p className="text-orange-500 text-xs font-bold uppercase tracking-widest mb-1">Módulo Dispatch</p>
-              <h2 className="text-2xl font-bold text-gray-900">
-                {faenaNombreDisplay || 'Cargando faena...'}
-              </h2>
-              <p className="text-gray-400 text-sm mt-1 capitalize">
-                {new Date().toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-              </p>
+        {/* Hub de Dispatch */}
+        {vistaActual === 'menu' && !loteDetalle && (
+          <div className="space-y-5 mb-6">
+
+            {/* ── HERO BANNER ── */}
+            <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
+              {/* Orbes decorativos */}
+              <div className="pointer-events-none absolute -top-20 -right-20 w-72 h-72 rounded-full bg-orange-500/10" />
+              <div className="pointer-events-none absolute -bottom-12 -left-12 w-48 h-48 rounded-full bg-orange-500/5" />
+              <div className="pointer-events-none absolute top-1/2 right-1/3 w-1 h-24 bg-gradient-to-b from-transparent via-orange-500/20 to-transparent" />
+
+              <div className="relative px-6 py-7 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6">
+                {/* Identidad */}
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-pulse" />
+                    <span className="text-orange-400 text-[10px] font-bold uppercase tracking-widest">Módulo Dispatch</span>
+                  </div>
+                  <h1 className="text-2xl sm:text-3xl font-bold text-white leading-tight">
+                    {faenaNombreDisplay || 'Cargando faena...'}
+                  </h1>
+                  <p className="text-slate-400 text-sm mt-1 capitalize">
+                    {new Date().toLocaleDateString('es-CL', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                  </p>
+                </div>
+
+                {/* KPIs */}
+                {!esDigitador && resumenSemana.length > 0 && (
+                  <div className="flex items-center gap-0 flex-shrink-0 bg-white/5 rounded-2xl border border-white/10 divide-x divide-white/10 overflow-hidden">
+                    <div className="px-6 py-4 text-center">
+                      <p className="text-3xl sm:text-4xl font-bold text-white tabular-nums leading-none">
+                        {resumenSemana.reduce((s, f) => s + f.total_dumpadas, 0)}
+                      </p>
+                      <p className="text-slate-500 text-[10px] uppercase tracking-widest mt-1.5">dumpadas</p>
+                    </div>
+                    <div className="px-6 py-4 text-center">
+                      <p className="text-3xl sm:text-4xl font-bold text-orange-400 tabular-nums leading-none">
+                        {resumenSemana.reduce((s, f) => s + f.ton_total, 0).toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+                      </p>
+                      <p className="text-slate-500 text-[10px] uppercase tracking-widest mt-1.5">toneladas</p>
+                    </div>
+                    {puedeVer('despachos') && lotesDelMes.filter(l => l.estado === 'Abierto').length > 0 && (
+                      <div className="px-6 py-4 text-center">
+                        <p className="text-3xl sm:text-4xl font-bold text-emerald-400 tabular-nums leading-none">
+                          {lotesDelMes.filter(l => l.estado === 'Abierto').length}
+                        </p>
+                        <p className="text-slate-500 text-[10px] uppercase tracking-widest mt-1.5">lotes activos</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
 
-            {/* Grid de módulos */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {/* ── TILES DE MÓDULOS ── */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
 
               {puedeVer('ingreso') && (
-                <button
-                  onClick={() => setVistaActual('ingreso')}
-                  className="group flex items-center gap-4 p-4 bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-orange-300 transition-all duration-200 text-left"
-                >
-                  <div className="w-10 h-10 bg-orange-50 rounded-lg flex items-center justify-center flex-shrink-0 group-hover:bg-orange-500 transition-colors duration-200">
-                    <HiDocumentPlus className="w-5 h-5 text-orange-500 group-hover:text-white transition-colors duration-200" />
+                <button onClick={() => setVistaActual('ingreso')}
+                  className="group bg-orange-50 rounded-xl border border-orange-100 shadow-sm p-4 text-left hover:bg-orange-100 hover:border-orange-300 hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 active:scale-[0.97]">
+                  <div className="w-10 h-10 bg-orange-500 rounded-xl flex items-center justify-center mb-3 group-hover:bg-orange-600 transition-colors duration-150 shadow-sm">
+                    <HiDocumentPlus className="w-5 h-5 text-white" />
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-800 text-sm">Ingreso de Dumpadas</p>
-                    <p className="text-xs text-gray-400 mt-0.5">Registro de nuevas dumpadas</p>
-                  </div>
-                  <HiChevronRight className="w-4 h-4 text-gray-300 group-hover:text-orange-500 flex-shrink-0 transition-colors" />
+                  <p className="font-bold text-orange-900 text-sm leading-tight">Ingreso</p>
+                  <p className="text-orange-400 text-xs mt-0.5">Nuevas dumpadas</p>
                 </button>
               )}
 
               {puedeVer('envio_muestras') && (
-                <button
-                  onClick={() => setVistaActual('envio_muestras')}
-                  className="group flex items-center gap-4 p-4 bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-orange-300 transition-all duration-200 text-left"
-                >
-                  <div className="w-10 h-10 bg-orange-50 rounded-lg flex items-center justify-center flex-shrink-0 group-hover:bg-orange-500 transition-colors duration-200">
-                    <HiClipboardDocumentList className="w-5 h-5 text-orange-500 group-hover:text-white transition-colors duration-200" />
+                <button onClick={() => setVistaActual('envio_muestras')}
+                  className="group bg-teal-50 rounded-xl border border-teal-100 shadow-sm p-4 text-left hover:bg-teal-100 hover:border-teal-300 hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 active:scale-[0.97]">
+                  <div className="w-10 h-10 bg-teal-500 rounded-xl flex items-center justify-center mb-3 group-hover:bg-teal-600 transition-colors duration-150 shadow-sm">
+                    <HiClipboardDocumentList className="w-5 h-5 text-white" />
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-800 text-sm">Envío de Muestras</p>
-                    <p className="text-xs text-gray-400 mt-0.5">Pendientes y muestras libres</p>
-                  </div>
-                  <HiChevronRight className="w-4 h-4 text-gray-300 group-hover:text-orange-500 flex-shrink-0 transition-colors" />
+                  <p className="font-bold text-teal-900 text-sm leading-tight">Envío Muestras</p>
+                  <p className="text-teal-400 text-xs mt-0.5">Pendientes y libres</p>
                 </button>
               )}
 
               {puedeVer('historial') && (
-                <button
-                  onClick={() => { setVistaActual('historial'); setCurrentPage(1); }}
-                  className="group flex items-center gap-4 p-4 bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-orange-300 transition-all duration-200 text-left"
-                >
-                  <div className="w-10 h-10 bg-orange-50 rounded-lg flex items-center justify-center flex-shrink-0 group-hover:bg-orange-500 transition-colors duration-200">
-                    <HiEye className="w-5 h-5 text-orange-500 group-hover:text-white transition-colors duration-200" />
+                <button onClick={() => { setVistaActual('historial'); setCurrentPage(1); }}
+                  className="group bg-blue-50 rounded-xl border border-blue-100 shadow-sm p-4 text-left hover:bg-blue-100 hover:border-blue-300 hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 active:scale-[0.97]">
+                  <div className="w-10 h-10 bg-blue-500 rounded-xl flex items-center justify-center mb-3 group-hover:bg-blue-600 transition-colors duration-150 shadow-sm">
+                    <HiEye className="w-5 h-5 text-white" />
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-800 text-sm">Historial</p>
-                    <p className="text-xs text-gray-400 mt-0.5">Registros y auditoría</p>
-                  </div>
-                  <HiChevronRight className="w-4 h-4 text-gray-300 group-hover:text-orange-500 flex-shrink-0 transition-colors" />
+                  <p className="font-bold text-blue-900 text-sm leading-tight">Historial</p>
+                  <p className="text-blue-400 text-xs mt-0.5">Registros y auditoría</p>
                 </button>
               )}
 
               {puedeVer('mezclas') && (
-                <button
-                  onClick={() => setVistaActual('mezclas')}
-                  className="group flex items-center gap-4 p-4 bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-orange-300 transition-all duration-200 text-left"
-                >
-                  <div className="w-10 h-10 bg-orange-50 rounded-lg flex items-center justify-center flex-shrink-0 group-hover:bg-orange-500 transition-colors duration-200">
-                    <HiBeaker className="w-5 h-5 text-orange-500 group-hover:text-white transition-colors duration-200" />
+                <button onClick={() => setVistaActual('mezclas')}
+                  className="group bg-purple-50 rounded-xl border border-purple-100 shadow-sm p-4 text-left hover:bg-purple-100 hover:border-purple-300 hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 active:scale-[0.97]">
+                  <div className="w-10 h-10 bg-purple-500 rounded-xl flex items-center justify-center mb-3 group-hover:bg-purple-600 transition-colors duration-150 shadow-sm">
+                    <HiBeaker className="w-5 h-5 text-white" />
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-800 text-sm">Mezclas</p>
-                    <p className="text-xs text-gray-400 mt-0.5">Composición y análisis</p>
-                  </div>
-                  <HiChevronRight className="w-4 h-4 text-gray-300 group-hover:text-orange-500 flex-shrink-0 transition-colors" />
+                  <p className="font-bold text-purple-900 text-sm leading-tight">Mezclas</p>
+                  <p className="text-purple-400 text-xs mt-0.5">Composición</p>
                 </button>
               )}
 
               {puedeVer('despachos') && (
-                <button
-                  onClick={() => setVistaActual('despachos')}
-                  className="group flex items-center gap-4 p-4 bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-orange-300 transition-all duration-200 text-left"
-                >
-                  <div className="w-10 h-10 bg-orange-50 rounded-lg flex items-center justify-center flex-shrink-0 group-hover:bg-orange-500 transition-colors duration-200">
-                    <HiTruck className="w-5 h-5 text-orange-500 group-hover:text-white transition-colors duration-200" />
+                <button onClick={() => setVistaActual('despachos')}
+                  className="group bg-indigo-50 rounded-xl border border-indigo-100 shadow-sm p-4 text-left hover:bg-indigo-100 hover:border-indigo-300 hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 active:scale-[0.97]">
+                  <div className="w-10 h-10 bg-indigo-500 rounded-xl flex items-center justify-center mb-3 group-hover:bg-indigo-600 transition-colors duration-150 shadow-sm">
+                    <HiTruck className="w-5 h-5 text-white" />
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-800 text-sm">Despachos</p>
-                    <p className="text-xs text-gray-400 mt-0.5">Control de despachos</p>
-                  </div>
-                  <HiChevronRight className="w-4 h-4 text-gray-300 group-hover:text-orange-500 flex-shrink-0 transition-colors" />
+                  <p className="font-bold text-indigo-900 text-sm leading-tight">Despachos</p>
+                  <p className="text-indigo-400 text-xs mt-0.5">Control de salidas</p>
                 </button>
               )}
 
               {usarSistemaAcopios && !esDigitador && (
-                <button
-                  onClick={() => setVistaActual('acopios')}
-                  className="group flex items-center gap-4 p-4 bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-orange-300 transition-all duration-200 text-left"
-                >
-                  <div className="w-10 h-10 bg-orange-50 rounded-lg flex items-center justify-center flex-shrink-0 group-hover:bg-orange-500 transition-colors duration-200">
-                    <HiCube className="w-5 h-5 text-orange-500 group-hover:text-white transition-colors duration-200" />
+                <button onClick={() => setVistaActual('acopios')}
+                  className="group bg-emerald-50 rounded-xl border border-emerald-100 shadow-sm p-4 text-left hover:bg-emerald-100 hover:border-emerald-300 hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 active:scale-[0.97]">
+                  <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center mb-3 group-hover:bg-emerald-600 transition-colors duration-150 shadow-sm">
+                    <HiCube className="w-5 h-5 text-white" />
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-800 text-sm">Acopios</p>
-                    <p className="text-xs text-gray-400 mt-0.5">Gestión de acopios</p>
-                  </div>
-                  <HiChevronRight className="w-4 h-4 text-gray-300 group-hover:text-orange-500 flex-shrink-0 transition-colors" />
+                  <p className="font-bold text-emerald-900 text-sm leading-tight">Acopios</p>
+                  <p className="text-emerald-400 text-xs mt-0.5">Gestión</p>
                 </button>
               )}
 
               {puedeVer('configuracion') && (
-                <button
-                  onClick={() => setVistaActual('mapa')}
-                  className="group flex items-center gap-4 p-4 bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-orange-300 transition-all duration-200 text-left"
-                >
-                  <div className="w-10 h-10 bg-orange-50 rounded-lg flex items-center justify-center flex-shrink-0 group-hover:bg-orange-500 transition-colors duration-200">
-                    <HiMap className="w-5 h-5 text-orange-500 group-hover:text-white transition-colors duration-200" />
+                <button onClick={() => setVistaActual('mapa')}
+                  className="group bg-slate-100 rounded-xl border border-slate-200 shadow-sm p-4 text-left hover:bg-slate-200 hover:border-slate-300 hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 active:scale-[0.97]">
+                  <div className="w-10 h-10 bg-slate-500 rounded-xl flex items-center justify-center mb-3 group-hover:bg-slate-600 transition-colors duration-150 shadow-sm">
+                    <HiMap className="w-5 h-5 text-white" />
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-800 text-sm">Mapa de Terreno</p>
-                    <p className="text-xs text-gray-400 mt-0.5">Visualización del terreno</p>
-                  </div>
-                  <HiChevronRight className="w-4 h-4 text-gray-300 group-hover:text-orange-500 flex-shrink-0 transition-colors" />
+                  <p className="font-bold text-slate-700 text-sm leading-tight">Mapa</p>
+                  <p className="text-slate-400 text-xs mt-0.5">Visualización terreno</p>
                 </button>
               )}
 
               {puedeVer('configuracion') && (
-                <button
-                  onClick={() => setVistaActual('configuracion')}
-                  className="group flex items-center gap-4 p-4 bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-orange-300 transition-all duration-200 text-left"
-                >
-                  <div className="w-10 h-10 bg-orange-50 rounded-lg flex items-center justify-center flex-shrink-0 group-hover:bg-orange-500 transition-colors duration-200">
-                    <HiCog6Tooth className="w-5 h-5 text-orange-500 group-hover:text-white transition-colors duration-200" />
+                <button onClick={() => setVistaActual('configuracion')}
+                  className="group bg-gray-100 rounded-xl border border-gray-200 shadow-sm p-4 text-left hover:bg-gray-200 hover:border-gray-300 hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 active:scale-[0.97]">
+                  <div className="w-10 h-10 bg-gray-500 rounded-xl flex items-center justify-center mb-3 group-hover:bg-gray-600 transition-colors duration-150 shadow-sm">
+                    <HiCog6Tooth className="w-5 h-5 text-white" />
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-gray-800 text-sm">Configuración</p>
-                    <p className="text-xs text-gray-400 mt-0.5">Ajustes del sistema</p>
-                  </div>
-                  <HiChevronRight className="w-4 h-4 text-gray-300 group-hover:text-orange-500 flex-shrink-0 transition-colors" />
+                  <p className="font-bold text-gray-700 text-sm leading-tight">Configuración</p>
+                  <p className="text-gray-400 text-xs mt-0.5">Ajustes sistema</p>
                 </button>
               )}
 
             </div>
 
-            {/* KPIs semanales por frente de trabajo */}
+            {/* Resumen Mensual Dumpadas + Lotes del Mes */}
             {!esDigitador && (
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <div>
-                    <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide">Resumen Mensual por Frente</h3>
-                    {resumenSemanaInfo && (
-                      <p className="text-xs text-gray-400 mt-0.5">
-                        {new Date(resumenSemanaInfo.inicio + 'T12:00:00').toLocaleDateString('es-CL', { month: 'long', year: 'numeric' })}
+              <div className="space-y-6">
+
+                {/* ─── RESUMEN MENSUAL DUMPADAS ─── */}
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <h3 className="font-bold text-gray-800">Resumen Mensual Por Dumpadas</h3>
+                      <p className="text-xs text-gray-400 mt-0.5 capitalize">
+                        {resumenSemanaInfo
+                          ? new Date(resumenSemanaInfo.inicio + 'T12:00:00').toLocaleDateString('es-CL', { month: 'long', year: 'numeric' })
+                          : new Date().toLocaleDateString('es-CL', { month: 'long', year: 'numeric' })}
                       </p>
-                    )}
+                    </div>
                   </div>
-                </div>
 
-                {resumenSemana.length === 0 ? (
-                  <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
-                    <p className="text-gray-400 text-sm">Sin registros este mes</p>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                    {resumenSemana.map((frente) => (
-                      <div key={frente.id_frente_trabajo} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                        {/* Header del frente */}
-                        <div className="bg-gray-900 px-4 py-3 flex items-center justify-between">
-                          <p className="text-white font-bold text-sm truncate">{frente.frente}</p>
-                          <div className="flex items-center gap-3 flex-shrink-0 ml-3">
-                            <div className="text-right">
-                              <p className="text-white font-bold text-lg leading-none">{frente.total_dumpadas}</p>
-                              <p className="text-gray-400 text-xs">dumpadas</p>
-                            </div>
-                            <div className="w-px h-8 bg-gray-700" />
-                            <div className="text-right">
-                              <p className="text-orange-400 font-bold text-lg leading-none">{frente.ton_total.toLocaleString('es-CL')}</p>
-                              <p className="text-gray-400 text-xs">ton</p>
-                            </div>
+                  {resumenSemana.length === 0 ? (
+                    <div className="bg-white rounded-xl border border-dashed border-gray-300 p-10 text-center">
+                      <HiDocumentPlus className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+                      <p className="text-gray-400 text-sm">Sin registros este mes</p>
+                    </div>
+                  ) : (
+                    <>
+                    {/* ── Barra de resumen dumpadas ── */}
+                    {(() => {
+                      const totalDump = resumenSemana.reduce((s, f) => s + f.total_dumpadas, 0);
+                      const totalTon  = resumenSemana.reduce((s, f) => s + f.ton_total, 0);
+                      const todasJornadas = resumenSemana.flatMap(f => f.jornadas);
+                      const leysValidas = todasJornadas.filter(j => j.ley_promedio !== null).map(j => parseFloat(j.ley_promedio));
+                      const leyProm = leysValidas.length > 0 ? (leysValidas.reduce((a, b) => a + b, 0) / leysValidas.length).toFixed(2) : null;
+                      return (
+                        <div className="bg-white rounded-xl border border-orange-100 shadow-sm mb-3 divide-x divide-orange-100 flex overflow-hidden">
+                          <div className="flex-1 px-4 py-3 text-center">
+                            <p className="text-xl font-bold text-gray-900 tabular-nums">{totalDump}</p>
+                            <p className="text-[10px] text-gray-400 uppercase tracking-wide mt-0.5">total dumpadas</p>
                           </div>
+                          <div className="flex-1 px-4 py-3 text-center">
+                            <p className="text-xl font-bold text-orange-500 tabular-nums">{totalTon.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</p>
+                            <p className="text-[10px] text-gray-400 uppercase tracking-wide mt-0.5">toneladas</p>
+                          </div>
+                          <div className="flex-1 px-4 py-3 text-center">
+                            <p className="text-xl font-bold text-blue-500 tabular-nums">{resumenSemana.length}</p>
+                            <p className="text-[10px] text-gray-400 uppercase tracking-wide mt-0.5">frentes activos</p>
+                          </div>
+                          {leyProm !== null && (
+                            <div className="flex-1 px-4 py-3 text-center">
+                              <p className="text-xl font-bold text-purple-500 tabular-nums">{leyProm}%</p>
+                              <p className="text-[10px] text-gray-400 uppercase tracking-wide mt-0.5">ley promedio</p>
+                            </div>
+                          )}
                         </div>
+                      );
+                    })()}
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                      {resumenSemana.map((frente) => (
+                        <div key={frente.id_frente_trabajo} className="bg-white rounded-xl border border-gray-200 border-l-4 border-l-orange-400 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 overflow-hidden">
 
-                        {/* Filas por jornada */}
-                        <div className="divide-y divide-gray-100">
-                          {frente.jornadas.map((j) => (
-                            <div key={j.jornada} className="px-4 py-2.5 flex items-center gap-3">
-                              {/* Badge jornada */}
-                              <span className={`inline-flex items-center justify-center w-20 py-0.5 rounded text-xs font-bold flex-shrink-0 ${
-                                j.jornada === 'AM'        ? 'bg-yellow-100 text-yellow-700' :
-                                j.jornada === 'PM'        ? 'bg-blue-100 text-blue-700' :
-                                j.jornada === 'Noche'     ? 'bg-indigo-100 text-indigo-700' :
-                                                            'bg-purple-100 text-purple-700'
-                              }`}>{j.jornada}</span>
-
-                              {/* Stats */}
-                              <div className="flex items-center gap-3 flex-1 min-w-0">
-                                <span className="text-xs text-gray-600 font-medium">{j.total_dumpadas} dump</span>
-                                <span className="text-gray-300 text-xs">·</span>
-                                <span className="text-xs text-gray-600">{j.ton_total.toLocaleString('es-CL')} t</span>
-                                {j.ley_promedio !== null && (
-                                  <>
-                                    <span className="text-gray-300 text-xs">·</span>
-                                    <span className="text-xs font-semibold text-orange-600">Ley {j.ley_promedio}%</span>
-                                  </>
-                                )}
+                          {/* Header teñido */}
+                          <div className="px-4 pt-4 pb-3 bg-orange-50/50">
+                            <div className="flex items-center gap-2 mb-3 min-w-0">
+                              <span className="w-2 h-2 rounded-full bg-orange-400 flex-shrink-0" />
+                              <p className="font-bold text-gray-800 text-sm truncate">{frente.frente}</p>
+                            </div>
+                            <div className="flex items-center gap-5">
+                              <div>
+                                <p className="text-3xl font-bold text-gray-900 tabular-nums leading-none">{frente.total_dumpadas}</p>
+                                <p className="text-[10px] text-gray-400 uppercase tracking-wide mt-1">dumpadas</p>
+                              </div>
+                              <div className="w-px h-10 bg-orange-200" />
+                              <div>
+                                <p className="text-3xl font-bold text-orange-500 tabular-nums leading-none">{frente.ton_total.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</p>
+                                <p className="text-[10px] text-gray-400 uppercase tracking-wide mt-1">toneladas</p>
                               </div>
                             </div>
-                          ))}
+                          </div>
 
-                          {/* Máquinas usadas */}
+                          {/* Jornadas con barra de proporción */}
+                          <div className="divide-y divide-gray-100">
+                            {frente.jornadas.map((j) => {
+                              const pct = frente.total_dumpadas > 0 ? Math.round((j.total_dumpadas / frente.total_dumpadas) * 100) : 0;
+                              const jornadaClasses = {
+                                AM:         { badge: 'bg-amber-100 text-amber-700',   bar: 'bg-amber-400' },
+                                PM:         { badge: 'bg-sky-100 text-sky-700',        bar: 'bg-sky-400' },
+                                Noche:      { badge: 'bg-indigo-100 text-indigo-700',  bar: 'bg-indigo-400' },
+                                Madrugada:  { badge: 'bg-purple-100 text-purple-700',  bar: 'bg-purple-400' },
+                              };
+                              const cls = jornadaClasses[j.jornada] || { badge: 'bg-gray-100 text-gray-600', bar: 'bg-gray-400' };
+                              return (
+                                <div key={j.jornada} className="px-4 py-2.5">
+                                  <div className="flex items-center gap-3 mb-1.5">
+                                    <span className={`text-[10px] font-bold w-16 text-center py-0.5 rounded-full flex-shrink-0 ${cls.badge}`}>{j.jornada}</span>
+                                    <div className="flex items-center gap-2 flex-1 text-xs">
+                                      <span className="font-semibold text-gray-700">{j.total_dumpadas} dump</span>
+                                      <span className="text-gray-300">·</span>
+                                      <span className="font-semibold text-gray-600">{j.ton_total.toLocaleString('es-CL')} t</span>
+                                      {j.ley_promedio !== null && (
+                                        <span className="ml-auto font-bold text-orange-500">{j.ley_promedio}%</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
+                                    <div className={`h-full rounded-full ${cls.bar}`} style={{ width: `${pct}%` }} />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {/* Máquinas */}
                           {frente.jornadas.some(j => j.maquinas.length > 0) && (
-                            <div className="px-4 py-2 flex items-center gap-2 bg-gray-50">
-                              <HiTruck className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
-                              <p className="text-xs text-gray-500 truncate">
-                                {[...new Set(frente.jornadas.flatMap(j => j.maquinas))].join(', ') || '—'}
+                            <div className="px-4 py-2 flex items-center gap-2 bg-gray-50 border-t border-gray-100">
+                              <HiTruck className="w-3 h-3 text-gray-300 flex-shrink-0" />
+                              <p className="text-[10px] text-gray-400 truncate">
+                                {[...new Set(frente.jornadas.flatMap(j => j.maquinas))].join(' · ') || '—'}
                               </p>
                             </div>
                           )}
                         </div>
+                      ))}
+                    </div>
+                    </>
+                  )}
+                </div>
+
+                {/* ─── LOTES DEL MES ─── */}
+                {puedeVer('despachos') && lotesDelMes.length > 0 && <hr className="border-gray-200" />}
+                {puedeVer('despachos') && (
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <h3 className="font-bold text-gray-800">Resumen Mensual Por Lotes</h3>
+                        <p className="text-xs text-gray-400 mt-0.5 capitalize">
+                          {new Date().toLocaleDateString('es-CL', { month: 'long', year: 'numeric' })}
+                        </p>
                       </div>
-                    ))}
+                      {lotesDelMes.length > 0 && (
+                        <div className="flex items-center gap-2">
+                          {lotesDelMes.filter(l => l.estado === 'Abierto').length > 0 && (
+                            <span className="text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 px-3 py-1 rounded-full font-semibold">
+                              {lotesDelMes.filter(l => l.estado === 'Abierto').length} abierto{lotesDelMes.filter(l => l.estado === 'Abierto').length !== 1 ? 's' : ''}
+                            </span>
+                          )}
+                          {lotesDelMes.filter(l => l.estado !== 'Abierto').length > 0 && (
+                            <span className="text-xs bg-gray-100 text-gray-600 px-3 py-1 rounded-full font-semibold">
+                              {lotesDelMes.filter(l => l.estado !== 'Abierto').length} cerrado{lotesDelMes.filter(l => l.estado !== 'Abierto').length !== 1 ? 's' : ''}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {loadingLotes ? (
+                      <div className="bg-white rounded-xl border border-gray-200 p-6 flex justify-center">
+                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-500"></div>
+                      </div>
+                    ) : lotesDelMes.length === 0 ? (
+                      <div className="bg-white rounded-xl border border-dashed border-gray-300 p-10 text-center">
+                        <HiCube className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+                        <p className="text-gray-400 text-sm">Sin lotes este mes</p>
+                      </div>
+                    ) : (
+                      <>
+                      {/* ── Barra de resumen lotes ── */}
+                      {(() => {
+                        const abiertos  = lotesDelMes.filter(l => l.estado === 'Abierto').length;
+                        const cerrados  = lotesDelMes.length - abiertos;
+                        const totalCam  = lotesDelMes.reduce((s, l) => s + (l.camionadas?.length || 0), 0);
+                        const totalTon  = lotesDelMes.reduce((s, l) => s + (l.camionadas?.reduce((a, c) => a + parseFloat(c.peso || 0), 0) || 0), 0);
+                        return (
+                          <div className="bg-white rounded-xl border border-emerald-100 shadow-sm mb-3 divide-x divide-emerald-100 flex overflow-hidden">
+                            <div className="flex-1 px-4 py-3 text-center">
+                              <p className="text-xl font-bold text-gray-900 tabular-nums">{lotesDelMes.length}</p>
+                              <p className="text-[10px] text-gray-400 uppercase tracking-wide mt-0.5">total lotes</p>
+                            </div>
+                            <div className="flex-1 px-4 py-3 text-center">
+                              <p className="text-xl font-bold text-emerald-500 tabular-nums">{abiertos}</p>
+                              <p className="text-[10px] text-gray-400 uppercase tracking-wide mt-0.5">abiertos</p>
+                            </div>
+                            <div className="flex-1 px-4 py-3 text-center">
+                              <p className="text-xl font-bold text-gray-400 tabular-nums">{cerrados}</p>
+                              <p className="text-[10px] text-gray-400 uppercase tracking-wide mt-0.5">cerrados</p>
+                            </div>
+                            <div className="flex-1 px-4 py-3 text-center">
+                              <p className="text-xl font-bold text-indigo-500 tabular-nums">{totalCam}</p>
+                              <p className="text-[10px] text-gray-400 uppercase tracking-wide mt-0.5">camionadas</p>
+                            </div>
+                            <div className="flex-1 px-4 py-3 text-center">
+                              <p className="text-xl font-bold text-orange-500 tabular-nums">{totalTon.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</p>
+                              <p className="text-[10px] text-gray-400 uppercase tracking-wide mt-0.5">toneladas</p>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                        {lotesDelMes.map((lote) => {
+                          const estaAbierto = lote.estado === 'Abierto';
+                          const totalTon = lote.camionadas?.reduce((s, c) => s + parseFloat(c.peso || 0), 0) || 0;
+                          const numCamionadas = lote.camionadas?.length || 0;
+                          return (
+                            <div key={lote.id} className={`bg-white rounded-xl border border-l-4 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 overflow-hidden cursor-pointer ${estaAbierto ? 'border-emerald-200 border-l-emerald-400' : 'border-gray-200 border-l-gray-300'}`}
+                              onClick={() => handleVerDetalleLote(lote.id)}
+                            >
+
+                              {/* Header teñido según estado */}
+                              <div className={`px-4 pt-4 pb-3 ${estaAbierto ? 'bg-emerald-50/50' : 'bg-gray-50/60'}`}>
+                                <div className="flex items-center justify-between gap-2 mb-3">
+                                  <div className="flex items-center gap-2 min-w-0">
+                                    <span className={`w-2 h-2 rounded-full flex-shrink-0 ${estaAbierto ? 'bg-emerald-400 animate-pulse' : 'bg-gray-300'}`} />
+                                    <p className="font-bold text-gray-800 text-sm truncate">
+                                      {lote.numero_lote || (lote.planta?.codigo ? `Lote ${lote.planta.codigo}` : `Lote #${lote.id}`)}
+                                    </p>
+                                  </div>
+                                  <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full flex-shrink-0 ${estaAbierto ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-500'}`}>
+                                    {estaAbierto ? 'Abierto' : 'Cerrado'}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-5">
+                                  <div>
+                                    <p className="text-3xl font-bold text-gray-900 tabular-nums leading-none">{numCamionadas}</p>
+                                    <p className="text-[10px] text-gray-400 uppercase tracking-wide mt-1">camionadas</p>
+                                  </div>
+                                  <div className={`w-px h-10 ${estaAbierto ? 'bg-emerald-200' : 'bg-gray-200'}`} />
+                                  <div>
+                                    <p className={`text-3xl font-bold tabular-nums leading-none ${estaAbierto ? 'text-emerald-500' : 'text-gray-400'}`}>
+                                      {totalTon.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}
+                                    </p>
+                                    <p className="text-[10px] text-gray-400 uppercase tracking-wide mt-1">toneladas</p>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Detalles */}
+                              <div className="border-t border-gray-100 px-4 py-3 space-y-2">
+                                {lote.planta?.nombre && (
+                                  <div className="flex items-center gap-2 text-xs">
+                                    <span className="w-14 flex-shrink-0 text-gray-400 font-medium">Planta</span>
+                                    <span className="font-semibold text-gray-700 truncate">{lote.planta.nombre}</span>
+                                  </div>
+                                )}
+                                {lote.empresa?.nombre && (
+                                  <div className="flex items-center gap-2 text-xs">
+                                    <span className="w-14 flex-shrink-0 text-gray-400 font-medium">Empresa</span>
+                                    <span className="font-semibold text-gray-700 truncate">{lote.empresa.nombre}</span>
+                                  </div>
+                                )}
+                                {lote.ley_lote_promedio != null && (
+                                  <div className="flex items-center gap-2 text-xs">
+                                    <span className="w-14 flex-shrink-0 text-gray-400 font-medium">Ley lote</span>
+                                    <span className="font-bold text-orange-500">{parseFloat(lote.ley_lote_promedio).toFixed(2)}%</span>
+                                  </div>
+                                )}
+                                {lote.fecha_creacion && (
+                                  <div className="flex items-center gap-2 text-xs">
+                                    <span className="w-14 flex-shrink-0 text-gray-400 font-medium">Creado</span>
+                                    <span className="text-gray-500">{new Date(lote.fecha_creacion).toLocaleDateString('es-CL', { day: 'numeric', month: 'short' })}</span>
+                                  </div>
+                                )}
+                              </div>
+                              <div className="border-t border-gray-100 px-4 py-2 flex items-center justify-end gap-1 text-xs text-indigo-500 font-semibold hover:text-indigo-700">
+                                {loadingLoteDetalle ? 'Cargando...' : 'Ver detalle →'}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      </>
+                    )}
                   </div>
                 )}
+
               </div>
             )}
 
@@ -1082,7 +1337,7 @@ function DispatchContent() {
         {vistaActual === 'historial' && (
           <Card className="border-l-4 border-blue-400">
             {/* Header */}
-            <div className="mb-6">
+            <div className="mb-4">
               <div className="flex items-center justify-between">
                 <div>
                   <h3 className="text-2xl font-bold text-gray-900">Historial de Dumpadas</h3>
@@ -1090,8 +1345,66 @@ function DispatchContent() {
                     Total: <span className="font-semibold text-blue-600">{totalRecords}</span> registro{totalRecords !== 1 ? 's' : ''}
                   </p>
                 </div>
+                <button
+                  onClick={() => setShowInfoHistorial(v => !v)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold border transition-colors ${
+                    showInfoHistorial ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-blue-500 border-blue-200 hover:bg-blue-50'
+                  }`}
+                  title="¿Cómo funciona?"
+                >
+                  <HiInformationCircle className="w-4 h-4" />
+                  <span className="hidden sm:inline">¿Cómo funciona?</span>
+                </button>
               </div>
             </div>
+
+            {/* Panel ¿Cómo funciona? Historial */}
+            {showInfoHistorial && (
+              <div className="mb-5 p-4 bg-blue-50 border border-blue-200 rounded-xl">
+
+                {/* ── Flujo del dato ── */}
+                <div className="mb-4 pb-4 border-b border-blue-100">
+                  <p className="text-[9px] font-bold text-blue-400 uppercase tracking-widest mb-2.5">Flujo del dato</p>
+                  <div className="flex items-start">
+                    {[
+                      { n: 1, label: 'Ingreso', color: 'bg-orange-500', active: true },
+                      { n: 2, label: 'Envío\nMuestras', color: 'bg-teal-500', active: true },
+                      { n: 3, label: 'Lab', color: 'bg-green-600', active: true },
+                      { n: 4, label: 'Mezclas', color: 'bg-purple-600', active: true },
+                      { n: 5, label: 'Despacho', color: 'bg-indigo-600', active: true },
+                    ].flatMap((p, i, arr) => [
+                      <div key={`s${i}`} className="flex flex-col items-center" style={{minWidth:'44px'}}>
+                        <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white ${p.color}`}>{p.n}</div>
+                        <span className="mt-1 text-[9px] font-semibold text-center leading-tight whitespace-pre-line text-gray-500">{p.label}</span>
+                      </div>,
+                      ...(i < arr.length - 1 ? [<div key={`l${i}`} className="flex-1 h-px bg-gray-200 mt-3.5 mx-0.5 min-w-[8px]" />] : [])
+                    ])}
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-2">El historial muestra el estado de las dumpadas en cualquier punto del flujo.</p>
+                </div>
+
+                {/* ── Específico: Historial ── */}
+                <p className="text-xs font-bold text-blue-800 uppercase tracking-wide mb-2.5">¿Cómo funciona el Historial?</p>
+                <div className="space-y-2">
+                  <div className="bg-white border border-blue-200 rounded-lg px-3 py-2">
+                    <p className="text-xs font-bold text-blue-700">Vista de auditoría completa</p>
+                    <p className="text-xs text-gray-500 mt-0.5">Muestra todas las dumpadas registradas con su estado actual: <strong className="text-yellow-600">Ingresado</strong> (pendiente de análisis) o <strong className="text-green-600">Completado</strong> (con ley de laboratorio asignada). También muestra ley, ley cup, rango, certificado, frente y faena.</p>
+                  </div>
+                  <div className="bg-white border border-blue-200 rounded-lg px-3 py-2">
+                    <p className="text-xs font-bold text-blue-700">Filtros y búsqueda</p>
+                    <p className="text-xs text-gray-500 mt-0.5">Se puede filtrar por estado, jornada, frente, faena y rango de fechas. La búsqueda acepta código de acopios, número de certificado o código de frente.</p>
+                  </div>
+                  <div className="bg-white border border-blue-200 rounded-lg px-3 py-2">
+                    <p className="text-xs font-bold text-blue-700">Edición y eliminación</p>
+                    <p className="text-xs text-gray-500 mt-0.5">Se pueden editar datos de una dumpada (frente, jornada, tonelaje) o eliminarla. Las eliminaciones son permanentes y no se pueden deshacer.</p>
+                  </div>
+                  <div className="bg-white border border-blue-200 rounded-lg px-3 py-2">
+                    <p className="text-xs font-bold text-blue-700">Rango de ley</p>
+                    <p className="text-xs text-gray-500 mt-0.5">El rango (A–L) se asigna automáticamente por el laboratorio según los límites de ley configurados. Si los rangos no coinciden con la operación actual, contactar al administrador del sistema.</p>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Indicador de filtros activos */}
             {(searchTerm || Object.values(filters).some(v => v)) && (

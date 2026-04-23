@@ -1,4 +1,5 @@
 // src/routes/AppRoutes.jsx
+import { Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from '../core/context/AuthContext';
 import ProtectedRoute from '../routes/ProtectedRoute';
@@ -43,7 +44,14 @@ export default function AppRoutes() {
   // ========================================
   // AUTHENTICATED - Renderizar rutas protegidas
   // ========================================
+  const fallback = (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-orange-500" />
+    </div>
+  );
+
   return (
+    <Suspense fallback={fallback}>
     <Routes>
       {/* Ruta raíz - Si está autenticado, redirige a dispatch */}
       <Route
@@ -90,5 +98,6 @@ export default function AppRoutes() {
         } 
       />
     </Routes>
+    </Suspense>
   );
 }

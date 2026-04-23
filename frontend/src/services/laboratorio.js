@@ -137,6 +137,11 @@ class LaboratorioService {
     return response.data;
   }
 
+  async anularRecepcionCamionada(id) {
+    const response = await api.post(`/dispatch/camionadas/${id}/anular-recepcion`);
+    return response.data;
+  }
+
   async reordenarCamionada(camionadaId, direccion) {
     const response = await api.post('/dispatch/camionadas/reordenar', {
       camionada_id: camionadaId,

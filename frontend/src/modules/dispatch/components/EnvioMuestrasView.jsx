@@ -367,41 +367,47 @@ export default function EnvioMuestrasView({
         {/* Panel: Cómo funciona */}
         {showInfo && (
           <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-xl">
-            <p className="text-xs font-bold text-blue-800 uppercase tracking-wide mb-3">¿Cómo usar este módulo?</p>
-            <div className="space-y-1.5">
 
-              <div className="flex items-start gap-2.5">
-                <div className="w-5 h-5 rounded-full bg-yellow-500 text-white text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">1</div>
-                <div className="flex-1 bg-white border border-yellow-200 rounded-lg px-3 py-2">
-                  <p className="text-xs font-bold text-yellow-700">Selecciona las dumpadas</p>
-                  <p className="text-xs text-gray-500 mt-0.5">Marca una o varias dumpadas de la tabla usando los checkbox. Puedes usar <strong>Seleccionar todo</strong> para marcar la página completa.</p>
-                </div>
+            {/* ── Flujo del dato ── */}
+            <div className="mb-4 pb-4 border-b border-blue-100">
+              <p className="text-[9px] font-bold text-blue-400 uppercase tracking-widest mb-2.5">Flujo del dato</p>
+              <div className="flex items-start">
+                {[
+                  { n: 1, label: 'Ingreso', color: 'bg-orange-500', active: false },
+                  { n: 2, label: 'Envío\nMuestras', color: 'bg-teal-500', active: true },
+                  { n: 3, label: 'Lab', color: 'bg-green-600', active: false },
+                  { n: 4, label: 'Mezclas', color: 'bg-purple-600', active: false },
+                  { n: 5, label: 'Despacho', color: 'bg-indigo-600', active: false },
+                ].flatMap((p, i, arr) => [
+                  <div key={`s${i}`} className={`flex flex-col items-center ${!p.active ? 'opacity-35' : ''}`} style={{minWidth:'44px'}}>
+                    <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white ${p.active ? p.color : 'bg-gray-300'}`}>{p.n}</div>
+                    <span className={`mt-1 text-[9px] font-semibold text-center leading-tight whitespace-pre-line ${p.active ? 'text-gray-700' : 'text-gray-400'}`}>{p.label}</span>
+                  </div>,
+                  ...(i < arr.length - 1 ? [<div key={`l${i}`} className="flex-1 h-px bg-gray-200 mt-3.5 mx-0.5 min-w-[8px]" />] : [])
+                ])}
               </div>
-
-              <div className="ml-2.5 text-gray-300 text-sm leading-none pl-0.5">▼</div>
-
-              <div className="flex items-start gap-2.5">
-                <div className="w-5 h-5 rounded-full bg-blue-500 text-white text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">2</div>
-                <div className="flex-1 bg-white border border-blue-200 rounded-lg px-3 py-2">
-                  <p className="text-xs font-bold text-blue-700">Enviar al Laboratorio</p>
-                  <p className="text-xs text-gray-500 mt-0.5">Presiona <strong>Enviar al Laboratorio</strong> en la barra de acciones. Las dumpadas quedan marcadas como <strong className="text-blue-600">Esperando ley</strong> y aparecen en el módulo de Laboratorio para su análisis.</p>
-                </div>
-              </div>
-
-              <div className="ml-2.5 text-gray-300 text-sm leading-none pl-0.5">▼</div>
-
-              <div className="flex items-start gap-2.5">
-                <div className="w-5 h-5 rounded-full bg-green-600 text-white text-xs font-bold flex items-center justify-center flex-shrink-0 mt-0.5">3</div>
-                <div className="flex-1 bg-white border border-green-200 rounded-lg px-3 py-2">
-                  <p className="text-xs font-bold text-green-700">Laboratorio analiza y cierra</p>
-                  <p className="text-xs text-gray-500 mt-0.5">El analista ingresa Cu Total y Cu Soluble. Una vez completado, la dumpada pasa a estado <strong className="text-green-600">Completado</strong> y desaparece de esta vista.</p>
-                </div>
-              </div>
-
             </div>
-            <p className="text-xs text-gray-400 mt-3">
-              Para muestras sin dumpada asociada (geología, operaciones, etc.) usa el botón <strong>+ Añadir Muestra</strong>.
-            </p>
+
+            {/* ── Específico: Envío de Muestras ── */}
+            <p className="text-xs font-bold text-blue-800 uppercase tracking-wide mb-2.5">¿Cómo funciona el Envío de Muestras?</p>
+            <div className="space-y-2">
+              <div className="bg-white border border-teal-200 rounded-lg px-3 py-2">
+                <p className="text-xs font-bold text-teal-700">Seleccionar y enviar</p>
+                <p className="text-xs text-gray-500 mt-0.5">Marca una o varias dumpadas usando los checkbox y presiona <strong>Enviar al Laboratorio</strong>. Las dumpadas quedan marcadas como <strong className="text-blue-600">Esperando ley</strong> y aparecen en el sistema de Laboratorio para su análisis.</p>
+              </div>
+              <div className="bg-white border border-teal-200 rounded-lg px-3 py-2">
+                <p className="text-xs font-bold text-teal-700">Qué ocurre en el Laboratorio</p>
+                <p className="text-xs text-gray-500 mt-0.5">El analista ingresa Cu Total y Cu Soluble. El sistema calcula automáticamente Cu Insoluble y asigna el <strong>Rango de ley</strong> (A–L). La dumpada pasa a estado <strong className="text-green-600">Completado</strong> y desaparece de esta vista.</p>
+              </div>
+              <div className="bg-white border border-teal-200 rounded-lg px-3 py-2">
+                <p className="text-xs font-bold text-teal-700">Muestras libres</p>
+                <p className="text-xs text-gray-500 mt-0.5">Para muestras sin dumpada asociada (geología, operaciones, calidad de materiales, etc.) usa el botón <strong>+ Añadir Muestra</strong>. Se analizan de forma independiente.</p>
+              </div>
+              <div className="bg-white border border-teal-200 rounded-lg px-3 py-2">
+                <p className="text-xs font-bold text-teal-700">Rangos de ley</p>
+                <p className="text-xs text-gray-500 mt-0.5">Los rangos (A, B, C… L) que clasifican cada dumpada según su ley son configurables. Si los rangos no se ajustan a la operación actual, contactar al administrador del sistema.</p>
+              </div>
+            </div>
           </div>
         )}
 

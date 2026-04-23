@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { HiBeaker, HiCube, HiEye, HiTrash, HiPencil, HiCheck, HiXMark, HiChevronDown, HiChevronUp } from 'react-icons/hi2';
+import { HiBeaker, HiCube, HiEye, HiTrash, HiPencil, HiCheck, HiXMark, HiChevronDown, HiChevronUp, HiInformationCircle } from 'react-icons/hi2';
 import Button from '../../../shared/components/atoms/Button';
 import Input from '../../../shared/components/atoms/Input';
 import Card from '../../../shared/components/atoms/Card';
@@ -12,6 +12,7 @@ import TableFilters from '../../../shared/components/molecules/TableFilters';
 import mezclasService from '../services/mezclas';
 import acopiosService from '../../../services/acopios';
 import { useConfig } from '../../../hooks/useConfig';
+import { useFaena } from '../../../contexts/FaenaContext';
 
 export default function MezclasView({
   loading,
@@ -28,6 +29,8 @@ export default function MezclasView({
 }) {
   // Obtener configuraciones desde BD
   const { factorAjusteLey, factorRemanenteVisual, leyCappingMaximo, usarSistemaAcopios, toneladas_por_palada } = useConfig();
+  const { faenaUsuario } = useFaena();
+  const [showInfo, setShowInfo] = useState(false);
 
   // Evitar flash de "sin datos" antes del primer ciclo de carga
   const hasEverLoaded = useRef(false);
@@ -579,6 +582,7 @@ export default function MezclasView({
         codigo: formDataMezcla.codigo || null,
         fecha: new Date().toISOString().split('T')[0], // Siempre usar fecha actual
         planta_id: parseInt(formDataMezcla.planta_id),
+        id_faena: faenaUsuario ?? null,
         ley_base: formDataMezcla.ley_base || 'auto',
         observaciones: formDataMezcla.observaciones || null,
       };
@@ -876,6 +880,72 @@ export default function MezclasView({
 
   return (
     <>
+        {/* ── ¿Cómo funciona? ── */}
+        <div className="flex justify-end mb-3">
+          <button
+            onClick={() => setShowInfo(v => !v)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold border transition-colors ${
+              showInfo ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-blue-500 border-blue-200 hover:bg-blue-50'
+            }`}
+            title="¿Cómo funciona?"
+          >
+            <HiInformationCircle className="w-4 h-4" />
+            <span className="hidden sm:inline">¿Cómo funciona?</span>
+          </button>
+        </div>
+
+        {showInfo && (
+          <div className="mb-5 p-4 bg-blue-50 border border-blue-200 rounded-xl">
+
+            {/* ── Flujo del dato ── */}
+            <div className="mb-4 pb-4 border-b border-blue-100">
+              <p className="text-[9px] font-bold text-blue-400 uppercase tracking-widest mb-2.5">Flujo del dato</p>
+              <div className="flex items-start">
+                {[
+                  { n: 1, label: 'Ingreso', color: 'bg-orange-500', active: false },
+                  { n: 2, label: 'Envío\nMuestras', color: 'bg-teal-500', active: false },
+                  { n: 3, label: 'Lab', color: 'bg-green-600', active: false },
+                  { n: 4, label: 'Mezclas', color: 'bg-purple-600', active: true },
+                  { n: 5, label: 'Despacho', color: 'bg-indigo-600', active: false },
+                ].flatMap((p, i, arr) => [
+                  <div key={`s${i}`} className={`flex flex-col items-center ${!p.active ? 'opacity-35' : ''}`} style={{minWidth:'44px'}}>
+                    <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white ${p.active ? p.color : 'bg-gray-300'}`}>{p.n}</div>
+                    <span className={`mt-1 text-[9px] font-semibold text-center leading-tight whitespace-pre-line ${p.active ? 'text-gray-700' : 'text-gray-400'}`}>{p.label}</span>
+                  </div>,
+                  ...(i < arr.length - 1 ? [<div key={`l${i}`} className="flex-1 h-px bg-gray-200 mt-3.5 mx-0.5 min-w-[8px]" />] : [])
+                ])}
+              </div>
+            </div>
+
+            {/* ── Específico: Mezclas ── */}
+            <p className="text-xs font-bold text-blue-800 uppercase tracking-wide mb-2.5">¿Cómo funciona el módulo de Mezclas?</p>
+            <div className="space-y-2">
+              <div className="bg-white border border-purple-200 rounded-lg px-3 py-2">
+                <p className="text-xs font-bold text-purple-700">Qué es una mezcla</p>
+                <p className="text-xs text-gray-500 mt-0.5">Una mezcla combina dumpadas completadas (con ley de laboratorio) para generar un lote de material homogéneo. El sistema calcula el <strong>promedio ponderado de ley por tonelaje</strong> automáticamente.</p>
+              </div>
+              <div className="bg-white border border-purple-200 rounded-lg px-3 py-2">
+                <p className="text-xs font-bold text-purple-700">Dumpadas con solo ley visual</p>
+                <p className="text-xs text-gray-500 mt-0.5">También se pueden incluir dumpadas sin ley de laboratorio, usando únicamente su ley visual. El sistema aplica un <strong>factor de ajuste</strong> sobre esa ley. Tanto el factor de ajuste como el capping máximo de ley son modificables — contactar al administrador del sistema.</p>
+              </div>
+              {usarSistemaAcopios && (
+                <div className="bg-white border border-purple-200 rounded-lg px-3 py-2">
+                  <p className="text-xs font-bold text-purple-700">Modo Acopios</p>
+                  <p className="text-xs text-gray-500 mt-0.5">En esta faena está activo el sistema de acopios. Las mezclas se construyen desde <strong>acopios cerrados</strong> en lugar de dumpadas individuales. El sistema de acopios es configurable por faena — contactar al administrador del sistema.</p>
+                </div>
+              )}
+              <div className="bg-white border border-purple-200 rounded-lg px-3 py-2">
+                <p className="text-xs font-bold text-purple-700">Remanentes y paladas</p>
+                <p className="text-xs text-gray-500 mt-0.5">Si solo se usa parte de una dumpada o acopio, el resto queda como <strong>remanente</strong> disponible para futuras mezclas. El peso de cada palada utilizada es configurable — contactar al administrador del sistema.</p>
+              </div>
+              <div className="bg-white border border-purple-200 rounded-lg px-3 py-2">
+                <p className="text-xs font-bold text-purple-700">Plantas de destino</p>
+                <p className="text-xs text-gray-500 mt-0.5">Al crear una mezcla se debe indicar la <strong>planta de destino</strong>. Las plantas disponibles se gestionan desde el módulo de Despachos.</p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Selección de Acopios O Dumpadas según configuración */}
         {usarSistemaAcopios ? (
           // ============ MODO ACOPIOS ============

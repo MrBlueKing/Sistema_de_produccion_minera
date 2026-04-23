@@ -305,6 +305,28 @@ class CamionadaController extends Controller
     }
 
     /**
+     * Anular recepción de una camionada
+     * POST /api/dispatch/camionadas/{id}/anular-recepcion
+     */
+    public function anularRecepcion($id)
+    {
+        try {
+            $camionada = $this->camionadaService->anularRecepcion($id);
+
+            return response()->json([
+                'mensaje' => 'Recepción anulada exitosamente',
+                'camionada' => $camionada
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Error al anular la recepción',
+                'mensaje' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
      * Actualizar ley de laboratorio
      * POST /api/dispatch/camionadas/{id}/ley-laboratorio
      */

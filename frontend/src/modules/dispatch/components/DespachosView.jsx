@@ -16,7 +16,8 @@ import {
   HiChartBar,
   HiXCircle,
   HiChevronUp,
-  HiChevronDown
+  HiChevronDown,
+  HiInformationCircle
 } from 'react-icons/hi';
 import { HiScale } from 'react-icons/hi2';
 import useToast from '../../../hooks/useToast';
@@ -34,6 +35,7 @@ import Badge from '../../../shared/components/atoms/Badge';
 const DespachosView = () => {
   const toast = useToast();
   const [loading, setLoading] = useState(false);
+  const [showInfo, setShowInfo] = useState(false);
   const [vistaActiva, setVistaActiva] = useState('lotes'); // 'lotes', 'camionadas', 'plantas'
 
   // Estados para camionadas
@@ -120,6 +122,14 @@ const DespachosView = () => {
   const [formRecepcionInline, setFormRecepcionInline] = useState({ peso_real: '' });
   const [submittingRecepcion, setSubmittingRecepcion] = useState(false);
   const [showModalRecepcion, setShowModalRecepcion] = useState(false);
+
+  // Anular recepción
+  const [showConfirmAnular, setShowConfirmAnular] = useState(false);
+  const [camionadaParaAnular, setCamionadaParaAnular] = useState(null);
+
+  // Edición inline nombre lote
+  const [editandoLoteId, setEditandoLoteId] = useState(null);
+  const [editandoLoteNombre, setEditandoLoteNombre] = useState('');
   const [camionadaParaRecepcion, setCamionadaParaRecepcion] = useState(null);
   const [formRecepcionModal, setFormRecepcionModal] = useState({
     fecha_recepcion: '',
@@ -635,6 +645,41 @@ const DespachosView = () => {
     }
   };
 
+  const handleAnularRecepcion = (camionada) => {
+    setCamionadaParaAnular(camionada);
+    setShowConfirmAnular(true);
+  };
+
+  const confirmarAnularRecepcion = async () => {
+    setShowConfirmAnular(false);
+    try {
+      await laboratorioService.anularRecepcionCamionada(camionadaParaAnular.id);
+      toast.success('Recepción anulada', `${camionadaParaAnular.patente || ''} vuelve a estado Despachado`);
+      const lotesAbRes = await laboratorioService.getLotesAbiertosConCamionadas();
+      setLotesAbiertosCards(lotesAbRes || []);
+      await cargarDatos();
+    } catch (error) {
+      toast.error('Error al anular recepción', error.response?.data?.mensaje || error.message);
+    } finally {
+      setCamionadaParaAnular(null);
+    }
+  };
+
+  const handleGuardarNombreLote = async (loteId) => {
+    const nombre = editandoLoteNombre.trim();
+    if (!nombre) { toast.warning('El nombre no puede estar vacío'); return; }
+    try {
+      await laboratorioService.updateLote(loteId, { numero_lote: nombre });
+      toast.success('Nombre actualizado');
+      setEditandoLoteId(null);
+      const lotesAbRes = await laboratorioService.getLotesAbiertosConCamionadas();
+      setLotesAbiertosCards(lotesAbRes || []);
+      await cargarLotes();
+    } catch (error) {
+      toast.error('Error al actualizar', error.response?.data?.mensaje || error.message);
+    }
+  };
+
   const handleRecepcionModal = (camionada) => {
     setCamionadaParaRecepcion(camionada);
     setFormRecepcionModal({
@@ -825,15 +870,74 @@ const DespachosView = () => {
             Gestión completa de plantas, lotes y camionadas
           </p>
         </div>
-        <Button
-          variant="secondary"
-          onClick={cargarDatos}
-          disabled={loading}
-          icon={HiRefresh}
-        >
-          Actualizar
-        </Button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowInfo(v => !v)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold border transition-colors ${
+              showInfo ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-blue-500 border-blue-200 hover:bg-blue-50'
+            }`}
+            title="¿Cómo funciona?"
+          >
+            <HiInformationCircle className="w-4 h-4" />
+            <span className="hidden sm:inline">¿Cómo funciona?</span>
+          </button>
+          <Button
+            variant="secondary"
+            onClick={cargarDatos}
+            disabled={loading}
+            icon={HiRefresh}
+          >
+            Actualizar
+          </Button>
+        </div>
       </div>
+
+      {/* Panel ¿Cómo funciona? */}
+      {showInfo && (
+        <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
+
+          {/* ── Flujo del dato ── */}
+          <div className="mb-4 pb-4 border-b border-blue-100">
+            <p className="text-[9px] font-bold text-blue-400 uppercase tracking-widest mb-2.5">Flujo del dato</p>
+            <div className="flex items-start">
+              {[
+                { n: 1, label: 'Ingreso', color: 'bg-orange-500', active: false },
+                { n: 2, label: 'Envío\nMuestras', color: 'bg-teal-500', active: false },
+                { n: 3, label: 'Lab', color: 'bg-green-600', active: false },
+                { n: 4, label: 'Mezclas', color: 'bg-purple-600', active: false },
+                { n: 5, label: 'Despacho', color: 'bg-indigo-600', active: true },
+              ].flatMap((p, i, arr) => [
+                <div key={`s${i}`} className={`flex flex-col items-center ${!p.active ? 'opacity-35' : ''}`} style={{minWidth:'44px'}}>
+                  <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white ${p.active ? p.color : 'bg-gray-300'}`}>{p.n}</div>
+                  <span className={`mt-1 text-[9px] font-semibold text-center leading-tight whitespace-pre-line ${p.active ? 'text-gray-700' : 'text-gray-400'}`}>{p.label}</span>
+                </div>,
+                ...(i < arr.length - 1 ? [<div key={`l${i}`} className="flex-1 h-px bg-gray-200 mt-3.5 mx-0.5 min-w-[8px]" />] : [])
+              ])}
+            </div>
+          </div>
+
+          {/* ── Específico: Despachos ── */}
+          <p className="text-xs font-bold text-blue-800 uppercase tracking-wide mb-2.5">¿Cómo funciona el módulo de Despachos?</p>
+          <div className="space-y-2">
+            <div className="bg-white border border-indigo-200 rounded-lg px-3 py-2">
+              <p className="text-xs font-bold text-indigo-700">Lotes y camionadas</p>
+              <p className="text-xs text-gray-500 mt-0.5">Las mezclas se despachan en <strong>camionadas</strong> agrupadas en un <strong>lote</strong>. Cada lote está asociado a una planta de destino y una empresa receptora. Un lote puede estar <strong className="text-emerald-600">Abierto</strong> (recibiendo camionadas) o <strong className="text-gray-500">Cerrado</strong> (finalizado).</p>
+            </div>
+            <div className="bg-white border border-indigo-200 rounded-lg px-3 py-2">
+              <p className="text-xs font-bold text-indigo-700">Registro de camionada</p>
+              <p className="text-xs text-gray-500 mt-0.5">Por cada camionada se registra: <strong>patente</strong> del camión, <strong>peso</strong> despachado, <strong>número de guía</strong> y la <strong>mezcla</strong> de origen. Al recepcionar, se puede registrar el peso real para calcular la diferencia.</p>
+            </div>
+            <div className="bg-white border border-indigo-200 rounded-lg px-3 py-2">
+              <p className="text-xs font-bold text-indigo-700">Plantas, empresas y camiones</p>
+              <p className="text-xs text-gray-500 mt-0.5">Las plantas de destino, empresas receptoras y el registro de camiones (patente, tonelaje, categoría) se gestionan desde la pestaña <strong>Gestión</strong> dentro de este mismo módulo.</p>
+            </div>
+            <div className="bg-white border border-indigo-200 rounded-lg px-3 py-2">
+              <p className="text-xs font-bold text-indigo-700">Número de lote</p>
+              <p className="text-xs text-gray-500 mt-0.5">El número de lote se genera automáticamente según la planta de destino. El prefijo utilizado para la numeración es configurable por planta — contactar al administrador del sistema.</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="border-b-2 border-gray-200">
@@ -1124,6 +1228,15 @@ const DespachosView = () => {
                                 title="Recepcionar"
                               >
                                 <HiCheckCircle className="w-5 h-5" />
+                              </button>
+                            )}
+                            {camionada.peso_real !== null && camionada.peso_real !== undefined && (
+                              <button
+                                onClick={() => handleAnularRecepcion(camionada)}
+                                className="text-amber-500 hover:text-amber-700"
+                                title="Anular recepción"
+                              >
+                                <HiXCircle className="w-5 h-5" />
                               </button>
                             )}
                             <button
@@ -1500,7 +1613,7 @@ const DespachosView = () => {
 
           {/* Modal Agregar Recargo desde Card de Lote */}
           {mostrarFormCamionada && loteIdParaCamionada && tabLotesActivo === 'abiertos' && (
-            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-start justify-center z-50 p-4 overflow-y-auto">
+            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-start justify-center z-50 p-4 overflow-y-auto"> 
               <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl my-8">
                 <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
                   <h2 className="text-lg font-semibold text-gray-800">Agregar Recargo al Lote</h2>
@@ -1659,11 +1772,35 @@ const DespachosView = () => {
                       <div className="flex items-center justify-between mb-3">
                         <div>
                           <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
-                            <HiCube className="text-blue-600" />
-                            {lote.numero_lote
-                              ? <>Lote: {lote.numero_lote}</>
-                              : <span className="text-yellow-600 italic">Sin número de Lote</span>
-                            }
+                            <HiCube className="text-blue-600 shrink-0" />
+                            {editandoLoteId === lote.id ? (
+                              <div className="flex items-center gap-1">
+                                <input
+                                  autoFocus
+                                  value={editandoLoteNombre}
+                                  onChange={e => setEditandoLoteNombre(e.target.value)}
+                                  onKeyDown={e => {
+                                    if (e.key === 'Enter') handleGuardarNombreLote(lote.id);
+                                    if (e.key === 'Escape') setEditandoLoteId(null);
+                                  }}
+                                  className="border-b-2 border-blue-500 outline-none text-base font-bold px-1 py-0.5 w-36 bg-blue-50 rounded"
+                                />
+                                <button onClick={() => handleGuardarNombreLote(lote.id)} className="text-green-600 hover:text-green-800" title="Guardar"><HiCheckCircle className="w-5 h-5" /></button>
+                                <button onClick={() => setEditandoLoteId(null)} className="text-gray-400 hover:text-gray-600" title="Cancelar"><HiX className="w-4 h-4" /></button>
+                              </div>
+                            ) : (
+                              <span
+                                className="cursor-pointer hover:text-blue-700 flex items-center gap-1 group"
+                                onClick={() => { setEditandoLoteId(lote.id); setEditandoLoteNombre(lote.numero_lote || ''); }}
+                                title="Clic para editar nombre"
+                              >
+                                {lote.numero_lote
+                                  ? <>Lote: {lote.numero_lote}</>
+                                  : <span className="text-yellow-600 italic">Sin número de Lote</span>
+                                }
+                                <HiPencil className="w-3.5 h-3.5 text-gray-400 opacity-0 group-hover:opacity-100 transition-opacity" />
+                              </span>
+                            )}
                             <span className="text-sm font-normal text-gray-500">
                               ({lote.empresa?.nombre || lote.empresa_nombre || '-'})
                             </span>
@@ -1798,19 +1935,39 @@ const DespachosView = () => {
                                   </div>
 
                                   {/* Estado o acciones de recepción */}
-                                  {!esDespachado ? (
-                                    <span className={`${getEstadoColor(cam.estado)} text-white px-2 py-0.5 rounded-full text-[10px] font-bold flex-shrink-0`}>
-                                      {cam.estado}
-                                    </span>
-                                  ) : (
+                                  <div className="flex items-center gap-1 flex-shrink-0">
+                                    {!esDespachado ? (
+                                      <>
+                                        <span className={`${getEstadoColor(cam.estado)} text-white px-2 py-0.5 rounded-full text-[10px] font-bold`}>
+                                          {cam.estado}
+                                        </span>
+                                        {yaRecepcionado && (
+                                          <button
+                                            onClick={() => handleAnularRecepcion(cam)}
+                                            className="text-amber-500 hover:text-amber-700"
+                                            title="Anular recepción"
+                                          >
+                                            <HiXCircle className="w-4 h-4" />
+                                          </button>
+                                        )}
+                                      </>
+                                    ) : (
+                                      <button
+                                        onClick={() => handleRecepcionModal({ ...cam, lote })}
+                                        className="flex items-center gap-1 px-2.5 py-1 bg-green-500 hover:bg-green-600 text-white text-xs font-bold rounded-md transition-colors"
+                                      >
+                                        <HiCheckCircle className="w-3.5 h-3.5" />
+                                        Recepcionar
+                                      </button>
+                                    )}
                                     <button
-                                      onClick={() => handleRecepcionModal({ ...cam, lote })}
-                                      className="flex items-center gap-1 px-2.5 py-1 bg-green-500 hover:bg-green-600 text-white text-xs font-bold rounded-md transition-colors flex-shrink-0"
+                                      onClick={() => handleEliminarCamionada(cam.id)}
+                                      className="text-red-400 hover:text-red-600 transition-colors"
+                                      title="Eliminar camionada"
                                     >
-                                      <HiCheckCircle className="w-3.5 h-3.5" />
-                                      Recepcionar
+                                      <HiTrash className="w-4 h-4" />
                                     </button>
-                                  )}
+                                  </div>
                                 </div>
                               </div>
                             );
@@ -2983,6 +3140,20 @@ const DespachosView = () => {
           </Card>
         </div>
       )}
+
+      {/* Modal anular recepción */}
+      <ConfirmModal
+        show={showConfirmAnular}
+        variant="warning"
+        title="Anular recepción"
+        message={`¿Anular la recepción de la camionada ${camionadaParaAnular?.patente || ''}?`}
+        highlightText={camionadaParaAnular?.peso_real ? `${parseFloat(camionadaParaAnular.peso_real).toFixed(2)} t serán restauradas` : undefined}
+        warningText="La camionada volverá a estado Despachado y las toneladas se reintegrarán a la mezcla."
+        confirmText="Sí, anular"
+        cancelText="Cancelar"
+        onConfirm={confirmarAnularRecepcion}
+        onCancel={() => { setShowConfirmAnular(false); setCamionadaParaAnular(null); }}
+      />
 
       {/* Modal de Confirmación de Eliminación */}
       <ConfirmModal

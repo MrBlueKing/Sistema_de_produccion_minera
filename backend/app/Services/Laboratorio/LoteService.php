@@ -22,6 +22,7 @@ class LoteService
                 'numero_lote' => $datos['numero_lote'] ?? null,
                 'planta_id' => $datos['planta_id'],
                 'empresa_id' => $datos['empresa_id'],
+                'id_faena' => $datos['id_faena'] ?? null,
                 'fecha_creacion' => $datos['fecha_creacion'] ?? now(),
                 'fecha_estimada_llegada' => $datos['fecha_estimada_llegada'] ?? null,
                 'estado' => Lote::ESTADO_ABIERTO,

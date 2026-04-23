@@ -119,11 +119,6 @@ class CamionadaService
             if (isset($datos['peso']) && $datos['peso'] != $pesoAnterior) {
                 $diferenciaPeso = $datos['peso'] - $pesoAnterior;
 
-                // Si aumenta el peso, validar que haya toneladas disponibles
-                if ($diferenciaPeso > 0 && $diferenciaPeso > $mezcla->toneladas_disponibles) {
-                    throw new Exception("El aumento de peso ({$diferenciaPeso} t) supera las toneladas disponibles ({$mezcla->toneladas_disponibles} t)");
-                }
-
                 // Restaurar el peso anterior
                 $mezcla->restaurarToneladas($pesoAnterior);
 
@@ -373,14 +368,49 @@ class CamionadaService
             if ($mezcla) {
                 $pesoReal = (float) $datos['peso_real'];
 
-                // Validar que haya suficientes toneladas disponibles
-                if ($pesoReal > $mezcla->toneladas_disponibles) {
-                    throw new Exception("El peso real ({$pesoReal} t) supera las toneladas disponibles ({$mezcla->toneladas_disponibles} t) de la mezcla {$mezcla->codigo}");
-                }
-
-                // Descontar el peso real
+                // Descontar el peso real — puede quedar negativo (déficit)
+                // cuando el peso real supera el estimado de las dumpadas
                 $mezcla->descontarToneladas($pesoReal);
             }
+
+            DB::commit();
+            return $camionada->fresh(['mezcla', 'lote']);
+
+        } catch (Exception $e) {
+            DB::rollBack();
+            throw $e;
+        }
+    }
+
+    /**
+     * Anular la recepción de una camionada (volver a estado Despachado)
+     */
+    public function anularRecepcion($camionadaId)
+    {
+        DB::beginTransaction();
+
+        try {
+            $camionada = Camionada::with('mezcla')->findOrFail($camionadaId);
+
+            if ($camionada->peso_real === null) {
+                throw new Exception("La camionada no ha sido recepcionada.");
+            }
+
+            $mezcla = $camionada->mezcla;
+            $pesoReal = (float) $camionada->peso_real;
+
+            // Restaurar las toneladas descontadas al momento de la recepción
+            if ($mezcla) {
+                $mezcla->restaurarToneladas($pesoReal);
+            }
+
+            // Limpiar datos de recepción y volver a estado Despachado
+            $camionada->peso_real       = null;
+            $camionada->fecha_recepcion = null;
+            $camionada->hora_recepcion  = null;
+            $camionada->ticket          = null;
+            $camionada->estado          = Camionada::ESTADO_DESPACHADO;
+            $camionada->save();
 
             DB::commit();
             return $camionada->fresh(['mezcla', 'lote']);

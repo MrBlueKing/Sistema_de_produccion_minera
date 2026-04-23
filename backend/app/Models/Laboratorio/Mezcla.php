@@ -307,14 +307,12 @@ class Mezcla extends Model
      */
     public function descontarToneladas($toneladas)
     {
-        if ($toneladas > $this->toneladas_disponibles) {
-            throw new \Exception("No hay suficientes toneladas disponibles en la mezcla. Disponible: {$this->toneladas_disponibles} ton, Solicitado: {$toneladas} ton");
-        }
-
+        // Permitir déficit: las toneladas_disponibles pueden quedar negativas
+        // cuando el peso real recepcionado supera el estimado de las dumpadas
         $this->toneladas_disponibles -= $toneladas;
         $this->toneladas_despachadas += $toneladas;
 
-        // Actualizar estado si se despachó todo
+        // Actualizar estado si se despachó todo (o más)
         if ($this->toneladas_disponibles <= 0.01) { // Tolerancia de 10kg
             $this->estado = self::ESTADO_DESPACHADO;
         } elseif ($this->toneladas_despachadas > 0) {

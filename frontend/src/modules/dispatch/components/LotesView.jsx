@@ -6,6 +6,7 @@ import Badge from '../../../shared/components/atoms/Badge';
 import Button from '../../../shared/components/atoms/Button';
 import Loader from '../../../shared/components/atoms/Loader';
 import LotesDashboard from './LotesDashboard';
+import LoteDetalleView from './LoteDetalleView';
 import laboratorioService from '../../../services/laboratorio';
 import useToast from '../../../hooks/useToast';
 
@@ -22,6 +23,7 @@ const LotesView = () => {
   });
   const [loteSeleccionado, setLoteSeleccionado] = useState(null);
   const [loadingDetalle, setLoadingDetalle] = useState(false);
+  const [vistaDetalle, setVistaDetalle] = useState(false);
 
   useEffect(() => {
     cargarDatos();
@@ -74,12 +76,18 @@ const LotesView = () => {
     try {
       const lote = await laboratorioService.getLote(loteId);
       setLoteSeleccionado(lote);
+      setVistaDetalle(true);
     } catch (error) {
       console.error('Error cargando detalle:', error);
       toast.error('Error al cargar el detalle del lote');
     } finally {
       setLoadingDetalle(false);
     }
+  };
+
+  const handleVolverLista = () => {
+    setVistaDetalle(false);
+    setLoteSeleccionado(null);
   };
 
   const handleFiltroChange = (e) => {
@@ -112,6 +120,11 @@ const LotesView = () => {
         return 'gray';
     }
   };
+
+  // Vista detalle drill-down
+  if (vistaDetalle && loteSeleccionado) {
+    return <LoteDetalleView lote={loteSeleccionado} onBack={handleVolverLista} />;
+  }
 
   return (
     <div className="space-y-6">
@@ -253,8 +266,9 @@ const LotesView = () => {
                   variant="primary"
                   icon={HiEye}
                   onClick={() => handleVerDetalle(lote.id)}
+                  disabled={loadingDetalle}
                 >
-                  Ver Detalle
+                  {loadingDetalle ? 'Cargando...' : 'Ver Detalle'}
                 </Button>
               </div>
 
@@ -305,175 +319,6 @@ const LotesView = () => {
         </div>
       ))}
 
-      {/* Modal de Detalle */}
-      {loteSeleccionado && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <Card className="max-w-6xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-6">
-              <div>
-                <h3 className="text-3xl font-bold text-gray-900">
-                  {loteSeleccionado.numero_lote}
-                </h3>
-                <div className="flex gap-2 mt-2">
-                  <Badge color="blue">
-                    <HiOfficeBuilding className="inline mr-1" />
-                    {loteSeleccionado.planta?.nombre}
-                  </Badge>
-                  <Badge color="purple">
-                    <HiBriefcase className="inline mr-1" />
-                    {loteSeleccionado.empresa?.nombre}
-                  </Badge>
-                  <Badge color={getEstadoColor(loteSeleccionado.estado)}>
-                    {loteSeleccionado.estado}
-                  </Badge>
-                </div>
-              </div>
-              <button
-                onClick={() => setLoteSeleccionado(null)}
-                className="text-gray-500 hover:text-gray-700 text-3xl font-bold"
-              >
-                ✕
-              </button>
-            </div>
-
-            {/* Estadísticas del Lote */}
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
-              <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-                <p className="text-sm text-gray-600 mb-1">Total Camionadas</p>
-                <p className="text-3xl font-bold text-blue-700">
-                  {loteSeleccionado.camionadas?.length || 0}
-                </p>
-              </div>
-              <div className="bg-green-50 rounded-lg p-4 border border-green-200">
-                <p className="text-sm text-gray-600 mb-1">Peso Total</p>
-                <p className="text-3xl font-bold text-green-700">
-                  {loteSeleccionado.camionadas?.reduce((sum, c) => sum + parseFloat(c.peso || 0), 0).toFixed(2)} t
-                </p>
-              </div>
-              <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
-                <p className="text-sm text-gray-600 mb-1">Mezclas Diferentes</p>
-                <p className="text-3xl font-bold text-purple-700">
-                  {new Set(loteSeleccionado.camionadas?.map(c => c.mezcla_id)).size || 0}
-                </p>
-              </div>
-              <div className="bg-orange-50 rounded-lg p-4 border border-orange-200">
-                <p className="text-sm text-gray-600 mb-1">Ley Lote Prom.</p>
-                <p className="text-3xl font-bold text-orange-700">
-                  {loteSeleccionado.ley_lote_promedio !== null && loteSeleccionado.ley_lote_promedio !== undefined
-                    ? `${loteSeleccionado.ley_lote_promedio.toFixed(2)}%`
-                    : 'N/A'}
-                </p>
-              </div>
-              <div className="bg-amber-50 rounded-lg p-4 border border-amber-200">
-                <p className="text-sm text-gray-600 mb-1">Ley Visual Prom.</p>
-                <p className="text-3xl font-bold text-amber-700">
-                  {loteSeleccionado.ley_visual_promedio !== null && loteSeleccionado.ley_visual_promedio !== undefined
-                    ? `${loteSeleccionado.ley_visual_promedio.toFixed(2)}%`
-                    : 'N/A'}
-                </p>
-              </div>
-            </div>
-
-            {/* Tabla de Camionadas */}
-            <div>
-              <h4 className="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
-                <HiTruck />
-                Camionadas del Lote
-              </h4>
-
-              {loadingDetalle ? (
-                <div className="flex justify-center py-8">
-                  <Loader />
-                </div>
-              ) : loteSeleccionado.camionadas && loteSeleccionado.camionadas.length > 0 ? (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm border border-gray-300">
-                    <thead>
-                      <tr className="bg-gradient-to-r from-indigo-50 to-purple-50 border-b-2 border-indigo-200">
-                        <th className="text-left py-3 px-3 font-bold text-indigo-900">#</th>
-                        <th className="text-left py-3 px-3 font-bold text-indigo-900">Mezcla</th>
-                        <th className="text-left py-3 px-3 font-bold text-indigo-900">Patente</th>
-                        <th className="text-left py-3 px-3 font-bold text-indigo-900">Fecha</th>
-                        <th className="text-left py-3 px-3 font-bold text-indigo-900">Peso</th>
-                        <th className="text-left py-3 px-3 font-bold text-indigo-900">Ley Mezcla</th>
-                        <th className="text-left py-3 px-3 font-bold text-indigo-900">Estado</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {loteSeleccionado.camionadas.map((camionada, index) => (
-                        <tr
-                          key={camionada.id}
-                          className={`border-b hover:bg-indigo-50 transition-colors ${
-                            index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
-                          }`}
-                        >
-                          <td className="py-2 px-3 font-bold">{camionada.numero_camionada}</td>
-                          <td className="py-2 px-3 font-mono text-blue-700">
-                            {camionada.mezcla?.codigo || '-'}
-                          </td>
-                          <td className="py-2 px-3 font-mono">{camionada.patente}</td>
-                          <td className="py-2 px-3">
-                            {new Date(camionada.fecha_despacho).toLocaleDateString('es-CL')}
-                          </td>
-                          <td className="py-2 px-3 font-semibold">
-                            {parseFloat(camionada.peso).toFixed(2)} t
-                          </td>
-                          <td className="py-2 px-3">
-                            {camionada.ley_mezcla ? `${parseFloat(camionada.ley_mezcla).toFixed(2)}%` : '-'}
-                          </td>
-                          <td className="py-2 px-3">
-                            <Badge
-                              size="sm"
-                              color={
-                                camionada.estado === 'Completado' ? 'green' :
-                                camionada.estado === 'Recibido' ? 'blue' :
-                                camionada.estado === 'Despachado' ? 'yellow' :
-                                'gray'
-                              }
-                            >
-                              {camionada.estado}
-                            </Badge>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot>
-                      <tr className="bg-gradient-to-r from-indigo-100 to-purple-100 border-t-2 border-indigo-300 font-bold">
-                        <td colSpan="4" className="py-3 px-3 text-indigo-900">TOTALES</td>
-                        <td className="py-3 px-3 text-indigo-900">
-                          {loteSeleccionado.camionadas.reduce((sum, c) => sum + parseFloat(c.peso || 0), 0).toFixed(2)} t
-                        </td>
-                        <td colSpan="2" className="py-3 px-3"></td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              ) : (
-                <div className="text-center py-8 text-gray-500">
-                  No hay camionadas en este lote
-                </div>
-              )}
-            </div>
-
-            {/* Observaciones */}
-            {loteSeleccionado.observaciones && (
-              <div className="mt-6 bg-yellow-50 rounded-lg p-4 border border-yellow-200">
-                <p className="text-sm font-semibold text-yellow-900 mb-1">Observaciones:</p>
-                <p className="text-sm text-yellow-800">{loteSeleccionado.observaciones}</p>
-              </div>
-            )}
-
-            <div className="mt-6 flex justify-end">
-              <Button
-                variant="secondary"
-                onClick={() => setLoteSeleccionado(null)}
-              >
-                Cerrar
-              </Button>
-            </div>
-          </Card>
-        </div>
-      )}
     </div>
   );
 };

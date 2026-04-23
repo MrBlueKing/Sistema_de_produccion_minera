@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { HiCube, HiPlus, HiEye, HiTrash, HiLockClosed, HiLockOpen, HiCheckCircle, HiXCircle, HiPencil, HiClock, HiCalendar, HiBeaker, HiTruck, HiChartBar, HiMagnifyingGlass, HiAdjustmentsHorizontal, HiArchiveBox } from 'react-icons/hi2';
+import { HiCube, HiPlus, HiEye, HiTrash, HiLockClosed, HiLockOpen, HiCheckCircle, HiXCircle, HiPencil, HiClock, HiCalendar, HiBeaker, HiTruck, HiChartBar, HiMagnifyingGlass, HiAdjustmentsHorizontal, HiArchiveBox, HiInformationCircle } from 'react-icons/hi2';
 import Button from '../../../shared/components/atoms/Button';
 import Card from '../../../shared/components/atoms/Card';
 import Badge from '../../../shared/components/atoms/Badge';
@@ -12,6 +12,7 @@ import acopiosService from '../../../services/acopios';
 
 export default function AcopiosView({ toast, formatearFecha }) {
   const { tonelajeDumpadaDefault, factorAjusteLey } = useConfig();
+  const [showInfo, setShowInfo] = useState(false);
   const [acopios, setAcopios] = useState([]);
   const [dumpadasSinAcopio, setDumpadasSinAcopio] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -641,14 +642,24 @@ export default function AcopiosView({ toast, formatearFecha }) {
 
       <Card className="border-l-4 border-purple-500">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-4">
           <div>
             <h3 className="text-2xl font-bold text-gray-900">Gestión de Acopios</h3>
             <p className="text-sm text-gray-600 mt-1">
               Total: <span className="font-semibold text-purple-600">{acopios.length}</span> acopios registrados
             </p>
           </div>
-          <div className="flex gap-3">
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowInfo(v => !v)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold border transition-colors ${
+                showInfo ? 'bg-blue-500 text-white border-blue-500' : 'bg-white text-blue-500 border-blue-200 hover:bg-blue-50'
+              }`}
+              title="¿Cómo funciona?"
+            >
+              <HiInformationCircle className="w-4 h-4" />
+              <span className="hidden sm:inline">¿Cómo funciona?</span>
+            </button>
             <Button
               variant="primary"
               icon={HiPlus}
@@ -659,6 +670,53 @@ export default function AcopiosView({ toast, formatearFecha }) {
             </Button>
           </div>
         </div>
+
+        {/* Panel ¿Cómo funciona? */}
+        {showInfo && (
+          <div className="mb-5 p-4 bg-blue-50 border border-blue-200 rounded-xl">
+
+            {/* ── Flujo del dato ── */}
+            <div className="mb-4 pb-4 border-b border-blue-100">
+              <p className="text-[9px] font-bold text-blue-400 uppercase tracking-widest mb-2.5">Flujo del dato</p>
+              <div className="flex items-start">
+                {[
+                  { n: 1, label: 'Ingreso', color: 'bg-orange-500', active: false },
+                  { n: 2, label: 'Envío\nMuestras', color: 'bg-teal-500', active: false },
+                  { n: 3, label: 'Acopios', color: 'bg-emerald-600', active: true },
+                  { n: 4, label: 'Mezclas', color: 'bg-purple-600', active: false },
+                  { n: 5, label: 'Despacho', color: 'bg-indigo-600', active: false },
+                ].flatMap((p, i, arr) => [
+                  <div key={`s${i}`} className={`flex flex-col items-center ${!p.active ? 'opacity-35' : ''}`} style={{minWidth:'44px'}}>
+                    <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white ${p.active ? p.color : 'bg-gray-300'}`}>{p.n}</div>
+                    <span className={`mt-1 text-[9px] font-semibold text-center leading-tight whitespace-pre-line ${p.active ? 'text-gray-700' : 'text-gray-400'}`}>{p.label}</span>
+                  </div>,
+                  ...(i < arr.length - 1 ? [<div key={`l${i}`} className="flex-1 h-px bg-gray-200 mt-3.5 mx-0.5 min-w-[8px]" />] : [])
+                ])}
+              </div>
+            </div>
+
+            {/* ── Específico: Acopios ── */}
+            <p className="text-xs font-bold text-blue-800 uppercase tracking-wide mb-2.5">¿Cómo funciona el módulo de Acopios?</p>
+            <div className="space-y-2">
+              <div className="bg-white border border-emerald-200 rounded-lg px-3 py-2">
+                <p className="text-xs font-bold text-emerald-700">Qué es un acopio</p>
+                <p className="text-xs text-gray-500 mt-0.5">Un acopio agrupa físicamente dumpadas en el terreno antes de ser mezcladas. Permite consolidar material de distintas jornadas o frentes en un solo volumen para su posterior procesamiento.</p>
+              </div>
+              <div className="bg-white border border-emerald-200 rounded-lg px-3 py-2">
+                <p className="text-xs font-bold text-emerald-700">Estados: Activo y Cerrado</p>
+                <p className="text-xs text-gray-500 mt-0.5">Un acopio <strong className="text-emerald-600">Activo</strong> puede seguir recibiendo dumpadas. Al <strong>cerrar</strong> el acopio, queda disponible para ser incluido en una mezcla. Solo acopios cerrados pueden mezclarse.</p>
+              </div>
+              <div className="bg-white border border-emerald-200 rounded-lg px-3 py-2">
+                <p className="text-xs font-bold text-emerald-700">Ajuste de toneladas reales</p>
+                <p className="text-xs text-gray-500 mt-0.5">Al cerrar un acopio se puede registrar el peso real medido en terreno. Si difiere del tonelaje estimado (suma de dumpadas), el sistema aplica el <strong>factor de ajuste de ley</strong> para recalcular la ley del acopio. Este factor es configurable — contactar al administrador del sistema.</p>
+              </div>
+              <div className="bg-white border border-emerald-200 rounded-lg px-3 py-2">
+                <p className="text-xs font-bold text-emerald-700">Activación del sistema</p>
+                <p className="text-xs text-gray-500 mt-0.5">El sistema de acopios se activa o desactiva por faena. Cuando está activo, las mezclas se construyen desde acopios en lugar de dumpadas individuales. Para cambiar esta configuración, contactar al administrador del sistema.</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Tabs de navegación */}
         <div className="flex gap-2 mb-6 border-b-2 border-gray-200">

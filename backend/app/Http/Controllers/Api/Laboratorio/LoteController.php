@@ -171,7 +171,13 @@ class LoteController extends Controller
         }
 
         try {
-            $lote = $this->loteService->crearLote($request->all());
+            $datos = $request->all();
+            // Asignar la faena del usuario autenticado al lote
+            if (!isset($datos['id_faena']) && $request->auth_faena) {
+                $datos['id_faena'] = $request->auth_faena;
+            }
+
+            $lote = $this->loteService->crearLote($datos);
 
             return response()->json([
                 'mensaje' => 'Lote creado exitosamente',
@@ -191,7 +197,7 @@ class LoteController extends Controller
      */
     public function show($id)
     {
-        $lote = Lote::with(['planta', 'empresa', 'camionadas.mezcla'])->findOrFail($id);
+        $lote = Lote::with(['planta', 'empresa', 'camionadas.mezcla.detalles.dumpada'])->findOrFail($id);
 
         // Agregar campos calculados
         $loteData = $this->agregarCamposCalculados($lote);
