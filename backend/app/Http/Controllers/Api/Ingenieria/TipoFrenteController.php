@@ -117,6 +117,14 @@ class TipoFrenteController extends Controller
             ], 404);
         }
 
+        $totalFrentes = $tipo->frentesTrabajo()->withTrashed()->count();
+        if ($totalFrentes > 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No se puede eliminar: este tipo tiene frentes asociados (incluyendo eliminados). Primero elimine permanentemente los frentes de trabajo.'
+            ], 409);
+        }
+
         $tipo->delete();
 
         return response()->json([

@@ -144,11 +144,13 @@ class Mezcla extends Model
     }
 
     /**
-     * Relación: una mezcla tiene muchas camionadas (despachos)
+     * Relación: una mezcla tiene muchas camionadas (via pivot)
      */
     public function camionadas()
     {
-        return $this->hasMany(\App\Models\Laboratorio\Camionada::class, 'mezcla_id');
+        return $this->belongsToMany(\App\Models\Laboratorio\Camionada::class, 'camionada_mezcla')
+                    ->withPivot(['toneladas', 'ley_mezcla'])
+                    ->withTimestamps();
     }
 
     /**
@@ -160,21 +162,21 @@ class Mezcla extends Model
     }
 
     /**
-     * Calcular peso total despachado en todas las camionadas
+     * Calcular toneladas teóricas asignadas a esta mezcla en camionadas
      */
     public function getPesoDespachado()
     {
-        return $this->camionadas()->sum('peso');
+        return \Illuminate\Support\Facades\DB::table('camionada_mezcla')
+            ->where('mezcla_id', $this->id)
+            ->sum('toneladas');
     }
 
     /**
      * Calcular peso remanente disponible de esta mezcla
-     * Remanente = Total - Despachado en camionadas
      */
     public function getPesoRemanente()
     {
-        $pesoDespachado = $this->getPesoDespachado();
-        return max(0, $this->total_ton - $pesoDespachado);
+        return max(0, $this->total_ton - $this->getPesoDespachado());
     }
 
     /**
@@ -182,11 +184,11 @@ class Mezcla extends Model
      */
     public function tieneRemanente()
     {
-        return $this->getPesoRemanente() > 0.01; // Tolerancia de 10kg
+        return $this->getPesoRemanente() > 0.01;
     }
 
     /**
-     * Obtener número de camionadas despachadas
+     * Obtener número de camionadas que usan esta mezcla
      */
     public function getNumeroCamionadas()
     {

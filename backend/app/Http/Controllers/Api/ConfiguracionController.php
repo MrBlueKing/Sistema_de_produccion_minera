@@ -22,7 +22,7 @@ class ConfiguracionController extends Controller
             'factor_ajuste_ley' => MezclaConfig::getFactorAjusteLey(),
             'peso_camion_default' => ConfiguracionSistema::obtener('peso_camion_default', 29, $idFaena),
             'tonelaje_dumpada_default' => ConfiguracionSistema::obtener('tonelaje_dumpada_default', 4.6, $idFaena),
-            'ley_capping_maximo' => (float) ConfiguracionSistema::obtener('ley_capping_maximo', 3.7, $idFaena),
+            'ley_capping_maximo' => (float) ConfiguracionSistema::obtener('ley_capping_maximo', 3, $idFaena),
             'toneladas_por_palada' => (float) ConfiguracionSistema::obtener('toneladas_por_palada', 1.82, $idFaena),
             'usar_sistema_acopios' => ConfiguracionSistema::usarSistemaAcopios(),
             'id_faena' => $idFaena,

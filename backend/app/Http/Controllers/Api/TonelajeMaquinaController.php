@@ -25,17 +25,13 @@ class TonelajeMaquinaController extends Controller
         $idFaena = $this->getFaenaParaFiltrar($request) ?? $request->auth_faena;
 
         try {
-            // 1. Obtener dumpers desde petroleo
-            $response = Http::timeout(10)
-                ->get(env('SISTEMA_PETROLEO_API') . '/dumpers');
-
-            if (!$response->successful()) {
-                return response()->json([
-                    'error' => 'Error al obtener máquinas del sistema de petroleo'
-                ], 500);
+            // 1. Obtener dumpers desde petroleo (no crítico: si falla, lista vacía)
+            try {
+                $response = Http::timeout(5)->get(env('SISTEMA_PETROLEO_API') . '/dumpers');
+                $maquinasPetroleo = $response->successful() ? ($response->json()['data'] ?? []) : [];
+            } catch (\Exception $e) {
+                $maquinasPetroleo = [];
             }
-
-            $maquinasPetroleo = $response->json()['data'] ?? [];
 
             // 2. Obtener configuraciones de tonelaje locales
             $tonelajesConfig = TonelajeMaquina::activos()

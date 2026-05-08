@@ -197,7 +197,7 @@ class LoteController extends Controller
      */
     public function show($id)
     {
-        $lote = Lote::with(['planta', 'empresa', 'camionadas.mezcla.detalles.dumpada'])->findOrFail($id);
+        $lote = Lote::with(['planta', 'empresa', 'camionadas.mezclas.detalles.dumpada'])->findOrFail($id);
 
         // Agregar campos calculados
         $loteData = $this->agregarCamposCalculados($lote);
@@ -257,7 +257,7 @@ class LoteController extends Controller
     public function destroy(Request $request, $id)
     {
         try {
-            $lote = Lote::with(['camionadas.mezcla', 'planta', 'empresa'])->findOrFail($id);
+            $lote = Lote::with(['camionadas.mezclas', 'planta', 'empresa'])->findOrFail($id);
 
             // Validar que solo se puedan eliminar lotes ABIERTOS
             if ($lote->estado !== Lote::ESTADO_ABIERTO) {
@@ -409,6 +409,103 @@ class LoteController extends Controller
     }
 
     /**
+     * Reconstrucción completa de un lote
+     * GET /api/dispatch/lotes/{id}/reconstruccion
+     */
+    public function reconstruccion($id)
+    {
+        $lote = Lote::with([
+            'planta',
+            'empresa',
+            'camionadas.mezclas.detalles.dumpada.frenteTrabajo',
+        ])->findOrFail($id);
+
+        $loteData = [
+            'id'                => $lote->id,
+            'numero_lote'       => $lote->numero_lote,
+            'planta'            => $lote->planta ? ['nombre' => $lote->planta->nombre, 'codigo' => $lote->planta->codigo] : null,
+            'empresa'           => $lote->empresa ? ['nombre' => $lote->empresa->nombre] : null,
+            'estado'            => $lote->estado,
+            'fecha_creacion'    => $lote->fecha_creacion,
+            'peso_total'        => $lote->getPesoTotal(),
+            'peso_recibido'     => $lote->getPesoRecibido(),
+            'ley_lote_promedio' => $lote->getLeyLotePromedio(),
+            'ley_lab_promedio'  => $lote->getLeyLabPromedio(),
+            'numero_camionadas' => $lote->getNumeroCamionadas(),
+        ];
+
+        $camionadas = $lote->camionadas->map(function ($camionada) {
+            $mezclas = $camionada->mezclas->map(function ($mezcla) {
+                $componentes = $mezcla->detalles->map(function ($detalle) {
+                    if ($detalle->tipo === 'DUMP' && $detalle->dumpada) {
+                        $d = $detalle->dumpada;
+                        $frente = $d->frenteTrabajo;
+                        return [
+                            'tipo'              => 'DUMP',
+                            'toneladas'         => (float) $detalle->toneladas,
+                            'numero_paladas'    => $detalle->numero_paladas !== null ? (float) $detalle->numero_paladas : null,
+                            'ley_dump_ajustada' => $detalle->ley_dump_ajustada !== null ? (float) $detalle->ley_dump_ajustada : null,
+                            'ley_visual_mezcla' => $detalle->ley_visual !== null ? (float) $detalle->ley_visual : null,
+                            'ley_lote'          => $detalle->ley_lote !== null ? (float) $detalle->ley_lote : null,
+                            'numero_dumpada'    => $d->numero_dumpada,
+                            'fecha'             => $d->fecha,
+                            'jornada'           => $d->jornada,
+                            'frente'            => $frente ? ($frente->codigo_completo ?? $frente->manto ?? "Frente #{$d->id_frente_trabajo}") : null,
+                            'tiene_lab'         => !is_null($d->ley),
+                            'ley_lab'           => $d->ley !== null ? (float) $d->ley : null,
+                            'ley_cup'           => $d->ley_cup !== null ? (float) $d->ley_cup : null,
+                            'cu_soluble'        => $d->cu_soluble !== null ? (float) $d->cu_soluble : null,
+                            'cu_insoluble'      => $d->cu_insoluble !== null ? (float) $d->cu_insoluble : null,
+                            'ley_visual'        => $d->ley_visual !== null ? (float) $d->ley_visual : null,
+                            'rango'             => $d->rango,
+                            'certificado'       => $d->certificado,
+                        ];
+                    }
+                    return [
+                        'tipo'                   => 'REM',
+                        'origen'                 => $detalle->origen,
+                        'toneladas'              => (float) $detalle->toneladas,
+                        'numero_paladas'         => $detalle->numero_paladas !== null ? (float) $detalle->numero_paladas : null,
+                        'toneladas_reales_origen' => $detalle->toneladas_reales_origen !== null ? (float) $detalle->toneladas_reales_origen : null,
+                        'ley_dump_ajustada'      => $detalle->ley_dump_ajustada !== null ? (float) $detalle->ley_dump_ajustada : null,
+                        'ley_lote'               => $detalle->ley_lote !== null ? (float) $detalle->ley_lote : null,
+                        'ley_visual_mezcla'      => $detalle->ley_visual !== null ? (float) $detalle->ley_visual : null,
+                    ];
+                });
+
+                return [
+                    'id'              => $mezcla->id,
+                    'codigo'          => $mezcla->codigo,
+                    'toneladas_pivot' => (float) $mezcla->pivot->toneladas,
+                    'ley_prom_dump'   => $mezcla->ley_prom_dump !== null ? (float) $mezcla->ley_prom_dump : null,
+                    'ley_prom_lote'   => $mezcla->ley_prom_lote !== null ? (float) $mezcla->ley_prom_lote : null,
+                    'ley_lab'         => $mezcla->ley_lab !== null ? (float) $mezcla->ley_lab : null,
+                    'es_remanente'    => (bool) $mezcla->es_remanente,
+                    'componentes'     => $componentes,
+                ];
+            });
+
+            return [
+                'id'               => $camionada->id,
+                'numero_camionada' => $camionada->numero_camionada,
+                'patente'          => $camionada->patente,
+                'fecha'            => $camionada->fecha_despacho,
+                'peso'             => $camionada->peso !== null ? (float) $camionada->peso : null,
+                'peso_real'        => $camionada->peso_real !== null ? (float) $camionada->peso_real : null,
+                'estado'           => $camionada->estado,
+                'ley_mezcla'       => $camionada->ley_mezcla !== null ? (float) $camionada->ley_mezcla : null,
+                'ley_lab_camion'   => $camionada->ley_lab_camion !== null ? (float) $camionada->ley_lab_camion : null,
+                'mezclas'          => $mezclas,
+            ];
+        });
+
+        return response()->json([
+            'lote'       => $loteData,
+            'camionadas' => $camionadas,
+        ]);
+    }
+
+    /**
      * Obtener lotes abiertos por planta y empresa
      * GET /api/dispatch/lotes/abiertos
      */
@@ -436,7 +533,7 @@ class LoteController extends Controller
      */
     public function lotesAbiertosConCamionadas(Request $request)
     {
-        $query = Lote::with(['planta', 'empresa', 'camionadas.mezcla'])
+        $query = Lote::with(['planta', 'empresa', 'camionadas.mezclas'])
             ->where('estado', Lote::ESTADO_ABIERTO);
 
         if ($request->has('planta_id') && !empty($request->planta_id)) {

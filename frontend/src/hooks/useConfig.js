@@ -14,7 +14,7 @@ export function useConfig(idFaena = null) {
     factorRemanenteVisual: 1.11, // Valor por defecto
     toneladas_por_palada: 1.82, // Valor por defecto
     tonelajeDumpadaDefault: 4.6, // Valor por defecto
-    leyCappingMaximo: 3.7, // Valor por defecto
+    leyCappingMaximo: 3, // Valor por defecto
     usarSistemaAcopios: false, // Por defecto FALSE (usar dumpadas directas)
   });
   const [loading, setLoading] = useState(true);
@@ -30,7 +30,7 @@ export function useConfig(idFaena = null) {
         factorRemanenteVisual: data.factor_remanente_visual || 1.11,
         toneladas_por_palada: data.toneladas_por_palada || 1.82,
         tonelajeDumpadaDefault: data.tonelaje_dumpada_default || 4.6,
-        leyCappingMaximo: data.ley_capping_maximo || 3.7,
+        leyCappingMaximo: data.ley_capping_maximo || 3,
         usarSistemaAcopios: data.usar_sistema_acopios || false,
       });
     } catch (err) {

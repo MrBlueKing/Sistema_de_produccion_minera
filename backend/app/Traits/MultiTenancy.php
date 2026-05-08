@@ -28,6 +28,7 @@ trait MultiTenancy
         // Buscar roles globales en diferentes formatos
         // NOTA: "Encargado Dispatch" NO es global — solo ve su propia faena.
         $rolesGlobales = [
+            'Administrador',
             'Admin Explosivos',
             'admin_explosivos',
             'admin explosivos',

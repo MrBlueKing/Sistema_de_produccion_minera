@@ -56,7 +56,7 @@ class LoteService
      */
     public function obtenerResumen($loteId)
     {
-        $lote = Lote::with(['planta', 'empresa', 'camionadas.mezcla'])->findOrFail($loteId);
+        $lote = Lote::with(['planta', 'empresa', 'camionadas.mezclas'])->findOrFail($loteId);
 
         return [
             'lote' => $lote,

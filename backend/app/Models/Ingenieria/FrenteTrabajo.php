@@ -66,6 +66,11 @@ class FrenteTrabajo extends Model
         return $this->hasMany(AuditoriaFrenteTrabajo::class, 'id_frente_trabajo')->orderBy('created_at', 'desc');
     }
 
+    public function seguimientos()
+    {
+        return $this->hasMany(SeguimientoEstadoFrente::class, 'frente_trabajo_id')->orderBy('created_at', 'desc');
+    }
+
     /**
      * Scope: Filtrar solo frentes activos
      */

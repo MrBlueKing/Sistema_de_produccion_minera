@@ -290,7 +290,7 @@ class Dumpada extends Model
      */
     public static function calcularCapping($ley, $idFaena = null)
     {
-        $cappingMaximo = ConfiguracionSistema::obtener('ley_capping_maximo', 3.7, $idFaena);
+        $cappingMaximo = ConfiguracionSistema::obtener('ley_capping_maximo', 3, $idFaena);
 
         return $ley > $cappingMaximo ? $cappingMaximo : $ley;
     }

@@ -69,6 +69,37 @@ class IngenieriaService {
     const response = await api.post(`/ingenieria/frentes-trabajo/${id}/revertir/${auditoriaId}`);
     return response.data;
   }
+
+  // Seguimiento Estado Frentes
+  async getSeguimientos(params = {}) {
+    const response = await api.get('/ingenieria/seguimiento-estado', { params });
+    return response.data;
+  }
+
+  async createSeguimiento(data) {
+    const response = await api.post('/ingenieria/seguimiento-estado', data);
+    return response.data;
+  }
+
+  async updateSeguimiento(id, data) {
+    const response = await api.put(`/ingenieria/seguimiento-estado/${id}`, data);
+    return response.data;
+  }
+
+  async marcarInicioReal(id, fecha) {
+    const response = await api.post(`/ingenieria/seguimiento-estado/${id}/marcar-inicio`, { fecha_inicio_real: fecha });
+    return response.data;
+  }
+
+  async deleteSeguimiento(id) {
+    const response = await api.delete(`/ingenieria/seguimiento-estado/${id}`);
+    return response.data;
+  }
+
+  async getEstadisticasSeguimiento(params = {}) {
+    const response = await api.get('/ingenieria/seguimiento-estado/estadisticas', { params });
+    return response.data;
+  }
 }
 
 export default new IngenieriaService();

@@ -61,7 +61,8 @@ export default function MezclasView({
 
   // Estados para remanentes de mezclas
   const [remanentesDisponibles, setRemanentesDisponibles] = useState([]);
-  const [remanentesSeleccionados, setRemanentesSeleccionados] = useState([]); // Array de {mezcla_id, toneladas}
+  const [remanentesSeleccionados, setRemanentesSeleccionados] = useState([]); // Array de {mezcla_id, toneladas, numero_paladas?}
+  const [remanenteModos, setRemanenteModos] = useState({}); // {[mezcla_id]: 'ton' | 'paladas'}
 
   // Estados para edición de mezcla (agregar/quitar dumpadas)
   const [modoAgregarDumpadas, setModoAgregarDumpadas] = useState(false);
@@ -381,7 +382,7 @@ export default function MezclasView({
 
       sumaPonderadaLeyVisual = dumpadasSel.reduce((sum, d) => {
         const ton = d._tonAUsar;
-        const leyVisual = parseFloat(d.ley_visual || d.ley || 0);
+        const leyVisual = d.ley_visual != null ? parseFloat(d.ley_visual) : 0;
         return sum + (ton * leyVisual);
       }, 0);
 
@@ -601,10 +602,13 @@ export default function MezclasView({
 
       // Agregar remanentes de mezclas si fueron seleccionados
       if (remanentesSeleccionados.length > 0) {
-        data.remanentes_mezclas = remanentesSeleccionados.map(r => ({
-          mezcla_id: parseInt(r.mezcla_id),
-          toneladas: parseFloat(r.toneladas)
-        }));
+        data.remanentes_mezclas = remanentesSeleccionados.map(r => {
+          const modo = remanenteModos[r.mezcla_id] || 'ton';
+          if (modo === 'paladas' && r.numero_paladas) {
+            return { mezcla_id: parseInt(r.mezcla_id), numero_paladas: parseFloat(r.numero_paladas) };
+          }
+          return { mezcla_id: parseInt(r.mezcla_id), toneladas: parseFloat(r.toneladas) };
+        });
       }
 
       const response = await mezclasService.createMezcla(data);
@@ -625,6 +629,7 @@ export default function MezclasView({
       setDumpadasSeleccionadas([]);
       setLoteRemanenteSeleccionado('');
       setRemanentesSeleccionados([]);
+      setRemanenteModos({});
 
       // Recargar datos
       await loadData();
@@ -1383,20 +1388,29 @@ export default function MezclasView({
                     <th className="text-left py-2 px-2 font-bold text-orange-900 text-xs">Ley Dump</th>
                     <th className="text-left py-2 px-2 font-bold text-orange-900 text-xs">Ley Visual</th>
                     <th className="text-left py-2 px-2 font-bold text-orange-900 text-xs">Ley Lote</th>
-                    <th className="text-left py-2 px-2 font-bold text-orange-900 text-xs">Usar (t)</th>
+                    <th className="text-left py-2 px-2 font-bold text-orange-900 text-xs">Modo / Usar</th>
                     <th className="text-center py-2 px-2 font-bold text-orange-900 text-xs">Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
                   {remanentesDisponibles.map((mezcla, index) => {
                     const remanenteSeleccionado = remanentesSeleccionados.find(r => r.mezcla_id === mezcla.id);
+                    const modoActual = remanenteModos[mezcla.id] || 'ton';
                     const toneladasUsadas = remanenteSeleccionado ? parseFloat(remanenteSeleccionado.toneladas) : 0;
+                    const paladasActuales = remanenteSeleccionado?.numero_paladas ?? '';
+                    const tonDisponibles = parseFloat(mezcla.toneladas_disponibles);
+                    const tonEstimadas = paladasActuales !== '' && parseFloat(paladasActuales) > 0
+                      ? parseFloat(paladasActuales) * toneladas_por_palada
+                      : 0;
+                    const deltaPaladas = tonEstimadas - tonDisponibles;
 
                     return (
                       <tr
                         key={mezcla.id}
                         className={`border-b border-gray-200 hover:bg-orange-50 transition-all ${
-                          toneladasUsadas > 0 ? 'bg-orange-100' : index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
+                          (modoActual === 'ton' ? toneladasUsadas > 0 : paladasActuales !== '' && parseFloat(paladasActuales) > 0)
+                            ? 'bg-orange-100'
+                            : index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
                         }`}
                       >
                         <td className="py-2 px-2">
@@ -1432,49 +1446,108 @@ export default function MezclasView({
                           {mezcla.ley_prom_lote ? `${parseFloat(mezcla.ley_prom_lote).toFixed(2)}%` : '-'}
                         </td>
                         <td className="py-2 px-2">
-                          <input
-                            type="number"
-                            min="0"
-                            max={parseFloat(mezcla.toneladas_disponibles)}
-                            step="0.01"
-                            value={toneladasUsadas || ''}
-                            onChange={(e) => {
-                              const valor = parseFloat(e.target.value) || 0;
-                              const disponibles = parseFloat(mezcla.toneladas_disponibles);
-
-                              if (valor > disponibles) {
-                                toast.warning(
-                                  'Toneladas excedidas',
-                                  `Solo hay ${disponibles.toFixed(2)} t disponibles en ${mezcla.codigo}`
-                                );
-                                return;
-                              }
-
-                              if (valor <= 0) {
-                                // Remover de seleccionados si el valor es 0
-                                setRemanentesSeleccionados(
-                                  remanentesSeleccionados.filter(r => r.mezcla_id !== mezcla.id)
-                                );
-                              } else {
-                                // Actualizar o agregar
-                                const existe = remanentesSeleccionados.find(r => r.mezcla_id === mezcla.id);
-                                if (existe) {
-                                  setRemanentesSeleccionados(
-                                    remanentesSeleccionados.map(r =>
-                                      r.mezcla_id === mezcla.id ? { ...r, toneladas: valor } : r
-                                    )
-                                  );
-                                } else {
-                                  setRemanentesSeleccionados([
-                                    ...remanentesSeleccionados,
-                                    { mezcla_id: mezcla.id, toneladas: valor }
-                                  ]);
+                          {/* Toggle de modo */}
+                          <div className="flex gap-1 mb-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (modoActual !== 'ton') {
+                                  setRemanenteModos({ ...remanenteModos, [mezcla.id]: 'ton' });
+                                  setRemanentesSeleccionados(remanentesSeleccionados.filter(r => r.mezcla_id !== mezcla.id));
                                 }
-                              }
-                            }}
-                            className="w-24 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm"
-                            placeholder="0.00"
-                          />
+                              }}
+                              className={`px-1.5 py-0.5 text-[10px] font-bold rounded transition-colors ${modoActual === 'ton' ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}`}
+                              title="Ingresar toneladas directas"
+                            >
+                              Ton
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (modoActual !== 'paladas') {
+                                  setRemanenteModos({ ...remanenteModos, [mezcla.id]: 'paladas' });
+                                  setRemanentesSeleccionados(remanentesSeleccionados.filter(r => r.mezcla_id !== mezcla.id));
+                                }
+                              }}
+                              className={`px-1.5 py-0.5 text-[10px] font-bold rounded transition-colors ${modoActual === 'paladas' ? 'bg-orange-600 text-white' : 'bg-gray-200 text-gray-600 hover:bg-gray-300'}`}
+                              title="Ingresar número de paladas tomadas"
+                            >
+                              Paladas
+                            </button>
+                          </div>
+
+                          {modoActual === 'ton' ? (
+                            /* Modo toneladas: input directo */
+                            <input
+                              type="number"
+                              min="0"
+                              max={tonDisponibles}
+                              step="0.01"
+                              value={toneladasUsadas || ''}
+                              onChange={(e) => {
+                                const valor = parseFloat(e.target.value) || 0;
+                                if (valor > tonDisponibles) {
+                                  toast.warning('Toneladas excedidas', `Solo hay ${tonDisponibles.toFixed(2)} t disponibles en ${mezcla.codigo}`);
+                                  return;
+                                }
+                                if (valor <= 0) {
+                                  setRemanentesSeleccionados(remanentesSeleccionados.filter(r => r.mezcla_id !== mezcla.id));
+                                } else {
+                                  const existe = remanentesSeleccionados.find(r => r.mezcla_id === mezcla.id);
+                                  if (existe) {
+                                    setRemanentesSeleccionados(remanentesSeleccionados.map(r =>
+                                      r.mezcla_id === mezcla.id ? { ...r, toneladas: valor, numero_paladas: undefined } : r
+                                    ));
+                                  } else {
+                                    setRemanentesSeleccionados([...remanentesSeleccionados, { mezcla_id: mezcla.id, toneladas: valor }]);
+                                  }
+                                }
+                              }}
+                              className="w-24 px-2 py-1 border border-gray-300 rounded focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm"
+                              placeholder="0.00"
+                            />
+                          ) : (
+                            /* Modo paladas: input de paladas con preview */
+                            <div className="flex flex-col gap-0.5">
+                              <input
+                                type="number"
+                                min="0"
+                                step="1"
+                                value={paladasActuales}
+                                onChange={(e) => {
+                                  const valor = parseInt(e.target.value) || 0;
+                                  if (valor <= 0) {
+                                    setRemanentesSeleccionados(remanentesSeleccionados.filter(r => r.mezcla_id !== mezcla.id));
+                                  } else {
+                                    const tonEst = Math.round(valor * toneladas_por_palada * 100) / 100;
+                                    const existe = remanentesSeleccionados.find(r => r.mezcla_id === mezcla.id);
+                                    if (existe) {
+                                      setRemanentesSeleccionados(remanentesSeleccionados.map(r =>
+                                        r.mezcla_id === mezcla.id ? { ...r, numero_paladas: valor, toneladas: tonEst } : r
+                                      ));
+                                    } else {
+                                      setRemanentesSeleccionados([...remanentesSeleccionados, { mezcla_id: mezcla.id, numero_paladas: valor, toneladas: tonEst }]);
+                                    }
+                                  }
+                                }}
+                                className="w-20 px-2 py-1 border border-orange-400 rounded focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm"
+                                placeholder="# paladas"
+                              />
+                              {paladasActuales !== '' && parseFloat(paladasActuales) > 0 && (
+                                <div className="text-[10px] leading-tight">
+                                  <span className="text-gray-500">≈ {tonEstimadas.toFixed(2)} t</span>
+                                  {' '}
+                                  <span className={`font-bold ${deltaPaladas >= 0 ? 'text-amber-600' : 'text-blue-600'}`}
+                                    title={deltaPaladas >= 0
+                                      ? `${deltaPaladas.toFixed(2)} t estimadas de más (quedaron en el suelo)`
+                                      : `${Math.abs(deltaPaladas).toFixed(2)} t menos que lo registrado`}
+                                  >
+                                    ({deltaPaladas >= 0 ? '+' : ''}{deltaPaladas.toFixed(2)} t)
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </td>
                         <td className="py-2 px-2 text-center">
                           <button
@@ -1515,8 +1588,13 @@ export default function MezclasView({
             {remanentesSeleccionados.length > 0 && (
               <div className="mt-3 bg-orange-50 border border-orange-200 rounded-lg p-3">
                 <p className="text-sm font-semibold text-orange-800">
-                  Total remanentes seleccionados: {remanentesSeleccionados.reduce((sum, r) => sum + parseFloat(r.toneladas), 0).toFixed(2)} t
+                  Total remanentes: {remanentesSeleccionados.reduce((sum, r) => sum + parseFloat(r.toneladas), 0).toFixed(2)} t estimadas
                   ({remanentesSeleccionados.length} mezcla{remanentesSeleccionados.length !== 1 ? 's' : ''})
+                  {remanentesSeleccionados.some(r => remanenteModos[r.mezcla_id] === 'paladas') && (
+                    <span className="ml-2 text-amber-700 text-xs font-normal">
+                      · {remanentesSeleccionados.filter(r => remanenteModos[r.mezcla_id] === 'paladas').length} por paladas
+                    </span>
+                  )}
                 </p>
               </div>
             )}
@@ -1667,7 +1745,7 @@ export default function MezclasView({
             <div className="bg-white rounded-lg border border-orange-200 overflow-hidden shadow-sm">
               <div className="bg-gradient-to-r from-orange-100 to-orange-50 px-4 py-2 border-b border-orange-200">
                 <p className="text-sm font-bold text-orange-800">
-                  📦 Composición de la mezcla ({usarSistemaAcopios ? 'Acopios' : 'Dumpadas'})
+                  📦 s ({usarSistemaAcopios ? 'Acopios' : 'Dumpadas'})
                 </p>
               </div>
               <div className="max-h-48 overflow-y-auto">
@@ -1749,7 +1827,24 @@ export default function MezclasView({
                             )}
                           </td>
                           {(() => {
-                            const leyLabRaw = dumpada.ley ? parseFloat(dumpada.ley) : null;
+                            // Espeja MezclaDumpada::desdeDumpada: usa cu_insoluble/cu_soluble si están disponibles
+                            const cuIns = dumpada.cu_insoluble != null ? parseFloat(dumpada.cu_insoluble) : null;
+                            const cuSol = dumpada.cu_soluble   != null ? parseFloat(dumpada.cu_soluble)   : null;
+                            const tieneFraccion = cuIns !== null || cuSol !== null;
+                            let leyLabRaw;
+                            if (tieneFraccion) {
+                              const leyBase = formDataMezcla.ley_base || 'auto';
+                              if (leyBase === 'cu_insoluble') leyLabRaw = cuIns;
+                              else if (leyBase === 'cu_soluble') leyLabRaw = cuSol;
+                              else if (leyBase === 'cu_total') leyLabRaw = dumpada.ley ? parseFloat(dumpada.ley) : null;
+                              else { // auto
+                                const ins = cuIns ?? 0, sol = cuSol ?? 0;
+                                leyLabRaw = ins >= sol ? (cuIns ?? (dumpada.ley ? parseFloat(dumpada.ley) : null))
+                                                       : (cuSol ?? (dumpada.ley ? parseFloat(dumpada.ley) : null));
+                              }
+                            } else {
+                              leyLabRaw = dumpada.ley ? parseFloat(dumpada.ley) : null;
+                            }
                             const leyLab = leyLabRaw ? Math.min(leyLabRaw, leyCappingMaximo) : null;
                             const leyVisual = dumpada.ley_visual ? parseFloat(dumpada.ley_visual) : null;
                             let leyDump, leyLote;
@@ -1807,12 +1902,30 @@ export default function MezclasView({
                     <tbody>
                       {remanentesSeleccionados.map((rem, idx) => {
                         const mezcla = remanentesDisponibles.find(m => m.id === rem.mezcla_id);
+                        const modo = remanenteModos[rem.mezcla_id] || 'ton';
+                        const esPaladas = modo === 'paladas' && rem.numero_paladas;
+                        const tonDisp = mezcla ? parseFloat(mezcla.toneladas_disponibles) : 0;
+                        const delta = esPaladas ? parseFloat(rem.toneladas) - tonDisp : null;
                         return (
                           <tr key={rem.mezcla_id} className={`border-b border-gray-100 hover:bg-orange-50 transition-colors ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
                             <td className="py-2 px-3 font-mono font-bold text-orange-700">
                               {mezcla?.codigo || `ID: ${rem.mezcla_id}`}
                             </td>
-                            <td className="py-2 px-3 text-right font-semibold">{parseFloat(rem.toneladas).toFixed(2)}</td>
+                            <td className="py-2 px-3 text-right font-semibold">
+                              {esPaladas ? (
+                                <div className="leading-tight">
+                                  <div>{rem.numero_paladas} pal</div>
+                                  <div className="text-gray-500 text-[10px]">≈ {parseFloat(rem.toneladas).toFixed(2)} t</div>
+                                  {delta !== null && (
+                                    <div className={`text-[10px] font-bold ${delta >= 0 ? 'text-amber-600' : 'text-blue-600'}`}>
+                                      Δ {delta >= 0 ? '+' : ''}{delta.toFixed(2)} t
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                parseFloat(rem.toneladas).toFixed(2)
+                              )}
+                            </td>
                             <td className="py-2 px-3 text-right">{mezcla?.ley_prom_dump ? `${parseFloat(mezcla.ley_prom_dump).toFixed(2)}%` : '-'}</td>
                             <td className="py-2 px-3 text-center">
                               <button
@@ -2211,46 +2324,24 @@ export default function MezclasView({
                             {mezclaSeleccionada.detalles.reduce((sum, d) => sum + parseFloat(d.toneladas || 0), 0).toFixed(2)} t
                           </td>
                           <td className="py-4 px-4 text-sm text-indigo-900 text-right font-bold">
-                            {(() => {
-                              // Ley Dump: ley_dump_ajustada ya tiene factor aplicado
-                              const totalTon = mezclaSeleccionada.detalles.reduce((sum, d) => sum + parseFloat(d.toneladas || 0), 0);
-                              const sumaPonderada = mezclaSeleccionada.detalles.reduce((sum, d) =>
-                                sum + (parseFloat(d.toneladas || 0) * parseFloat(d.ley_dump_ajustada || 0)), 0
-                              );
-                              return totalTon > 0 ? `${(sumaPonderada / totalTon).toFixed(2)}%` : '-';
-                            })()}
+                            {mezclaSeleccionada.ley_prom_dump
+                              ? `${parseFloat(mezclaSeleccionada.ley_prom_dump).toFixed(2)}%`
+                              : '-'}
                           </td>
                           <td className="py-4 px-4 text-sm text-indigo-900 text-right font-bold">
-                            {(() => {
-                              // Ley Visual: aplicar factor 0.9
-                              const totalTon = mezclaSeleccionada.detalles.reduce((sum, d) => sum + parseFloat(d.toneladas || 0), 0);
-                              const sumaPonderada = mezclaSeleccionada.detalles.reduce((sum, d) =>
-                                sum + (parseFloat(d.toneladas || 0) * parseFloat(d.ley_visual || 0)), 0
-                              );
-                              return totalTon > 0 ? `${((sumaPonderada / totalTon) * factorAjusteLey).toFixed(2)}%` : '-';
-                            })()}
+                            {mezclaSeleccionada.ley_prom_visual
+                              ? `${parseFloat(mezclaSeleccionada.ley_prom_visual).toFixed(2)}%`
+                              : '-'}
                           </td>
                           <td className="py-4 px-4 text-sm text-indigo-900 text-right font-bold">
-                            {(() => {
-                              // Ley Lote: ley_lote ya tiene factor 0.81, NO aplicar factor adicional
-                              const totalTon = mezclaSeleccionada.detalles.reduce((sum, d) => sum + parseFloat(d.toneladas || 0), 0);
-                              const sumaPonderada = mezclaSeleccionada.detalles.reduce((sum, d) =>
-                                sum + (parseFloat(d.toneladas || 0) * parseFloat(d.ley_lote || 0)), 0
-                              );
-                              return totalTon > 0 ? `${(sumaPonderada / totalTon).toFixed(2)}%` : '-';
-                            })()}
+                            {mezclaSeleccionada.ley_prom_lote
+                              ? `${parseFloat(mezclaSeleccionada.ley_prom_lote).toFixed(2)}%`
+                              : '-'}
                           </td>
                           <td className="py-4 px-4 text-sm text-indigo-900 text-right font-bold">
-                            {(() => {
-                              // Ley Lab = ley_lote / 0.81
-                              const totalTon = mezclaSeleccionada.detalles.reduce((sum, d) => sum + parseFloat(d.toneladas || 0), 0);
-                              const sumaPonderadaLote = mezclaSeleccionada.detalles.reduce((sum, d) =>
-                                sum + (parseFloat(d.toneladas || 0) * parseFloat(d.ley_lote || 0)), 0
-                              );
-                              const leyLote = totalTon > 0 ? (sumaPonderadaLote / totalTon) : 0;
-                              const leyLab = leyLote / (factorAjusteLey * factorAjusteLey); // / 0.81
-                              return totalTon > 0 ? `${leyLab.toFixed(2)}%` : '-';
-                            })()}
+                            {mezclaSeleccionada.ley_prom_lote
+                              ? `${(parseFloat(mezclaSeleccionada.ley_prom_lote) / (factorAjusteLey * factorAjusteLey)).toFixed(2)}%`
+                              : '-'}
                           </td>
                         </tr>
                       </tbody>

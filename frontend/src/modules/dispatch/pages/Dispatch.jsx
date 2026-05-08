@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { HiHome, HiPencil, HiTrash, HiCheckCircle, HiXCircle, HiEye, HiChevronLeft, HiChevronRight, HiBeaker, HiCube, HiMap, HiTruck, HiClipboardDocumentList, HiCog6Tooth, HiDocumentPlus, HiInformationCircle } from 'react-icons/hi2';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { HiHome, HiPencil, HiTrash, HiCheckCircle, HiXCircle, HiEye, HiChevronLeft, HiChevronRight, HiBeaker, HiCube, HiMap, HiTruck, HiClipboardDocumentList, HiCog6Tooth, HiDocumentPlus, HiInformationCircle, HiDocumentMagnifyingGlass, HiArrowUpTray } from 'react-icons/hi2';
 import { HiClipboardCheck, HiFilter } from "react-icons/hi";
 import { useNavigate } from 'react-router-dom';
 import Header from '../../../shared/components/organisms/Header';
@@ -18,6 +18,9 @@ import MapaTerrenoMejorado from '../components/MapaTerrenoMejorado';
 import DespachosView from '../components/DespachosView';
 import AcopiosView from '../components/AcopiosView';
 import ConfiguracionView from '../components/ConfiguracionView';
+import ReconstruccionLoteView from '../components/ReconstruccionLoteView';
+import ImportarDumpadasView from '../components/ImportarDumpadasView';
+import ImportarMezclasView from '../components/ImportarMezclasView';
 import IngresoView from '../components/IngresoView';
 import EnvioMuestrasView from '../components/EnvioMuestrasView';
 import { FaenaProvider, useFaena } from '../../../contexts/FaenaContext';
@@ -47,7 +50,10 @@ const ACCESO_HUB = {
   historial:       ['admin_dispatch', 'encargado_dispatch'],
   mezclas:         ['admin_dispatch', 'encargado_dispatch'],
   despachos:       ['admin_dispatch', 'encargado_dispatch'],
-  configuracion:   ['admin_dispatch'],
+  reconstruccion:  ['admin_dispatch'],
+  importar:          ['admin_dispatch', 'encargado_dispatch'],
+  importar_mezclas:  ['admin_dispatch', 'encargado_dispatch'],
+  configuracion:     ['admin_dispatch'],
 };
 
 function DispatchContent() {
@@ -82,7 +88,7 @@ function DispatchContent() {
   const faenaActivaConfig = esUsuarioGlobal
     ? (selectedFaenas.length === 1 ? selectedFaenas[0] : faenaSeleccionada)
     : faenaUsuario;
-  const { tonelajeDumpadaDefault, usarSistemaAcopios } = useConfig(faenaActivaConfig);
+  const { tonelajeDumpadaDefault, usarSistemaAcopios, recargar: recargarConfig } = useConfig(faenaActivaConfig);
   const [loading, setLoading] = useState(true);
   const [deleteModal, setDeleteModal] = useState({ show: false, id: null, acopio: '' });
   const [editModal, setEditModal] = useState({ show: false, dumpada: null });
@@ -149,17 +155,18 @@ function DispatchContent() {
   const loadingRef = useRef(false);
 
   // Cargar máquinas disponibles desde el sistema de petróleo
-  useEffect(() => {
-    const loadMaquinas = async () => {
-      try {
-        const res = await dispatchService.getMaquinas();
-        setMaquinas(res.data || []);
-      } catch (error) {
-        console.warn('⚠️ No se pudieron cargar máquinas:', error.message);
-      }
-    };
-    loadMaquinas();
+  const loadMaquinas = useCallback(async () => {
+    try {
+      const res = await dispatchService.getMaquinas();
+      setMaquinas(res.data || []);
+    } catch (error) {
+      console.warn('⚠️ No se pudieron cargar máquinas:', error.message);
+    }
   }, []);
+
+  useEffect(() => {
+    loadMaquinas();
+  }, [loadMaquinas]);
 
   // Resolver nombre de la faena activa para el banner
   useEffect(() => {
@@ -326,7 +333,7 @@ function DispatchContent() {
 
   const loadData = async () => {
     // No cargar datos en estas vistas (tienen sus propios componentes)
-    if (vistaActual === 'menu' || vistaActual === 'ingreso' || vistaActual === 'envio_muestras') return;
+    if (vistaActual === 'menu' || vistaActual === 'ingreso' || vistaActual === 'envio_muestras' || vistaActual === 'reconstruccion' || vistaActual === 'importar' || vistaActual === 'importar_mezclas') return;
     // Evitar cargas concurrentes
     if (loadingRef.current) {
       console.log('⏳ [DISPATCH] Carga en progreso, ignorando llamada duplicada');
@@ -787,6 +794,9 @@ function DispatchContent() {
                         vistaActual === 'despachos' ? 'Despachos' :
                         vistaActual === 'acopios' ? 'Acopios' :
                         vistaActual === 'mapa' ? 'Mapa de Terreno' :
+                        vistaActual === 'reconstruccion' ? 'Reconstrucción de Lote' :
+                        vistaActual === 'importar' ? 'Importar desde Excel' :
+                        vistaActual === 'importar_mezclas' ? 'Importar Mezclas' :
                         vistaActual === 'configuracion' ? 'Configuración' : ''
                     }
                   ]
@@ -977,6 +987,39 @@ function DispatchContent() {
                   </div>
                   <p className="font-bold text-emerald-900 text-sm leading-tight">Acopios</p>
                   <p className="text-emerald-400 text-xs mt-0.5">Gestión</p>
+                </button>
+              )}
+
+              {puedeVer('importar') && (
+                <button onClick={() => setVistaActual('importar')}
+                  className="group bg-rose-50 rounded-xl border border-rose-100 shadow-sm p-4 text-left hover:bg-rose-100 hover:border-rose-300 hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 active:scale-[0.97]">
+                  <div className="w-10 h-10 bg-rose-500 rounded-xl flex items-center justify-center mb-3 group-hover:bg-rose-600 transition-colors duration-150 shadow-sm">
+                    <HiArrowUpTray className="w-5 h-5 text-white" />
+                  </div>
+                  <p className="font-bold text-rose-900 text-sm leading-tight">Importar Excel</p>
+                  <p className="text-rose-400 text-xs mt-0.5">Carga masiva dumpadas</p>
+                </button>
+              )}
+
+              {puedeVer('importar_mezclas') && (
+                <button onClick={() => setVistaActual('importar_mezclas')}
+                  className="group bg-violet-50 rounded-xl border border-violet-100 shadow-sm p-4 text-left hover:bg-violet-100 hover:border-violet-300 hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 active:scale-[0.97]">
+                  <div className="w-10 h-10 bg-violet-600 rounded-xl flex items-center justify-center mb-3 group-hover:bg-violet-700 transition-colors duration-150 shadow-sm">
+                    <HiBeaker className="w-5 h-5 text-white" />
+                  </div>
+                  <p className="font-bold text-violet-900 text-sm leading-tight">Importar Mezclas</p>
+                  <p className="text-violet-400 text-xs mt-0.5">Carga masiva mezclas</p>
+                </button>
+              )}
+
+              {puedeVer('reconstruccion') && (
+                <button onClick={() => setVistaActual('reconstruccion')}
+                  className="group bg-amber-50 rounded-xl border border-amber-100 shadow-sm p-4 text-left hover:bg-amber-100 hover:border-amber-300 hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 active:scale-[0.97]">
+                  <div className="w-10 h-10 bg-amber-500 rounded-xl flex items-center justify-center mb-3 group-hover:bg-amber-600 transition-colors duration-150 shadow-sm">
+                    <HiDocumentMagnifyingGlass className="w-5 h-5 text-white" />
+                  </div>
+                  <p className="font-bold text-amber-900 text-sm leading-tight">Reconstrucción</p>
+                  <p className="text-amber-400 text-xs mt-0.5">Trazabilidad de lotes</p>
                 </button>
               )}
 
@@ -1294,6 +1337,9 @@ function DispatchContent() {
                   {vistaActual === 'despachos' && 'Despachos'}
                   {vistaActual === 'acopios' && 'Acopios'}
                   {vistaActual === 'mapa' && 'Mapa de Terreno'}
+                  {vistaActual === 'reconstruccion' && 'Reconstrucción de Lote'}
+                  {vistaActual === 'importar' && 'Importar desde Excel'}
+                  {vistaActual === 'importar_mezclas' && 'Importar Mezclas desde Excel'}
                   {vistaActual === 'configuracion' && 'Configuración'}
                 </h2>
                 <p className="text-gray-500 text-sm mt-0.5">
@@ -1304,6 +1350,9 @@ function DispatchContent() {
                   {vistaActual === 'despachos' && 'Control de despachos'}
                   {vistaActual === 'acopios' && 'Gestión de acopios'}
                   {vistaActual === 'mapa' && 'Visualización del terreno'}
+                  {vistaActual === 'reconstruccion' && 'Trazabilidad completa lote → mezclas → dumpadas'}
+                  {vistaActual === 'importar' && 'Carga masiva de dumpadas desde archivo Excel'}
+                  {vistaActual === 'importar_mezclas' && 'Carga masiva de mezclas desde archivo Excel'}
                   {vistaActual === 'configuracion' && 'Ajustes del sistema'}
                 </p>
               </div>
@@ -1743,9 +1792,30 @@ function DispatchContent() {
           <DespachosView />
         )}
 
+        {/* Vista de Importar desde Excel */}
+        {vistaActual === 'importar' && puedeVer('importar') && (
+          <ImportarDumpadasView
+            toast={toast}
+            setVistaActual={setVistaActual}
+          />
+        )}
+
+        {/* Vista de Importar Mezclas desde Excel */}
+        {vistaActual === 'importar_mezclas' && puedeVer('importar_mezclas') && (
+          <ImportarMezclasView
+            toast={toast}
+            setVistaActual={setVistaActual}
+          />
+        )}
+
+        {/* Vista de Reconstrucción de Lote - Solo admin */}
+        {vistaActual === 'reconstruccion' && esAdmin && (
+          <ReconstruccionLoteView />
+        )}
+
         {/* Vista de Configuración - Solo admin */}
         {vistaActual === 'configuracion' && esAdmin && (
-          <ConfiguracionView />
+          <ConfiguracionView onTonelajeMaquinaUpdated={loadMaquinas} onConfigDefaultUpdated={recargarConfig} />
         )}
       </main>
     </div>

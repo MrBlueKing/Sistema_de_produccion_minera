@@ -12,7 +12,6 @@ class Camionada extends Model
     protected $table = 'camionadas';
 
     protected $fillable = [
-        'mezcla_id',
         'lote_id',
         'lote_venta_id',
         'id_faena',
@@ -64,11 +63,13 @@ class Camionada extends Model
     const PESO_TEORICO_CAMIONADA = 4.6;
 
     /**
-     * Relación: una camionada pertenece a una mezcla
+     * Relación: una camionada pertenece a muchas mezclas (via pivot)
      */
-    public function mezcla()
+    public function mezclas()
     {
-        return $this->belongsTo(Mezcla::class, 'mezcla_id');
+        return $this->belongsToMany(Mezcla::class, 'camionada_mezcla')
+                    ->withPivot(['toneladas', 'ley_mezcla'])
+                    ->withTimestamps();
     }
 
     /**
@@ -144,11 +145,11 @@ class Camionada extends Model
     }
 
     /**
-     * Scope: camionadas de una mezcla específica
+     * Scope: camionadas que incluyen una mezcla específica (via pivot)
      */
     public function scopeDeMezcla($query, $mezclaId)
     {
-        return $query->where('mezcla_id', $mezclaId);
+        return $query->whereHas('mezclas', fn($q) => $q->where('mezclas.id', $mezclaId));
     }
 
     /**

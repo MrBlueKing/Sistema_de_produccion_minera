@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\Ingenieria\TipoFrenteController;
 use App\Http\Controllers\Api\Ingenieria\FrenteTrabajoController;
+use App\Http\Controllers\Api\Ingenieria\SeguimientoEstadoFrenteController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -32,6 +33,17 @@ Route::prefix('frentes-trabajo')->group(function () {
     Route::delete('/{id}', [FrenteTrabajoController::class, 'destroy']);
     Route::post('/{id}/restore', [FrenteTrabajoController::class, 'restore']); // Restaurar
     Route::delete('/{id}/force', [FrenteTrabajoController::class, 'forceDestroy']); // Eliminar permanentemente
+});
+
+// Seguimiento de Estado de Frentes
+Route::prefix('seguimiento-estado')->group(function () {
+    Route::get('/',                   [SeguimientoEstadoFrenteController::class, 'index']);
+    Route::post('/',                  [SeguimientoEstadoFrenteController::class, 'store']);
+    Route::get('/estadisticas',       [SeguimientoEstadoFrenteController::class, 'estadisticas']);
+    Route::get('/{id}',               [SeguimientoEstadoFrenteController::class, 'show']);
+    Route::put('/{id}',               [SeguimientoEstadoFrenteController::class, 'update']);
+    Route::post('/{id}/marcar-inicio',[SeguimientoEstadoFrenteController::class, 'marcarInicio']);
+    Route::delete('/{id}',            [SeguimientoEstadoFrenteController::class, 'destroy']);
 });
 
 // Ruta de prueba pública

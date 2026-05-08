@@ -11,35 +11,36 @@ use Exception;
 class CamionadaService
 {
     /**
-     * Crear una nueva camionada (despacho) desde una mezcla
+     * Crear una nueva camionada con una o más mezclas de origen.
      *
      * @param array $datos [
-     *   'mezcla_id' => 1,
-     *   'planta_id' => 1,  (Planta destino: Enami, Cenizas)
-     *   'empresa_id' => 1, (Empresa vendedora: Santa Ana, MDF Inés, etc)
+     *   'mezclas' => [['mezcla_id' => 1, 'toneladas' => 20], ...],
+     *   'lote_id' => 1,
      *   'patente' => 'FVGY-94',
-     *   'cliente' => 'MDF Inés', (opcional, se toma de empresa)
-     *   'planta' => 'Enami', (opcional, se toma de planta)
      *   'fecha_despacho' => '2025-11-19',
      *   'peso' => 35.6,
-     *   'ticket' => '12345' (opcional),
-     *   'numero_guia' => 'G-001' (opcional),
-     *   'ley_visual' => 1.2 (opcional),
-     *   'observaciones' => 'Texto opcional',
-     *   'user_id' => 1
+     *   ...
      * ]
-     * @return Camionada
-     * @throws Exception
      */
     public function crearCamionada(array $datos)
     {
         DB::beginTransaction();
 
         try {
-            // 1. Verificar que exista la mezcla
-            $mezcla = Mezcla::findOrFail($datos['mezcla_id']);
+            $mezclasData = $datos['mezclas'] ?? [];
 
-            // 2. Obtener el lote (debe venir del request, ya no se auto-crea)
+            if (empty($mezclasData)) {
+                throw new Exception('Debe seleccionar al menos una mezcla para la camionada');
+            }
+
+            // Validar y cargar todas las mezclas
+            $mezclas = [];
+            foreach ($mezclasData as $item) {
+                $mezcla = Mezcla::findOrFail($item['mezcla_id']);
+                $mezclas[] = ['mezcla' => $mezcla, 'toneladas' => (float) $item['toneladas']];
+            }
+
+            // Obtener el lote
             if (empty($datos['lote_id'])) {
                 throw new Exception('Debe seleccionar un lote para la camionada');
             }
@@ -50,48 +51,69 @@ class CamionadaService
                 throw new Exception('El lote seleccionado no está abierto');
             }
 
-            // 3. Calcular el número de camionada (correlativo por lote)
+            // Número correlativo por lote
             $ultimaCamionada = Camionada::where('lote_id', $lote->id)
                 ->orderBy('numero_camionada', 'desc')
                 ->first();
 
             $numeroCamionada = $ultimaCamionada ? ($ultimaCamionada->numero_camionada + 1) : 1;
 
-            // 4. Obtener nombres de planta y empresa desde el lote
-            $nombreCliente = $datos['cliente'] ?? $lote->empresa->nombre;
-            $nombrePlanta = $datos['planta'] ?? $lote->planta->nombre;
+            // Calcular ley_mezcla promedio ponderado por toneladas
+            $totalTon = array_sum(array_column($mezclasData, 'toneladas'));
+            $sumaLeyLote = 0;
+            $sumaLeyVisual = 0;
 
-            // 6. Crear la camionada
+            foreach ($mezclas as $item) {
+                $m = $item['mezcla'];
+                $ton = $item['toneladas'];
+                $sumaLeyLote += ($m->ley_prom_lote ?? $m->ley_lab ?? 0) * $ton;
+                $sumaLeyVisual += ($m->ley_prom_visual ?? $m->ley_lab ?? 0) * $ton;
+            }
+
+            $leyMezcla = $totalTon > 0 ? round($sumaLeyLote / $totalTon, 4) : null;
+            $leyVisual = $totalTon > 0 ? round($sumaLeyVisual / $totalTon, 4) : null;
+
+            // Crear la camionada
             $camionada = Camionada::create([
-                'mezcla_id' => $mezcla->id,
-                'lote_id' => $lote->id,
+                'lote_id'          => $lote->id,
                 'numero_camionada' => $numeroCamionada,
-                'patente' => $datos['patente'],
-                'cliente' => $nombreCliente,
-                'planta' => $nombrePlanta,
-                'ticket' => $datos['ticket'] ?? null,
-                'numero_guia' => $datos['numero_guia'] ?? null,
-                'fecha_despacho' => $datos['fecha_despacho'] ?? now(),
-                'hora_despacho' => $datos['hora_despacho'] ?? now()->toTimeString(),
-                'peso' => $datos['peso'],
-                'ley_mezcla' => $datos['ley_mezcla'] ?? $mezcla->ley_prom_lote ?? $mezcla->ley_lab, // Ley lote al momento del despacho
-                'ley_visual' => $datos['ley_visual'] ?? $mezcla->ley_prom_visual ?? $mezcla->ley_lab,
-                'user_id' => $datos['user_id'] ?? null,
-                'observaciones' => $datos['observaciones'] ?? null,
-                'estado' => Camionada::ESTADO_DESPACHADO,
+                'patente'          => $datos['patente'],
+                'cliente'          => $datos['cliente'] ?? $lote->empresa->nombre,
+                'planta'           => $datos['planta'] ?? $lote->planta->nombre,
+                'ticket'           => $datos['ticket'] ?? null,
+                'numero_guia'      => $datos['numero_guia'] ?? null,
+                'fecha_despacho'   => $datos['fecha_despacho'] ?? now(),
+                'hora_despacho'    => $datos['hora_despacho'] ?? now()->toTimeString(),
+                'peso'             => $datos['peso'],
+                'ley_mezcla'       => $datos['ley_mezcla'] ?? $leyMezcla,
+                'ley_visual'       => $datos['ley_visual'] ?? $leyVisual,
+                'user_id'          => $datos['user_id'] ?? null,
+                'observaciones'    => $datos['observaciones'] ?? null,
+                'estado'           => Camionada::ESTADO_DESPACHADO,
             ]);
 
-            // 7. Calcular diferencia y error de peso
+            // Insertar registros en la pivot
+            foreach ($mezclas as $item) {
+                DB::table('camionada_mezcla')->insert([
+                    'camionada_id' => $camionada->id,
+                    'mezcla_id'    => $item['mezcla']->id,
+                    'toneladas'    => $item['toneladas'],
+                    'ley_mezcla'   => $item['mezcla']->ley_prom_lote ?? $item['mezcla']->ley_lab,
+                    'created_at'   => now(),
+                    'updated_at'   => now(),
+                ]);
+            }
+
+            // Calcular diferencia y error de peso
             $camionada->calcularDiferencia();
             $camionada->calcularPorcentajeError();
             $camionada->save();
 
-            // NOTA: Las toneladas NO se descuentan al crear la camionada
-            // Se descontarán al recepcionar con el peso_real
+            // Las toneladas se descuentan al recepcionar, no al crear
 
             DB::commit();
 
-            return $camionada->fresh(['mezcla', 'lote.planta', 'lote.empresa']);
+            return $camionada->fresh(['mezclas', 'lote.planta', 'lote.empresa']);
 
         } catch (Exception $e) {
             DB::rollBack();
@@ -100,11 +122,8 @@ class CamionadaService
     }
 
     /**
-     * Actualizar una camionada
-     *
-     * @param int $camionadaId
-     * @param array $datos
-     * @return Camionada
+     * Actualizar datos generales de una camionada (patente, peso, fechas, etc.)
+     * No modifica las mezclas asociadas.
      */
     public function actualizarCamionada($camionadaId, array $datos)
     {
@@ -112,30 +131,16 @@ class CamionadaService
 
         try {
             $camionada = Camionada::findOrFail($camionadaId);
-            $mezcla = $camionada->mezcla;
-            $pesoAnterior = $camionada->peso;
-
-            // Si se actualiza el peso, ajustar toneladas de la mezcla
-            if (isset($datos['peso']) && $datos['peso'] != $pesoAnterior) {
-                $diferenciaPeso = $datos['peso'] - $pesoAnterior;
-
-                // Restaurar el peso anterior
-                $mezcla->restaurarToneladas($pesoAnterior);
-
-                // Descontar el nuevo peso
-                $mezcla->descontarToneladas($datos['peso']);
-            }
 
             $camionada->update($datos);
 
-            // Recalcular diferencias
             $camionada->calcularDiferencia();
             $camionada->calcularPorcentajeError();
             $camionada->save();
 
             DB::commit();
 
-            return $camionada->fresh(['mezcla']);
+            return $camionada->fresh(['mezclas']);
 
         } catch (Exception $e) {
             DB::rollBack();
@@ -145,10 +150,6 @@ class CamionadaService
 
     /**
      * Marcar camionada como recibida
-     *
-     * @param int $camionadaId
-     * @param array $datos
-     * @return Camionada
      */
     public function marcarComoRecibida($camionadaId, array $datos)
     {
@@ -164,10 +165,6 @@ class CamionadaService
 
     /**
      * Actualizar ley de laboratorio de una camionada
-     *
-     * @param int $camionadaId
-     * @param float $leyLab
-     * @return Camionada
      */
     public function actualizarLeyLaboratorio($camionadaId, $leyLab)
     {
@@ -180,29 +177,23 @@ class CamionadaService
     }
 
     /**
-     * Eliminar una camionada
-     *
-     * @param int $camionadaId
-     * @return bool
+     * Eliminar una camionada.
+     * Si fue recepcionada, restaura las toneladas a cada mezcla de forma proporcional.
      */
     public function eliminarCamionada($camionadaId)
     {
         DB::beginTransaction();
 
         try {
-            $camionada = Camionada::findOrFail($camionadaId);
-            $mezcla = $camionada->mezcla;
+            $camionada = Camionada::with('mezclas')->findOrFail($camionadaId);
+            $pesoReal = $camionada->peso_real;
 
-            // Solo restaurar si fue recepcionada (tiene peso_real)
-            // Si solo fue despachada (sin peso_real), no restaurar porque nunca se descontó
-            $pesoARestaurar = $camionada->peso_real;
-
-            // Eliminar la camionada
+            // Eliminar primero (cascade borra la pivot)
             $resultado = $camionada->delete();
 
-            // Restaurar toneladas a la mezcla solo si fue recepcionada
-            if ($mezcla && $pesoARestaurar !== null && $pesoARestaurar > 0) {
-                $mezcla->restaurarToneladas($pesoARestaurar);
+            // Restaurar toneladas solo si fue recepcionada
+            if ($pesoReal !== null && $pesoReal > 0) {
+                $this->restaurarToneladasProporcionales($camionada->mezclas, $camionada->peso, $pesoReal);
             }
 
             DB::commit();
@@ -216,144 +207,44 @@ class CamionadaService
     }
 
     /**
-     * Obtener resumen de camionadas de una mezcla
-     *
-     * @param int $mezclaId
-     * @return array
-     */
-    public function obtenerResumenPorMezcla($mezclaId)
-    {
-        $mezcla = Mezcla::with('camionadas')->findOrFail($mezclaId);
-
-        return [
-            'mezcla' => [
-                'codigo' => $mezcla->codigo,
-                'total_ton' => $mezcla->total_ton,
-                'ley_lab' => $mezcla->ley_lab,
-            ],
-            'peso_despachado' => $mezcla->getPesoDespachado(),
-            'peso_remanente' => $mezcla->getPesoRemanente(),
-            'numero_camionadas' => $mezcla->getNumeroCamionadas(),
-            'camionadas' => $mezcla->camionadas->map(function ($c) {
-                return [
-                    'id' => $c->id,
-                    'patente' => $c->patente,
-                    'cliente' => $c->cliente,
-                    'fecha_despacho' => $c->fecha_despacho->format('d-m-Y'),
-                    'peso' => $c->peso,
-                    'estado' => $c->estado,
-                ];
-            }),
-        ];
-    }
-
-    /**
-     * Obtener mezclas con remanente disponible para despacho
-     * OPTIMIZADO: Solo carga el peso despachado, no todas las camionadas
-     *
-     * @return \Illuminate\Database\Eloquent\Collection
-     */
-    public function obtenerMezclasConRemanente()
-    {
-        // Usar los campos toneladas_disponibles y toneladas_despachadas
-        // Obtener solo mezclas con toneladas disponibles
-        $mezclas = Mezcla::select([
-                'id',
-                'codigo',
-                'fecha',
-                'total_ton',
-                'toneladas_disponibles',
-                'toneladas_despachadas',
-                'ley_lab',
-                'ley_prom_visual',
-                'ley_prom_lote',
-                'estado',
-                'es_remanente',
-                'mezcla_origen_id'
-            ])
-            ->withCount('camionadas')
-            ->where('toneladas_disponibles', '>', 0.01) // Tolerancia de 10kg
-            ->orderBy('fecha', 'desc')
-            ->get();
-
-        return $mezclas->map(function ($mezcla) {
-            return [
-                'id' => $mezcla->id,
-                'codigo' => $mezcla->codigo,
-                'fecha' => $mezcla->fecha->format('d-m-Y'),
-                'total_ton' => round((float) $mezcla->total_ton, 2),
-                'toneladas_disponibles' => round((float) ($mezcla->toneladas_disponibles ?? 0), 2),
-                'toneladas_despachadas' => round((float) ($mezcla->toneladas_despachadas ?? 0), 2),
-                'peso_despachado' => round((float) ($mezcla->toneladas_despachadas ?? 0), 2), // Alias para compatibilidad
-                'peso_remanente' => round((float) ($mezcla->toneladas_disponibles ?? 0), 2), // Alias para compatibilidad
-                'ley_lab' => round((float) ($mezcla->ley_lab ?? 0), 2),
-                'ley_visual' => round((float) ($mezcla->ley_prom_visual ?? $mezcla->ley_lab ?? 0), 2),
-                'ley_lote' => round((float) ($mezcla->ley_prom_lote ?? $mezcla->ley_lab ?? 0), 2),
-                'numero_camionadas' => $mezcla->camionadas_count,
-                'estado' => $mezcla->estado,
-                'es_remanente' => $mezcla->es_remanente,
-            ];
-        })->values();
-    }
-
-    /**
-     * Recepcionar camionada (actualizar con datos reales)
-     *
-     * @param int $camionadaId
-     * @param array $datos [
-     *   'peso_real' => 34.8,
-     *   'fecha_recepcion' => '2025-11-19',
-     *   'hora_recepcion' => '14:30:00',
-     *   'ley_lab_camion' => 1.25 (opcional),
-     *   'ticket' => '12345' (opcional)
-     * ]
-     * @return Camionada
-     * @throws Exception
+     * Recepcionar camionada: registrar peso real y descontar toneladas de las mezclas.
+     * Las toneladas se distribuyen proporcionalmente según la pivot.
      */
     public function recepcionarCamionada($camionadaId, array $datos)
     {
         DB::beginTransaction();
 
         try {
-            $camionada = Camionada::findOrFail($camionadaId);
-            $mezcla = $camionada->mezcla;
+            $camionada = Camionada::with('mezclas')->findOrFail($camionadaId);
 
-            // Guardar peso teórico anterior
-            $pesoTeorico = $camionada->peso;
-
-            // Actualizar con datos de recepción
-            $camionada->fecha_recepcion = $datos['fecha_recepcion'] ?? now();
-            // Si viene hora en formato H:i, agregar :00 para H:i:s
             $horaRecepcion = $datos['hora_recepcion'] ?? now()->format('H:i:s');
             if ($horaRecepcion && strlen($horaRecepcion) === 5) {
-                $horaRecepcion .= ':00'; // Convertir H:i a H:i:s
+                $horaRecepcion .= ':00';
             }
-            $camionada->hora_recepcion = $horaRecepcion;
-            $camionada->peso_real = $datos['peso_real'];
-            $camionada->estado = Camionada::ESTADO_RECIBIDO;
 
-            // Actualizar ticket si viene (número de romana)
+            $camionada->fecha_recepcion = $datos['fecha_recepcion'] ?? now();
+            $camionada->hora_recepcion  = $horaRecepcion;
+            $camionada->peso_real       = $datos['peso_real'];
+            $camionada->estado          = Camionada::ESTADO_RECIBIDO;
+
             if (isset($datos['ticket'])) {
                 $camionada->ticket = $datos['ticket'];
             }
 
-            // Actualizar ley de laboratorio si viene
             if (isset($datos['ley_lab_camion'])) {
                 $camionada->ley_lab_camion = $datos['ley_lab_camion'];
             }
 
-            // Recalcular diferencias de peso
             $camionada->calcularDiferencia();
             $camionada->calcularPorcentajeError();
 
-            // Recalcular diferencias de ley si hay ley de laboratorio
             if ($camionada->ley_lab_camion) {
                 $camionada->calcularDiferenciaLey();
             }
 
             $camionada->save();
 
-            // Asignar nombre al lote si viene y el lote aún no tiene nombre
+            // Asignar nombre al lote si corresponde
             if (!empty($datos['numero_lote']) && $camionada->lote_id) {
                 $lote = Lote::find($camionada->lote_id);
                 if ($lote && empty($lote->numero_lote)) {
@@ -362,19 +253,12 @@ class CamionadaService
                 }
             }
 
-            // DESCONTAR TONELADAS DE LA MEZCLA con el peso_real
-            // Al crear la camionada NO se descuenta nada
-            // Aquí se descuenta por primera vez con el peso real recepcionado
-            if ($mezcla) {
-                $pesoReal = (float) $datos['peso_real'];
-
-                // Descontar el peso real — puede quedar negativo (déficit)
-                // cuando el peso real supera el estimado de las dumpadas
-                $mezcla->descontarToneladas($pesoReal);
-            }
+            // Descontar toneladas de cada mezcla proporcionalmente
+            $pesoReal = (float) $datos['peso_real'];
+            $this->descontarToneladasProporcionales($camionada->mezclas, $camionada->peso, $pesoReal);
 
             DB::commit();
-            return $camionada->fresh(['mezcla', 'lote']);
+            return $camionada->fresh(['mezclas', 'lote']);
 
         } catch (Exception $e) {
             DB::rollBack();
@@ -383,28 +267,25 @@ class CamionadaService
     }
 
     /**
-     * Anular la recepción de una camionada (volver a estado Despachado)
+     * Anular la recepción de una camionada.
+     * Restaura las toneladas descontadas a cada mezcla de forma proporcional.
      */
     public function anularRecepcion($camionadaId)
     {
         DB::beginTransaction();
 
         try {
-            $camionada = Camionada::with('mezcla')->findOrFail($camionadaId);
+            $camionada = Camionada::with('mezclas')->findOrFail($camionadaId);
 
             if ($camionada->peso_real === null) {
-                throw new Exception("La camionada no ha sido recepcionada.");
+                throw new Exception('La camionada no ha sido recepcionada.');
             }
 
-            $mezcla = $camionada->mezcla;
             $pesoReal = (float) $camionada->peso_real;
 
-            // Restaurar las toneladas descontadas al momento de la recepción
-            if ($mezcla) {
-                $mezcla->restaurarToneladas($pesoReal);
-            }
+            // Restaurar toneladas a cada mezcla
+            $this->restaurarToneladasProporcionales($camionada->mezclas, $camionada->peso, $pesoReal);
 
-            // Limpiar datos de recepción y volver a estado Despachado
             $camionada->peso_real       = null;
             $camionada->fecha_recepcion = null;
             $camionada->hora_recepcion  = null;
@@ -413,11 +294,114 @@ class CamionadaService
             $camionada->save();
 
             DB::commit();
-            return $camionada->fresh(['mezcla', 'lote']);
+            return $camionada->fresh(['mezclas', 'lote']);
 
         } catch (Exception $e) {
             DB::rollBack();
             throw $e;
+        }
+    }
+
+    /**
+     * Obtener resumen de camionadas de una mezcla
+     */
+    public function obtenerResumenPorMezcla($mezclaId)
+    {
+        $mezcla = Mezcla::with('camionadas')->findOrFail($mezclaId);
+
+        return [
+            'mezcla' => [
+                'codigo'    => $mezcla->codigo,
+                'total_ton' => $mezcla->total_ton,
+                'ley_lab'   => $mezcla->ley_lab,
+            ],
+            'peso_despachado'    => $mezcla->getPesoDespachado(),
+            'peso_remanente'     => $mezcla->getPesoRemanente(),
+            'numero_camionadas'  => $mezcla->getNumeroCamionadas(),
+            'camionadas'         => $mezcla->camionadas->map(function ($c) {
+                return [
+                    'id'            => $c->id,
+                    'patente'       => $c->patente,
+                    'cliente'       => $c->cliente,
+                    'fecha_despacho'=> $c->fecha_despacho->format('d-m-Y'),
+                    'peso'          => $c->peso,
+                    'estado'        => $c->estado,
+                ];
+            }),
+        ];
+    }
+
+    /**
+     * Obtener mezclas con remanente disponible para despacho
+     */
+    public function obtenerMezclasConRemanente()
+    {
+        $mezclas = Mezcla::select([
+                'id', 'codigo', 'fecha', 'total_ton',
+                'toneladas_disponibles', 'toneladas_despachadas',
+                'ley_lab', 'ley_prom_visual', 'ley_prom_lote',
+                'estado', 'es_remanente', 'mezcla_origen_id'
+            ])
+            ->withCount('camionadas')
+            ->where('toneladas_disponibles', '>', 0.01)
+            ->orderBy('fecha', 'desc')
+            ->get();
+
+        return $mezclas->map(function ($mezcla) {
+            return [
+                'id'                   => $mezcla->id,
+                'codigo'               => $mezcla->codigo,
+                'fecha'                => $mezcla->fecha->format('d-m-Y'),
+                'total_ton'            => round((float) $mezcla->total_ton, 2),
+                'toneladas_disponibles'=> round((float) ($mezcla->toneladas_disponibles ?? 0), 2),
+                'toneladas_despachadas'=> round((float) ($mezcla->toneladas_despachadas ?? 0), 2),
+                'peso_despachado'      => round((float) ($mezcla->toneladas_despachadas ?? 0), 2),
+                'peso_remanente'       => round((float) ($mezcla->toneladas_disponibles ?? 0), 2),
+                'ley_lab'              => round((float) ($mezcla->ley_lab ?? 0), 2),
+                'ley_visual'           => round((float) ($mezcla->ley_prom_visual ?? $mezcla->ley_lab ?? 0), 2),
+                'ley_lote'             => round((float) ($mezcla->ley_prom_lote ?? $mezcla->ley_lab ?? 0), 2),
+                'numero_camionadas'    => $mezcla->camionadas_count,
+                'estado'               => $mezcla->estado,
+                'es_remanente'         => $mezcla->es_remanente,
+            ];
+        })->values();
+    }
+
+    // -----------------------------------------------------------------------
+    // Helpers privados
+    // -----------------------------------------------------------------------
+
+    /**
+     * Descuenta peso_real de cada mezcla en la pivot, proporcionalmente a sus toneladas.
+     */
+    private function descontarToneladasProporcionales($mezclas, float $pesoTeorico, float $pesoReal): void
+    {
+        $totalPivot = $mezclas->sum('pivot.toneladas');
+
+        if ($totalPivot <= 0) {
+            return;
+        }
+
+        foreach ($mezclas as $mezcla) {
+            $proporcion = $mezcla->pivot->toneladas / $totalPivot;
+            $mezcla->descontarToneladas(round($pesoReal * $proporcion, 4));
+        }
+    }
+
+    /**
+     * Restaura peso a cada mezcla en la pivot, proporcionalmente a sus toneladas.
+     */
+    private function restaurarToneladasProporcionales($mezclas, float $pesoTeorico, float $pesoReal): void
+    {
+        $totalPivot = $mezclas->sum('pivot.toneladas');
+
+        if ($totalPivot <= 0) {
+            return;
+        }
+
+        foreach ($mezclas as $mezcla) {
+            $proporcion = $mezcla->pivot->toneladas / $totalPivot;
+            $mezcla->restaurarToneladas(round($pesoReal * $proporcion, 4));
         }
     }
 }

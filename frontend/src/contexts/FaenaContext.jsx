@@ -11,7 +11,7 @@ export const FaenaProvider = ({ children }) => {
 
   // Determinar si es usuario global (solo roles de admin cross-faena)
   // "Encargado Dispatch" NO es global — solo ve su propia faena asignada
-  const esUsuarioGlobal = roles.includes('Admin Explosivos') || roles.includes('admin_explosivos');
+  const esUsuarioGlobal = roles.includes('Administrador') || roles.includes('Admin Explosivos') || roles.includes('admin_explosivos');
 
   // Determinar si es Digitador Dispatch (solo ingreso de dumpadas)
   const esDigitador = roles.includes('Digitador Dispatch') || roles.includes('digitador_dispatch');

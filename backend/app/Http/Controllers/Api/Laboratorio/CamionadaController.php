@@ -25,7 +25,7 @@ class CamionadaController extends Controller
      */
     public function index(Request $request)
     {
-        $query = Camionada::with(['mezcla', 'lote.planta', 'lote.empresa']);
+        $query = Camionada::with(['mezclas', 'lote.planta', 'lote.empresa']);
 
         // ✅ MULTI-FAENA: Filtrar por faena del usuario si no es global
         if (!$this->esUsuarioGlobal($request)) {
@@ -34,7 +34,7 @@ class CamionadaController extends Controller
 
         // Filtros
         if ($request->has('mezcla_id')) {
-            $query->where('mezcla_id', $request->mezcla_id);
+            $query->whereHas('mezclas', fn($q) => $q->where('mezclas.id', $request->mezcla_id));
         }
 
         if ($request->has('cliente')) {
@@ -74,7 +74,7 @@ class CamionadaController extends Controller
      */
     public function show($id)
     {
-        $camionada = Camionada::with(['mezcla.detalles'])->findOrFail($id);
+        $camionada = Camionada::with(['mezclas.detalles'])->findOrFail($id);
         return response()->json($camionada);
     }
 
@@ -85,21 +85,23 @@ class CamionadaController extends Controller
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'mezcla_id' => 'required|integer|exists:mezclas,id',
-            'planta_id' => 'nullable|integer|exists:plantas,id',
-            'empresa_id' => 'nullable|integer|exists:empresas,id',
-            'lote_id' => 'required|integer|exists:lotes,id',
-            'patente' => 'required|string|max:20',
-            'cliente' => 'nullable|string|max:150',
-            'planta' => 'nullable|string|max:100',
-            'fecha_despacho' => 'required|date',
-            'hora_despacho' => 'nullable|date_format:H:i',
-            'peso' => 'required|numeric|min:0.01',
-            'ticket' => 'nullable|string|max:100',
-            'numero_guia' => 'nullable|string|max:50',
-            'ley_visual' => 'nullable|numeric|min:0',
-            'ley_mezcla' => 'nullable|numeric|min:0',
-            'observaciones' => 'nullable|string',
+            'mezclas'              => 'required|array|min:1',
+            'mezclas.*.mezcla_id'  => 'required|integer|exists:mezclas,id',
+            'mezclas.*.toneladas'  => 'required|numeric|min:0.01',
+            'planta_id'            => 'nullable|integer|exists:plantas,id',
+            'empresa_id'           => 'nullable|integer|exists:empresas,id',
+            'lote_id'              => 'required|integer|exists:lotes,id',
+            'patente'              => 'required|string|max:20',
+            'cliente'              => 'nullable|string|max:150',
+            'planta'               => 'nullable|string|max:100',
+            'fecha_despacho'       => 'required|date',
+            'hora_despacho'        => 'nullable|date_format:H:i',
+            'peso'                 => 'required|numeric|min:0.01',
+            'ticket'               => 'nullable|string|max:100',
+            'numero_guia'          => 'nullable|string|max:50',
+            'ley_visual'           => 'nullable|numeric|min:0',
+            'ley_mezcla'           => 'nullable|numeric|min:0',
+            'observaciones'        => 'nullable|string',
         ]);
 
         if ($validator->fails()) {
@@ -200,7 +202,7 @@ class CamionadaController extends Controller
     {
         try {
             // Validar que el lote esté ABIERTO
-            $camionada = Camionada::with('lote', 'mezcla')->findOrFail($id);
+            $camionada = Camionada::with('lote', 'mezclas')->findOrFail($id);
 
             if ($camionada->lote && $camionada->lote->estado !== \App\Models\Laboratorio\Lote::ESTADO_ABIERTO) {
                 return response()->json([
@@ -211,7 +213,7 @@ class CamionadaController extends Controller
 
             // Obtener peso para el mensaje
             $pesoRestaurado = $camionada->peso_real ?? 0;
-            $codigoMezcla = $camionada->mezcla ? $camionada->mezcla->codigo : 'N/A';
+            $codigoMezcla = $camionada->mezclas->pluck('codigo')->join(', ') ?: 'N/A';
 
             $this->camionadaService->eliminarCamionada($id);
 

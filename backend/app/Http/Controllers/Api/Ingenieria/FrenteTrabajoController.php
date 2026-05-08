@@ -117,7 +117,7 @@ class FrenteTrabajoController extends Controller
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'manto' => 'required|string|max:10',
+            'manto' => 'required|string|max:20',
             'calle' => 'nullable|string|max:20',
             'hebra' => 'nullable|string|max:10',
             'numero_frente' => 'nullable|string|max:10',
@@ -226,7 +226,7 @@ class FrenteTrabajoController extends Controller
         // }
 
         $validator = Validator::make($request->all(), [
-            'manto' => 'required|string|max:10',
+            'manto' => 'required|string|max:20',
             'calle' => 'nullable|string|max:20',
             'hebra' => 'nullable|string|max:10',
             'numero_frente' => 'nullable|string|max:10',

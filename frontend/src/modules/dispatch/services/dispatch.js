@@ -82,6 +82,47 @@ class DispatchService {
     const response = await api.post('/dispatch/rangos/by-ley', { ley });
     return response.data;
   }
+
+  // Plantas
+  async getPlantas(faenaId) {
+    const response = await api.get('/dispatch/plantas', { params: { faena_id: faenaId } });
+    return response.data;
+  }
+
+  // Importación desde Excel
+  async importarPreview(faenaId, frentes) {
+    const response = await api.post('/dispatch/importar/preview', {
+      faena_id: faenaId,
+      frentes,
+    });
+    return response.data;
+  }
+
+  async importarConfirmar(faenaId, tipoLey, dumpadas) {
+    const response = await api.post('/dispatch/importar/confirmar', {
+      faena_id: faenaId,
+      tipo_ley: tipoLey,
+      dumpadas,
+    }, { timeout: 120000 });
+    return response.data;
+  }
+
+  async importarMezclasPreview(faenaId, mezclas) {
+    const response = await api.post('/dispatch/importar/mezclas/preview', {
+      faena_id: faenaId,
+      mezclas,
+    });
+    return response.data;
+  }
+
+  async importarMezclasConfirmar(faenaId, plantaId, mezclas) {
+    const response = await api.post('/dispatch/importar/mezclas/confirmar', {
+      faena_id: faenaId,
+      planta_id: plantaId,
+      mezclas,
+    }, { timeout: 120000 });
+    return response.data;
+  }
 }
 
 export default new DispatchService();

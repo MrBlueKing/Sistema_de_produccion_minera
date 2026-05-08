@@ -1,6 +1,8 @@
 <?php
 
 use App\Http\Controllers\Api\Dispatch\DumpadaController;
+use App\Http\Controllers\Api\Dispatch\ImportarDumpadasController;
+use App\Http\Controllers\Api\Dispatch\ImportarMezclasController;
 use App\Http\Controllers\Api\Dispatch\MuestraLibreController;
 use App\Http\Controllers\Api\Dispatch\RangoController;
 use App\Http\Controllers\Api\Dispatch\TronaduraController;
@@ -259,6 +261,7 @@ Route::prefix('lotes')->group(function () {
     // Acciones específicas de lotes
     Route::post('/{id}/cerrar', [LoteController::class, 'cerrar']);
     Route::get('/{id}/resumen', [LoteController::class, 'resumen']);
+    Route::get('/{id}/reconstruccion', [LoteController::class, 'reconstruccion']);
 });
 
 // ==========================
@@ -276,6 +279,16 @@ Route::prefix('mapa-terreno')->group(function () {
     Route::post('/zonas', [MapaTerrenoController::class, 'crearZona']);
     Route::put('/zonas/{id}', [MapaTerrenoController::class, 'actualizarZona']);
     Route::delete('/zonas/{id}', [MapaTerrenoController::class, 'eliminarZona']);
+});
+
+// ==========================
+// IMPORTACIÓN DESDE EXCEL
+// ==========================
+Route::prefix('importar')->group(function () {
+    Route::post('/preview', [ImportarDumpadasController::class, 'preview']);
+    Route::post('/confirmar', [ImportarDumpadasController::class, 'confirmar']);
+    Route::post('/mezclas/preview', [ImportarMezclasController::class, 'preview']);
+    Route::post('/mezclas/confirmar', [ImportarMezclasController::class, 'confirmar']);
 });
 
 Route::get('/ordenes', function () {

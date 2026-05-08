@@ -1613,8 +1613,8 @@ const DespachosView = () => {
 
           {/* Modal Agregar Recargo desde Card de Lote */}
           {mostrarFormCamionada && loteIdParaCamionada && tabLotesActivo === 'abiertos' && (
-            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-start justify-center z-50 p-4 overflow-y-auto"> 
-              <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl my-8">
+            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-start justify-center z-50 p-4 overflow-y-auto">
+              <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl my-8">
                 <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
                   <h2 className="text-lg font-semibold text-gray-800">Agregar Recargo al Lote</h2>
                   <button

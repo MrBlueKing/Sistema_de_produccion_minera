@@ -20,6 +20,7 @@ class MezclaDumpada extends Model
         'origen',
         'toneladas',
         'numero_paladas',
+        'toneladas_reales_origen',
         'ley_dump_ajustada',
         'ley_visual',
         'ley_lote',
@@ -28,6 +29,7 @@ class MezclaDumpada extends Model
     protected $casts = [
         'toneladas' => 'decimal:2',
         'numero_paladas' => 'decimal:2',
+        'toneladas_reales_origen' => 'decimal:2',
         'ley_dump_ajustada' => 'decimal:2',
         'ley_visual' => 'decimal:2',
         'ley_lote' => 'decimal:2',

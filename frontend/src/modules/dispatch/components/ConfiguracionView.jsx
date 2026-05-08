@@ -18,7 +18,7 @@ import useToast from '../../../hooks/useToast';
 import { useFaena } from '../../../contexts/FaenaContext';
 import configuracionService from '../../../services/configuracion';
 
-const ConfiguracionView = () => {
+const ConfiguracionView = ({ onTonelajeMaquinaUpdated, onConfigDefaultUpdated }) => {
   const toast = useToast();
   const { esUsuarioGlobal, faenaSeleccionada, faenas, faenaUsuario } = useFaena();
 
@@ -32,9 +32,9 @@ const ConfiguracionView = () => {
 
   // Estados para Capping de Ley
   const [savingCapping, setSavingCapping] = useState(false);
-  const [cappingActual, setCappingActual] = useState(3.7);
-  const [cappingGlobal, setCappingGlobal] = useState(3.7);
-  const [cappingInput, setCappingInput] = useState('3.7');
+  const [cappingActual, setCappingActual] = useState(3);
+  const [cappingGlobal, setCappingGlobal] = useState(3);
+  const [cappingInput, setCappingInput] = useState('3');
   const [tieneConfigCapping, setTieneConfigCapping] = useState(false);
   const [configsCappingPorFaena, setConfigsCappingPorFaena] = useState([]);
 
@@ -65,7 +65,7 @@ const ConfiguracionView = () => {
       // Siempre cargar el valor global primero
       const dataGlobal = await configuracionService.getAll(null);
       setTonelajeGlobal(dataGlobal.tonelaje_dumpada_default || 4.6);
-      setCappingGlobal(dataGlobal.ley_capping_maximo || 3.7);
+      setCappingGlobal(dataGlobal.ley_capping_maximo || 3);
       const paladaVal = dataGlobal.toneladas_por_palada || 1.82;
       setPaladaGlobal(paladaVal);
       setPaladaInput(paladaVal.toString());
@@ -86,7 +86,7 @@ const ConfiguracionView = () => {
           setTonelajeActual(valorFaena);
           setTonelajeInput(valorFaena.toString());
 
-          const valorCapping = dataFaena.ley_capping_maximo || 3.7;
+          const valorCapping = dataFaena.ley_capping_maximo || 3;
           setCappingActual(valorCapping);
           setCappingInput(valorCapping.toString());
 
@@ -104,8 +104,8 @@ const ConfiguracionView = () => {
           // Sin faena seleccionada: mostrar global
           setTonelajeActual(dataGlobal.tonelaje_dumpada_default || 4.6);
           setTonelajeInput((dataGlobal.tonelaje_dumpada_default || 4.6).toString());
-          setCappingActual(dataGlobal.ley_capping_maximo || 3.7);
-          setCappingInput((dataGlobal.ley_capping_maximo || 3.7).toString());
+          setCappingActual(dataGlobal.ley_capping_maximo || 3);
+          setCappingInput((dataGlobal.ley_capping_maximo || 3).toString());
           setTieneConfigEspecifica(false);
           setTieneConfigCapping(false);
         }
@@ -116,7 +116,7 @@ const ConfiguracionView = () => {
         setTonelajeActual(valorFaena);
         setTonelajeInput(valorFaena.toString());
 
-        const valorCapping = dataFaena.ley_capping_maximo || 3.7;
+        const valorCapping = dataFaena.ley_capping_maximo || 3;
         setCappingActual(valorCapping);
         setCappingInput(valorCapping.toString());
 
@@ -175,6 +175,8 @@ const ConfiguracionView = () => {
       // Recargar configuraciones
       configuracionService.clearCache();
       await cargarConfiguraciones();
+      onTonelajeMaquinaUpdated?.();
+      onConfigDefaultUpdated?.();
     } catch (error) {
       console.error('Error guardando configuracion:', error);
       toast.error('Error al guardar la configuracion');
@@ -328,6 +330,7 @@ const ConfiguracionView = () => {
       toast.success(`Tonelaje de ${editandoMaquina.nombre_maquina} actualizado a ${valor} Ton`);
       cancelarEdicionMaquina();
       cargarMaquinas();
+      onTonelajeMaquinaUpdated?.();
     } catch (error) {
       console.error('Error guardando tonelaje:', error);
       toast.error('Error al guardar el tonelaje');
@@ -347,6 +350,7 @@ const ConfiguracionView = () => {
       await configuracionService.deleteTonelajeMaquina(maquina.config_id);
       toast.success(`${maquina.nombre_maquina} ahora usa el tonelaje por defecto`);
       cargarMaquinas();
+      onTonelajeMaquinaUpdated?.();
     } catch (error) {
       console.error('Error eliminando configuración:', error);
       toast.error('Error al eliminar la configuración');
@@ -586,7 +590,7 @@ const ConfiguracionView = () => {
                 value={cappingInput}
                 onChange={(e) => setCappingInput(e.target.value)}
                 className="flex-1 px-4 py-3 text-lg font-semibold border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500"
-                placeholder="Ej: 3.7"
+                placeholder="Ej: 3"
               />
               <span className="text-gray-500 font-medium">%</span>
             </div>

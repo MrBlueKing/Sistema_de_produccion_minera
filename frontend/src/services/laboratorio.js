@@ -86,6 +86,11 @@ class LaboratorioService {
     return response.data;
   }
 
+  async getReconstruccionLote(id) {
+    const response = await api.get(`/dispatch/lotes/${id}/reconstruccion`);
+    return response.data;
+  }
+
   async cerrarLote(id, datos = {}) {
     const response = await api.post(`/dispatch/lotes/${id}/cerrar`, datos);
     return response.data;

@@ -128,8 +128,10 @@ class Lote extends Model
         \DB::beginTransaction();
 
         try {
-            // Obtener todas las mezclas únicas usadas en este lote
-            $mezclasIds = $this->camionadas()
+            // Obtener todas las mezclas únicas usadas en este lote (via pivot)
+            $camionadaIds = $this->camionadas()->pluck('camionadas.id');
+            $mezclasIds = \DB::table('camionada_mezcla')
+                ->whereIn('camionada_id', $camionadaIds)
                 ->distinct()
                 ->pluck('mezcla_id')
                 ->toArray();
@@ -206,16 +208,14 @@ class Lote extends Model
         }
 
         // Obtener la mezcla más usada en el lote para heredar planta y leyes promedio
-        $mezclaBase = $this->camionadas()
-            ->with('mezcla')
-            ->get()
+        $mezclaBase = \DB::table('camionada_mezcla')
+            ->whereIn('camionada_id', $this->camionadas()->pluck('camionadas.id'))
+            ->select('mezcla_id', \DB::raw('COUNT(*) as total'))
             ->groupBy('mezcla_id')
-            ->sortByDesc(function ($camionadas) {
-                return $camionadas->count();
-            })
-            ->first()
-            ?->first()
-            ?->mezcla;
+            ->orderByDesc('total')
+            ->first();
+
+        $mezclaBase = $mezclaBase ? \App\Models\Laboratorio\Mezcla::find($mezclaBase->mezcla_id) : null;
 
         if (!$mezclaBase) {
             throw new \Exception('No se pudo determinar la mezcla base para crear el remanente');
@@ -332,9 +332,8 @@ class Lote extends Model
      */
     public function getLeyLotePromedio()
     {
-        // Obtener camionadas recepcionadas con sus mezclas
         $camionadas = $this->camionadas()
-            ->with('mezcla')
+            ->with('mezclas')
             ->whereNotNull('peso_real')
             ->get();
 
@@ -346,20 +345,18 @@ class Lote extends Model
         $sumaToneladas = 0;
 
         foreach ($camionadas as $camionada) {
-            if ($camionada->mezcla && $camionada->mezcla->ley_prom_lote !== null) {
-                $tonelaje = $camionada->peso_real;
-                $ley = $camionada->mezcla->ley_prom_lote;
+            $totalPivot = $camionada->mezclas->sum('pivot.toneladas');
+            if ($totalPivot <= 0) continue;
 
-                $sumaProductos += ($tonelaje * $ley);
-                $sumaToneladas += $tonelaje;
+            foreach ($camionada->mezclas as $mezcla) {
+                if ($mezcla->ley_prom_lote === null) continue;
+                $ton = $camionada->peso_real * ($mezcla->pivot->toneladas / $totalPivot);
+                $sumaProductos += $ton * $mezcla->ley_prom_lote;
+                $sumaToneladas += $ton;
             }
         }
 
-        if ($sumaToneladas == 0) {
-            return null;
-        }
-
-        return round($sumaProductos / $sumaToneladas, 2);
+        return $sumaToneladas == 0 ? null : round($sumaProductos / $sumaToneladas, 2);
     }
 
     /**
@@ -371,7 +368,7 @@ class Lote extends Model
     public function getLeyLabPromedio()
     {
         $camionadas = $this->camionadas()
-            ->with('mezcla')
+            ->with('mezclas')
             ->whereNotNull('peso_real')
             ->get();
 
@@ -383,20 +380,18 @@ class Lote extends Model
         $sumaToneladas = 0;
 
         foreach ($camionadas as $camionada) {
-            if ($camionada->mezcla && $camionada->mezcla->ley_lab !== null) {
-                $tonelaje = $camionada->peso_real;
-                $ley = $camionada->mezcla->ley_lab;
+            $totalPivot = $camionada->mezclas->sum('pivot.toneladas');
+            if ($totalPivot <= 0) continue;
 
-                $sumaProductos += ($tonelaje * $ley);
-                $sumaToneladas += $tonelaje;
+            foreach ($camionada->mezclas as $mezcla) {
+                if ($mezcla->ley_lab === null) continue;
+                $ton = $camionada->peso_real * ($mezcla->pivot->toneladas / $totalPivot);
+                $sumaProductos += $ton * $mezcla->ley_lab;
+                $sumaToneladas += $ton;
             }
         }
 
-        if ($sumaToneladas == 0) {
-            return null;
-        }
-
-        return round($sumaProductos / $sumaToneladas, 2);
+        return $sumaToneladas == 0 ? null : round($sumaProductos / $sumaToneladas, 2);
     }
 
     /**
@@ -407,9 +402,8 @@ class Lote extends Model
      */
     public function getLeyVisualPromedio()
     {
-        // Obtener camionadas recepcionadas con sus mezclas
         $camionadas = $this->camionadas()
-            ->with('mezcla')
+            ->with('mezclas')
             ->whereNotNull('peso_real')
             ->get();
 
@@ -421,19 +415,17 @@ class Lote extends Model
         $sumaToneladas = 0;
 
         foreach ($camionadas as $camionada) {
-            if ($camionada->mezcla && $camionada->mezcla->ley_prom_visual !== null) {
-                $tonelaje = $camionada->peso_real;
-                $ley = $camionada->mezcla->ley_prom_visual;
+            $totalPivot = $camionada->mezclas->sum('pivot.toneladas');
+            if ($totalPivot <= 0) continue;
 
-                $sumaProductos += ($tonelaje * $ley);
-                $sumaToneladas += $tonelaje;
+            foreach ($camionada->mezclas as $mezcla) {
+                if ($mezcla->ley_prom_visual === null) continue;
+                $ton = $camionada->peso_real * ($mezcla->pivot->toneladas / $totalPivot);
+                $sumaProductos += $ton * $mezcla->ley_prom_visual;
+                $sumaToneladas += $ton;
             }
         }
 
-        if ($sumaToneladas == 0) {
-            return null;
-        }
-
-        return round($sumaProductos / $sumaToneladas, 2);
+        return $sumaToneladas == 0 ? null : round($sumaProductos / $sumaToneladas, 2);
     }
 }

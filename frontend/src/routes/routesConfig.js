@@ -1,6 +1,7 @@
 // src/routes/routesConfig.js
 import { lazy } from 'react';
 
+const Ingenieria            = lazy(() => import('../modules/ingenieria/pages/Ingenieria'));
 const FrentesTrabajo        = lazy(() => import('../modules/ingenieria/pages/FrentesTrabajo'));
 const FrentesTrabajoHistorial = lazy(() => import('../modules/ingenieria/pages/FrentesTrabajoHistorial'));
 const TiposFrente           = lazy(() => import('../modules/ingenieria/pages/TiposFrente'));
@@ -14,6 +15,12 @@ export const routesConfig = [
   // ========================================
   // MÓDULO: INGENIERÍA
   // ========================================
+  {
+    path: '/ingenieria',
+    component: Ingenieria,
+    label: 'Ingeniería Hub',
+    module: 'ingenieria',
+  },
   {
     path: '/ingenieria/frentes-trabajo',
     component: FrentesTrabajo,

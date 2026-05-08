@@ -168,53 +168,74 @@ class MezclaService
                         throw new Exception("Mezcla origen #{$remanente['mezcla_id']} no encontrada");
                     }
 
-                    $toneladasUsar = $remanente['toneladas'];
-
-                    // Validar que haya suficientes toneladas disponibles
-                    if ($toneladasUsar > $mezclaOrigen->toneladas_disponibles) {
-                        throw new Exception("La mezcla {$mezclaOrigen->codigo} solo tiene {$mezclaOrigen->toneladas_disponibles} ton disponibles, solicitadas: {$toneladasUsar} ton");
-                    }
-
-                    // Crear registro en mezcla_dumpada con tipo REM
-                    // Los promedios de la mezcla origen ya tienen los factores correctos:
-                    // - ley_prom_dump ya incluye factor (lab×0.9 o visual directo)
-                    // - ley_prom_lote ya incluye factor (lab×0.81 o visual×0.9)
                     $factorRemanenteVisual = \App\Config\MezclaConfig::getFactorRemanenteVisual();
 
                     // ley_dump: usar directo (ya tiene factores aplicados)
-                    $leyDumpRemanente = $mezclaOrigen->ley_prom_dump;
-
-                    // ley_lote: usar directo (ya tiene factores aplicados)
-                    $leyLoteRemanente = $mezclaOrigen->ley_prom_lote;
-
-                    // ley_visual: calcular como ley_prom_lote × 1.11
+                    $leyDumpRemanente  = $mezclaOrigen->ley_prom_dump;
+                    $leyLoteRemanente  = $mezclaOrigen->ley_prom_lote;
                     $leyVisualRemanente = $mezclaOrigen->ley_prom_lote
                         ? round($mezclaOrigen->ley_prom_lote * $factorRemanenteVisual, 2)
                         : null;
 
-                    \Log::info('🔄 [REMANENTE] Agregando remanente a mezcla', [
-                        'mezcla_origen' => $mezclaOrigen->codigo,
-                        'toneladas_usar' => $toneladasUsar,
-                        'ley_prom_dump_origen' => $mezclaOrigen->ley_prom_dump,
-                        'ley_prom_lote_origen' => $mezclaOrigen->ley_prom_lote,
-                        'ley_dump_remanente' => $leyDumpRemanente,
-                        'ley_lote_remanente' => $leyLoteRemanente,
-                        'ley_visual_remanente' => $leyVisualRemanente,
-                    ]);
+                    // MODO PALADAS: numero_paladas provisto → estimar toneladas
+                    if (isset($remanente['numero_paladas']) && $remanente['numero_paladas'] > 0) {
+                        $tonPorPalada = (float) \App\Models\ConfiguracionSistema::obtener('toneladas_por_palada', 1.82, $datos['id_faena'] ?? null);
+                        $toneladasEstimadas   = round($remanente['numero_paladas'] * $tonPorPalada, 2);
+                        $toneladasRealesOrigen = (float) $mezclaOrigen->toneladas_disponibles;
 
-                    MezclaDumpada::create([
-                        'mezcla_id' => $mezcla->id,
-                        'dumpada_id' => null,
-                        'tipo' => MezclaDumpada::TIPO_REMANENTE,
-                        'origen' => "Remanente de {$mezclaOrigen->codigo}",
-                        'toneladas' => $toneladasUsar,
-                        'ley_dump_ajustada' => $leyDumpRemanente, // Directo de mezcla origen
-                        'ley_visual' => $leyVisualRemanente, // ley_prom_lote × 1.11
-                        'ley_lote' => $leyLoteRemanente, // Directo de mezcla origen
-                    ]);
+                        \Log::info('🔄 [REMANENTE-PALADAS] Agregando remanente por paladas', [
+                            'mezcla_origen'         => $mezclaOrigen->codigo,
+                            'numero_paladas'         => $remanente['numero_paladas'],
+                            'ton_por_palada'         => $tonPorPalada,
+                            'toneladas_estimadas'    => $toneladasEstimadas,
+                            'toneladas_reales_origen' => $toneladasRealesOrigen,
+                            'delta'                  => $toneladasEstimadas - $toneladasRealesOrigen,
+                        ]);
 
-                    // Descontar toneladas de la mezcla origen
-                    $mezclaOrigen->descontarToneladas($toneladasUsar);
+                        MezclaDumpada::create([
+                            'mezcla_id'              => $mezcla->id,
+                            'dumpada_id'             => null,
+                            'tipo'                   => MezclaDumpada::TIPO_REMANENTE,
+                            'origen'                 => "Remanente de {$mezclaOrigen->codigo}",
+                            'toneladas'              => $toneladasEstimadas,
+                            'numero_paladas'         => $remanente['numero_paladas'],
+                            'toneladas_reales_origen' => $toneladasRealesOrigen,
+                            'ley_dump_ajustada'      => $leyDumpRemanente,
+                            'ley_visual'             => $leyVisualRemanente,
+                            'ley_lote'               => $leyLoteRemanente,
+                        ]);
+
+                        // Descontar las toneladas reales disponibles (lo que había registrado)
+                        $mezclaOrigen->descontarToneladas($toneladasRealesOrigen);
+
+                    } else {
+                        // MODO TONELADAS: validar y descontar como antes
+                        $toneladasUsar = $remanente['toneladas'];
+
+                        if ($toneladasUsar > $mezclaOrigen->toneladas_disponibles) {
+                            throw new Exception("La mezcla {$mezclaOrigen->codigo} solo tiene {$mezclaOrigen->toneladas_disponibles} ton disponibles, solicitadas: {$toneladasUsar} ton");
+                        }
+
+                        \Log::info('🔄 [REMANENTE] Agregando remanente a mezcla', [
+                            'mezcla_origen'         => $mezclaOrigen->codigo,
+                            'toneladas_usar'        => $toneladasUsar,
+                            'ley_prom_dump_origen'  => $mezclaOrigen->ley_prom_dump,
+                            'ley_prom_lote_origen'  => $mezclaOrigen->ley_prom_lote,
+                        ]);
+
+                        MezclaDumpada::create([
+                            'mezcla_id'      => $mezcla->id,
+                            'dumpada_id'     => null,
+                            'tipo'           => MezclaDumpada::TIPO_REMANENTE,
+                            'origen'         => "Remanente de {$mezclaOrigen->codigo}",
+                            'toneladas'      => $toneladasUsar,
+                            'ley_dump_ajustada' => $leyDumpRemanente,
+                            'ley_visual'     => $leyVisualRemanente,
+                            'ley_lote'       => $leyLoteRemanente,
+                        ]);
+
+                        $mezclaOrigen->descontarToneladas($toneladasUsar);
+                    }
                 }
             }
 
