@@ -141,6 +141,29 @@ class ImportarDumpadasController extends Controller
     }
 
     /**
+     * Obtiene el nombre de texto de una faena desde el sistema central.
+     * Llamada única por request para no hacer N peticiones HTTP.
+     */
+    private function obtenerNombreFaena(int|string $idFaena, ?string $token): ?string
+    {
+        if (!$idFaena || !$token) return null;
+        try {
+            $response = \Illuminate\Support\Facades\Http::withToken($token)
+                ->get(env('SISTEMA_CENTRAL_API') . '/faenas');
+            if ($response->successful()) {
+                $faenas = $response->json('data', []);
+                $faena  = collect($faenas)->firstWhere('id', $idFaena);
+                return $faena ? ($faena['ubicacion'] ?? $faena['nombre'] ?? null) : null;
+            }
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::warning('ImportarDumpadas: no se pudo obtener nombre de faena', [
+                'id_faena' => $idFaena, 'error' => $e->getMessage(),
+            ]);
+        }
+        return null;
+    }
+
+    /**
      * Confirmar importación masiva de dumpadas.
      * POST /api/dispatch/importar/confirmar
      * Body: { faena_id, tipo_ley, dumpadas: [...] }
@@ -150,6 +173,9 @@ class ImportarDumpadasController extends Controller
         $faenaId      = $request->input('faena_id');
         $tipoLey      = $request->input('tipo_ley', 'cu_insoluble');
         $dumpadasInput = $request->input('dumpadas', []);
+
+        // Obtener nombre de faena una sola vez para toda la importación
+        $nombreFaena = $this->obtenerNombreFaena($faenaId, $request->bearerToken());
 
         $creadas  = 0;
         $saltadas = 0;
@@ -259,6 +285,7 @@ class ImportarDumpadasController extends Controller
                 Dumpada::create([
                     'id_frente_trabajo' => $frente->id,
                     'id_faena'          => $faenaId,
+                    'faena'             => $nombreFaena,
                     'numero_dumpada'    => $numeroDumpada,
                     'acopios'           => $d['acopios'] ?? '',
                     'jornada'           => $jornada,

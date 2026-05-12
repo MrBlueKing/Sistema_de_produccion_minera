@@ -1,6 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { HiEye, HiOfficeBuilding, HiBriefcase, HiTruck, HiChartBar } from 'react-icons/hi';
-import { HiClipboardDocumentList } from 'react-icons/hi2';
+import { HiClipboardDocumentList, HiCalendar } from 'react-icons/hi2';
+
+const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio',
+               'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+
+function getMesAnioLabel(fechaStr) {
+  if (!fechaStr) return null;
+  const d = new Date(fechaStr + 'T12:00:00');
+  return { mes: d.getMonth(), anio: d.getFullYear(), label: `${MESES[d.getMonth()]} ${d.getFullYear()}` };
+}
 import Card from '../../../shared/components/atoms/Card';
 import Badge from '../../../shared/components/atoms/Badge';
 import Button from '../../../shared/components/atoms/Button';
@@ -20,6 +29,7 @@ const LotesView = () => {
   const [filtros, setFiltros] = useState({
     planta_id: '',
     empresa_id: '',
+    mes_anio: '',
   });
   const [loteSeleccionado, setLoteSeleccionado] = useState(null);
   const [loadingDetalle, setLoadingDetalle] = useState(false);
@@ -99,11 +109,32 @@ const LotesView = () => {
   };
 
   const limpiarFiltros = () => {
-    setFiltros({
-      planta_id: '',
-      empresa_id: '',
-    });
+    setFiltros({ planta_id: '', empresa_id: '', mes_anio: '' });
   };
+
+  // Opciones de mes/año derivadas de los lotes cargados
+  const opcionesMes = useMemo(() => {
+    const map = new Map();
+    lotes.forEach(l => {
+      const info = getMesAnioLabel(l.fecha_creacion);
+      if (info) {
+        const key = `${info.anio}-${String(info.mes + 1).padStart(2,'0')}`;
+        if (!map.has(key)) map.set(key, info.label);
+      }
+    });
+    return [...map.entries()].sort((a, b) => b[0].localeCompare(a[0])).map(([k, v]) => ({ value: k, label: v }));
+  }, [lotes]);
+
+  // Filtrado client-side por mes/año
+  const lotesFiltrados = useMemo(() => {
+    if (!filtros.mes_anio) return lotes;
+    return lotes.filter(l => {
+      const info = getMesAnioLabel(l.fecha_creacion);
+      if (!info) return false;
+      const key = `${info.anio}-${String(info.mes + 1).padStart(2,'0')}`;
+      return key === filtros.mes_anio;
+    });
+  }, [lotes, filtros.mes_anio]);
 
   const getEstadoColor = (estado) => {
     switch (estado) {
@@ -209,6 +240,24 @@ const LotesView = () => {
                 </select>
               </div>
 
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <HiCalendar className="inline mr-1" />
+                  Filtrar por Mes
+                </label>
+                <select
+                  name="mes_anio"
+                  value={filtros.mes_anio}
+                  onChange={handleFiltroChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">Todos los meses</option>
+                  {opcionesMes.map(o => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
+
               <div className="flex items-end">
                 <button
                   onClick={limpiarFiltros}
@@ -230,17 +279,21 @@ const LotesView = () => {
         <div className="flex justify-center py-12">
           <Loader size="lg" />
         </div>
-      ) : lotes.length === 0 ? (
+      ) : lotesFiltrados.length === 0 ? (
         <Card>
           <div className="text-center py-12">
             <HiChartBar className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-            <p className="text-gray-700 font-medium mb-2">No hay lotes registrados</p>
-            <p className="text-gray-500 text-sm">Los lotes se crean automáticamente al registrar camionadas</p>
+            <p className="text-gray-700 font-medium mb-2">
+              {lotes.length === 0 ? 'No hay lotes registrados' : 'No hay lotes para el mes seleccionado'}
+            </p>
+            <p className="text-gray-500 text-sm">
+              {lotes.length === 0 ? 'Los lotes se crean automáticamente al registrar camionadas' : 'Prueba con otro filtro de mes'}
+            </p>
           </div>
         </Card>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {lotes.map((lote) => (
+          {lotesFiltrados.map((lote) => (
             <Card key={lote.id} className="border-l-4 border-indigo-400 hover:shadow-lg transition-shadow">
               <div className="flex items-start justify-between mb-4">
                 <div className="flex-1">
@@ -259,6 +312,12 @@ const LotesView = () => {
                     <Badge color={getEstadoColor(lote.estado)}>
                       {lote.estado}
                     </Badge>
+                    {getMesAnioLabel(lote.fecha_creacion) && (
+                      <span className="inline-flex items-center gap-1 bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded-full text-xs font-semibold">
+                        <HiCalendar className="w-3 h-3" />
+                        {getMesAnioLabel(lote.fecha_creacion).label}
+                      </span>
+                    )}
                   </div>
                 </div>
                 <Button

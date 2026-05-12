@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { HiBeaker, HiCube, HiEye, HiTrash, HiPencil, HiCheck, HiXMark, HiChevronDown, HiChevronUp, HiInformationCircle } from 'react-icons/hi2';
+import { HiBeaker, HiCube, HiEye, HiTrash, HiPencil, HiCheck, HiXMark, HiChevronDown, HiChevronUp, HiInformationCircle, HiCalendar } from 'react-icons/hi2';
 import Button from '../../../shared/components/atoms/Button';
 import Input from '../../../shared/components/atoms/Input';
 import Card from '../../../shared/components/atoms/Card';
@@ -44,7 +44,7 @@ export default function MezclasView({
   const [acopiosSeleccionados, setAcopiosSeleccionados] = useState([]);
 
   // Estado para toggle de composición en modal detalle
-  const [mostrarComposicion, setMostrarComposicion] = useState(false);
+  const [mostrarComposicion, setMostrarComposicion] = useState(true);
 
   // Estados para dumpadas directas (cuando NO se usan acopios)
   const [dumpadasSeleccionadas, setDumpadasSeleccionadas] = useState([]);
@@ -2250,102 +2250,165 @@ export default function MezclasView({
 
                   {/* Tabla colapsable */}
                   {mostrarComposicion && (
-                  <div className="overflow-x-auto max-h-[400px] overflow-y-auto bg-gradient-to-r from-indigo-50 to-orange-50 border-b-2 border-indigo-200">
-                    <table className="w-full text-sm">
-                      <thead className="sticky top-0 z-10">
-                        <tr className="bg-indigo-100 shadow-sm">
-                          <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs">Tipo</th>
-                          <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs">Acopios / Origen</th>
-                          <th className="text-right py-3 px-3 font-bold text-blue-900 text-xs">Toneladas</th>
-                          <th className="text-right py-3 px-3 font-bold text-blue-900 text-xs">Ley Dump</th>
-                          <th className="text-right py-3 px-3 font-bold text-blue-900 text-xs">Ley Visual</th>
-                          <th className="text-right py-3 px-3 font-bold text-blue-900 text-xs">Ley Lote</th>
-                          <th className="text-right py-3 px-3 font-bold text-blue-900 text-xs">Ley Lab</th>
+                  <div className="overflow-x-auto max-h-[500px] overflow-y-auto bg-gradient-to-r from-indigo-50 to-orange-50 border-b-2 border-indigo-200">
+                    {(() => {
+                      // Separar dumpadas y remanentes
+                      const dumps = (mezclaSeleccionada.detalles || []).filter(d => d.tipo === 'DUMP');
+                      const rems  = (mezclaSeleccionada.detalles || []).filter(d => d.tipo !== 'DUMP');
+
+                      // Ordenar dumps por fecha (formato dd-mm-yyyy del backend)
+                      const parseFecha = (s) => {
+                        if (!s) return null;
+                        const p = String(s).split('-');
+                        return p.length === 3 ? new Date(`${p[2]}-${p[1]}-${p[0]}`) : new Date(s);
+                      };
+                      const dumpsOrdenados = [...dumps].sort((a, b) => {
+                        const fa = parseFecha(a.dumpada?.fecha);
+                        const fb = parseFecha(b.dumpada?.fecha);
+                        if (!fa && !fb) return 0;
+                        if (!fa) return 1;
+                        if (!fb) return -1;
+                        return fa - fb;
+                      });
+
+                      // Agrupar dumps por fecha
+                      const porFecha = new Map();
+                      for (const d of dumpsOrdenados) {
+                        const k = d.dumpada?.fecha ?? 'Sin fecha';
+                        if (!porFecha.has(k)) porFecha.set(k, []);
+                        porFecha.get(k).push(d);
+                      }
+
+                      const colCount = mezclaSeleccionada.estado !== 'Despachado' ? 8 : 7;
+
+                      const FilaDetalle = ({ detalle, bg }) => (
+                        <tr className={`border-b border-gray-200 ${bg}`}>
+                          <td className="py-2 px-3 text-xs font-mono text-blue-700">
+                            {detalle.origen || detalle.dumpada?.acopios || '-'}
+                          </td>
+                          <td className="py-2 px-3 text-xs font-semibold text-right tabular-nums">
+                            {parseFloat(detalle.toneladas).toFixed(2)} t
+                          </td>
+                          <td className="py-2 px-3 text-xs text-right tabular-nums">
+                            {detalle.ley_dump_ajustada ? `${parseFloat(detalle.ley_dump_ajustada).toFixed(2)}%` : '-'}
+                          </td>
+                          <td className="py-2 px-3 text-xs text-right tabular-nums">
+                            {detalle.ley_visual ? `${(parseFloat(detalle.ley_visual) * factorAjusteLey).toFixed(2)}%` : '-'}
+                          </td>
+                          <td className="py-2 px-3 text-xs text-right tabular-nums">
+                            {detalle.ley_lote ? `${parseFloat(detalle.ley_lote).toFixed(2)}%` : '-'}
+                          </td>
+                          <td className="py-2 px-3 text-xs text-right tabular-nums">
+                            {(() => {
+                              const leyLote = parseFloat(detalle.ley_lote || 0);
+                              const leyLab = leyLote / (factorAjusteLey * factorAjusteLey);
+                              return leyLote > 0 ? `${leyLab.toFixed(2)}%` : '-';
+                            })()}
+                          </td>
                           {mezclaSeleccionada.estado !== 'Despachado' && (
-                            <th className="text-center py-3 px-3 font-bold text-blue-900 text-xs">Eliminar</th>
+                            <td className="py-2 px-3 text-center">
+                              <button
+                                onClick={() => handleEliminarDetalleMezcla(detalle.id, detalle.origen || detalle.dumpada?.acopios)}
+                                disabled={loading}
+                                className="px-2 py-1 bg-red-500 hover:bg-red-600 text-white rounded transition-colors text-xs disabled:opacity-50"
+                                title="Eliminar de la mezcla"
+                              >
+                                <HiTrash className="w-4 h-4" />
+                              </button>
+                            </td>
                           )}
                         </tr>
-                      </thead>
-                      <tbody>
-                        {mezclaSeleccionada.detalles.map((detalle, index) => (
-                          <tr key={detalle.id} className={`border-b border-gray-200 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
-                            <td className="py-2 px-3">
-                              <span className={`px-2 py-1 rounded-full text-xs font-bold ${detalle.tipo === 'DUMP' ? 'bg-green-500 text-white' : 'bg-orange-500 text-white'
-                                }`}>
-                                {detalle.tipo === 'DUMP' ? 'Dumpada' : 'Remanente'}
-                              </span>
-                            </td>
-                            <td className="py-2 px-3 text-xs font-mono text-blue-700">
-                              {detalle.origen || detalle.dumpada?.acopios || '-'}
-                            </td>
-                            <td className="py-2 px-3 text-xs font-semibold text-right">
-                              {parseFloat(detalle.toneladas).toFixed(2)} t
-                            </td>
-                            <td className="py-2 px-3 text-xs text-right">
-                              {detalle.ley_dump_ajustada ? `${parseFloat(detalle.ley_dump_ajustada).toFixed(2)}%` : '-'}
-                            </td>
-                            <td className="py-2 px-3 text-xs text-right">
-                              {detalle.ley_visual ? `${(parseFloat(detalle.ley_visual) * factorAjusteLey).toFixed(2)}%` : '-'}
-                            </td>
-                            <td className="py-2 px-3 text-xs text-right">
-                              {detalle.ley_lote ? `${parseFloat(detalle.ley_lote).toFixed(2)}%` : '-'}
-                            </td>
-                            <td className="py-2 px-3 text-xs text-right">
-                              {(() => {
-                                // Ley Lab = ley_lote / 0.81 (reversa del camino lab)
-                                const leyLote = parseFloat(detalle.ley_lote || 0);
-                                const leyLab = leyLote / (factorAjusteLey * factorAjusteLey);
-                                return leyLote > 0 ? `${leyLab.toFixed(2)}%` : '-';
-                              })()}
-                            </td>
-                            {mezclaSeleccionada.estado !== 'Despachado' && (
-                              <td className="py-2 px-3 text-center">
-                                <button
-                                  onClick={() => handleEliminarDetalleMezcla(detalle.id, detalle.origen || detalle.dumpada?.acopios)}
-                                  disabled={loading}
-                                  className="px-2 py-1 bg-red-500 hover:bg-red-600 text-white rounded transition-colors text-xs disabled:opacity-50"
-                                  title="Eliminar de la mezcla"
-                                >
-                                  <HiTrash className="w-4 h-4" />
-                                </button>
-                              </td>
+                      );
+
+                      return (
+                        <table className="w-full text-sm">
+                          <thead className="sticky top-0 z-10">
+                            <tr className="bg-indigo-100 shadow-sm">
+                              <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs">Acopios / Origen</th>
+                              <th className="text-right py-3 px-3 font-bold text-blue-900 text-xs">Toneladas</th>
+                              <th className="text-right py-3 px-3 font-bold text-blue-900 text-xs">Ley Dump</th>
+                              <th className="text-right py-3 px-3 font-bold text-blue-900 text-xs">Ley Visual</th>
+                              <th className="text-right py-3 px-3 font-bold text-blue-900 text-xs">Ley Lote</th>
+                              <th className="text-right py-3 px-3 font-bold text-blue-900 text-xs">Ley Lab</th>
+                              {mezclaSeleccionada.estado !== 'Despachado' && (
+                                <th className="text-center py-3 px-3 font-bold text-blue-900 text-xs">Eliminar</th>
+                              )}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {/* ── Dumpadas agrupadas por fecha ── */}
+                            {dumps.length > 0 && (
+                              <tr className="bg-green-50 border-t-2 border-green-300">
+                                <td colSpan={colCount} className="py-1.5 px-3 text-xs font-bold text-green-800 uppercase tracking-wide">
+                                  Dumpadas ({dumps.length})
+                                </td>
+                              </tr>
                             )}
-                          </tr>
-                        ))}
-                        {/* Fila de totales */}
-                        <tr className="bg-gradient-to-r from-indigo-100 via-orange-100 to-pink-100 border-t-4 border-indigo-400 font-bold">
-                          <td className="py-4 px-4 text-sm text-indigo-900" colSpan="2">
-                            <div className="flex items-center gap-2">
-                              <HiBeaker className="w-5 h-5" />
-                              TOTALES DE LA MEZCLA
-                            </div>
-                          </td>
-                          <td className="py-4 px-4 text-base text-indigo-900 text-right font-extrabold">
-                            {mezclaSeleccionada.detalles.reduce((sum, d) => sum + parseFloat(d.toneladas || 0), 0).toFixed(2)} t
-                          </td>
-                          <td className="py-4 px-4 text-sm text-indigo-900 text-right font-bold">
-                            {mezclaSeleccionada.ley_prom_dump
-                              ? `${parseFloat(mezclaSeleccionada.ley_prom_dump).toFixed(2)}%`
-                              : '-'}
-                          </td>
-                          <td className="py-4 px-4 text-sm text-indigo-900 text-right font-bold">
-                            {mezclaSeleccionada.ley_prom_visual
-                              ? `${parseFloat(mezclaSeleccionada.ley_prom_visual).toFixed(2)}%`
-                              : '-'}
-                          </td>
-                          <td className="py-4 px-4 text-sm text-indigo-900 text-right font-bold">
-                            {mezclaSeleccionada.ley_prom_lote
-                              ? `${parseFloat(mezclaSeleccionada.ley_prom_lote).toFixed(2)}%`
-                              : '-'}
-                          </td>
-                          <td className="py-4 px-4 text-sm text-indigo-900 text-right font-bold">
-                            {mezclaSeleccionada.ley_prom_lote
-                              ? `${(parseFloat(mezclaSeleccionada.ley_prom_lote) / (factorAjusteLey * factorAjusteLey)).toFixed(2)}%`
-                              : '-'}
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
+                            {[...porFecha.entries()].map(([fecha, detalles]) => {
+                              const tonFecha = detalles.reduce((s, d) => s + parseFloat(d.toneladas || 0), 0);
+                              return (
+                                <>
+                                  <tr key={`fecha-${fecha}`} className="bg-blue-50 border-t border-blue-200">
+                                    <td colSpan={colCount} className="py-1.5 px-4">
+                                      <span className="flex items-center gap-1.5 text-xs font-semibold text-blue-700">
+                                        <HiCalendar className="w-3.5 h-3.5 flex-shrink-0" />
+                                        {fecha}
+                                        <span className="font-normal text-blue-400 ml-1">
+                                          · {detalles.length} dumpada{detalles.length !== 1 ? 's' : ''} · {tonFecha.toFixed(2)} t
+                                        </span>
+                                      </span>
+                                    </td>
+                                  </tr>
+                                  {detalles.map((d, i) => (
+                                    <FilaDetalle key={d.id} detalle={d} bg={i % 2 === 0 ? 'bg-white' : 'bg-gray-50'} />
+                                  ))}
+                                </>
+                              );
+                            })}
+
+                            {/* ── Remanentes ── */}
+                            {rems.length > 0 && (
+                              <>
+                                <tr className="bg-orange-50 border-t-2 border-orange-300">
+                                  <td colSpan={colCount} className="py-1.5 px-3 text-xs font-bold text-orange-800 uppercase tracking-wide">
+                                    Remanentes ({rems.length})
+                                  </td>
+                                </tr>
+                                {rems.map((d, i) => (
+                                  <FilaDetalle key={d.id} detalle={d} bg={i % 2 === 0 ? 'bg-orange-50/30' : 'bg-white'} />
+                                ))}
+                              </>
+                            )}
+                            {/* Fila de totales */}
+                            <tr className="bg-gradient-to-r from-indigo-100 via-orange-100 to-pink-100 border-t-4 border-indigo-400 font-bold">
+                              <td className="py-4 px-4 text-sm text-indigo-900">
+                                <div className="flex items-center gap-2">
+                                  <HiBeaker className="w-5 h-5" />
+                                  TOTALES DE LA MEZCLA
+                                </div>
+                              </td>
+                              <td className="py-4 px-4 text-base text-indigo-900 text-right font-extrabold">
+                                {mezclaSeleccionada.detalles.reduce((sum, d) => sum + parseFloat(d.toneladas || 0), 0).toFixed(2)} t
+                              </td>
+                              <td className="py-4 px-4 text-sm text-indigo-900 text-right font-bold">
+                                {mezclaSeleccionada.ley_prom_dump ? `${parseFloat(mezclaSeleccionada.ley_prom_dump).toFixed(2)}%` : '-'}
+                              </td>
+                              <td className="py-4 px-4 text-sm text-indigo-900 text-right font-bold">
+                                {mezclaSeleccionada.ley_prom_visual ? `${parseFloat(mezclaSeleccionada.ley_prom_visual).toFixed(2)}%` : '-'}
+                              </td>
+                              <td className="py-4 px-4 text-sm text-indigo-900 text-right font-bold">
+                                {mezclaSeleccionada.ley_prom_lote ? `${parseFloat(mezclaSeleccionada.ley_prom_lote).toFixed(2)}%` : '-'}
+                              </td>
+                              <td className="py-4 px-4 text-sm text-indigo-900 text-right font-bold">
+                                {mezclaSeleccionada.ley_prom_lote
+                                  ? `${(parseFloat(mezclaSeleccionada.ley_prom_lote) / (factorAjusteLey * factorAjusteLey)).toFixed(2)}%`
+                                  : '-'}
+                              </td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      );
+                    })()}
                   </div>
                   )}
                 </div>

@@ -13,12 +13,12 @@ const fmtPct = (val, decimals = 2) =>
   val != null ? `${parseFloat(val).toFixed(decimals)}%` : '-';
 
 const LoteDetalleView = ({ lote, onBack }) => {
-  // Agrupar mezclas únicas desde camionadas
+  // Agrupar mezclas únicas desde camionadas (relación many-to-many via pivot)
   const mezclaMap = {};
   lote.camionadas?.forEach(cam => {
-    if (cam.mezcla && !mezclaMap[cam.mezcla_id]) {
-      mezclaMap[cam.mezcla_id] = cam.mezcla;
-    }
+    (cam.mezclas ?? []).forEach(m => {
+      if (m.id && !mezclaMap[m.id]) mezclaMap[m.id] = m;
+    });
   });
   const mezclas = Object.values(mezclaMap);
 
@@ -127,7 +127,7 @@ const LoteDetalleView = ({ lote, onBack }) => {
                       </td>
                       <td className="py-2 px-2">
                         <span className="font-mono text-xs font-bold text-indigo-700">
-                          {cam.mezcla?.codigo || '-'}
+                          {cam.mezclas?.map(m => m.codigo).join(', ') || '-'}
                         </span>
                       </td>
                     </tr>

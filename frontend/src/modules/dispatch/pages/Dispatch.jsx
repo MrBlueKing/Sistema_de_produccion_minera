@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { HiHome, HiPencil, HiTrash, HiCheckCircle, HiXCircle, HiEye, HiChevronLeft, HiChevronRight, HiBeaker, HiCube, HiMap, HiTruck, HiClipboardDocumentList, HiCog6Tooth, HiDocumentPlus, HiInformationCircle, HiDocumentMagnifyingGlass, HiArrowUpTray } from 'react-icons/hi2';
+import { HiHome, HiPencil, HiTrash, HiCheckCircle, HiXCircle, HiEye, HiChevronLeft, HiChevronRight, HiBeaker, HiCube, HiMap, HiTruck, HiClipboardDocumentList, HiCog6Tooth, HiDocumentPlus, HiInformationCircle, HiDocumentMagnifyingGlass, HiArrowUpTray, HiSparkles } from 'react-icons/hi2';
 import { HiClipboardCheck, HiFilter } from "react-icons/hi";
 import { useNavigate } from 'react-router-dom';
 import Header from '../../../shared/components/organisms/Header';
@@ -21,6 +21,8 @@ import ConfiguracionView from '../components/ConfiguracionView';
 import ReconstruccionLoteView from '../components/ReconstruccionLoteView';
 import ImportarDumpadasView from '../components/ImportarDumpadasView';
 import ImportarMezclasView from '../components/ImportarMezclasView';
+import ImportarLotesCamionadasView from '../components/ImportarLotesCamionadasView';
+import ImportarFlujoCompletoView from '../components/ImportarFlujoCompletoView';
 import IngresoView from '../components/IngresoView';
 import EnvioMuestrasView from '../components/EnvioMuestrasView';
 import { FaenaProvider, useFaena } from '../../../contexts/FaenaContext';
@@ -51,9 +53,11 @@ const ACCESO_HUB = {
   mezclas:         ['admin_dispatch', 'encargado_dispatch'],
   despachos:       ['admin_dispatch', 'encargado_dispatch'],
   reconstruccion:  ['admin_dispatch'],
-  importar:          ['admin_dispatch', 'encargado_dispatch'],
-  importar_mezclas:  ['admin_dispatch', 'encargado_dispatch'],
-  configuracion:     ['admin_dispatch'],
+  importar:              ['admin_dispatch', 'encargado_dispatch'],
+  importar_mezclas:      ['admin_dispatch', 'encargado_dispatch'],
+  importar_lotes:        ['admin_dispatch', 'encargado_dispatch'],
+  importar_flujo:        ['admin_dispatch', 'encargado_dispatch'],
+  configuracion:         ['admin_dispatch'],
 };
 
 function DispatchContent() {
@@ -333,7 +337,7 @@ function DispatchContent() {
 
   const loadData = async () => {
     // No cargar datos en estas vistas (tienen sus propios componentes)
-    if (vistaActual === 'menu' || vistaActual === 'ingreso' || vistaActual === 'envio_muestras' || vistaActual === 'reconstruccion' || vistaActual === 'importar' || vistaActual === 'importar_mezclas') return;
+    if (vistaActual === 'menu' || vistaActual === 'ingreso' || vistaActual === 'envio_muestras' || vistaActual === 'reconstruccion' || vistaActual === 'importar' || vistaActual === 'importar_mezclas' || vistaActual === 'importar_lotes' || vistaActual === 'importar_flujo') return;
     // Evitar cargas concurrentes
     if (loadingRef.current) {
       console.log('⏳ [DISPATCH] Carga en progreso, ignorando llamada duplicada');
@@ -797,6 +801,8 @@ function DispatchContent() {
                         vistaActual === 'reconstruccion' ? 'Reconstrucción de Lote' :
                         vistaActual === 'importar' ? 'Importar desde Excel' :
                         vistaActual === 'importar_mezclas' ? 'Importar Mezclas' :
+                        vistaActual === 'importar_lotes' ? 'Importar Lotes' :
+                        vistaActual === 'importar_flujo' ? 'Importar Flujo Completo' :
                         vistaActual === 'configuracion' ? 'Configuración' : ''
                     }
                   ]
@@ -1009,6 +1015,28 @@ function DispatchContent() {
                   </div>
                   <p className="font-bold text-violet-900 text-sm leading-tight">Importar Mezclas</p>
                   <p className="text-violet-400 text-xs mt-0.5">Carga masiva mezclas</p>
+                </button>
+              )}
+
+              {puedeVer('importar_lotes') && (
+                <button onClick={() => setVistaActual('importar_lotes')}
+                  className="group bg-emerald-50 rounded-xl border border-emerald-100 shadow-sm p-4 text-left hover:bg-emerald-100 hover:border-emerald-300 hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 active:scale-[0.97]">
+                  <div className="w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center mb-3 group-hover:bg-emerald-700 transition-colors duration-150 shadow-sm">
+                    <HiTruck className="w-5 h-5 text-white" />
+                  </div>
+                  <p className="font-bold text-emerald-900 text-sm leading-tight">Importar Lotes</p>
+                  <p className="text-emerald-400 text-xs mt-0.5">Lotes y camionadas</p>
+                </button>
+              )}
+
+              {puedeVer('importar_flujo') && (
+                <button onClick={() => setVistaActual('importar_flujo')}
+                  className="group bg-teal-50 rounded-xl border border-teal-100 shadow-sm p-4 text-left hover:bg-teal-100 hover:border-teal-300 hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 active:scale-[0.97]">
+                  <div className="w-10 h-10 bg-teal-600 rounded-xl flex items-center justify-center mb-3 group-hover:bg-teal-700 transition-colors duration-150 shadow-sm">
+                    <HiSparkles className="w-5 h-5 text-white" />
+                  </div>
+                  <p className="font-bold text-teal-900 text-sm leading-tight">Importar Flujo Completo</p>
+                  <p className="text-teal-400 text-xs mt-0.5">Mezclas + Lotes en un paso</p>
                 </button>
               )}
 
@@ -1340,6 +1368,7 @@ function DispatchContent() {
                   {vistaActual === 'reconstruccion' && 'Reconstrucción de Lote'}
                   {vistaActual === 'importar' && 'Importar desde Excel'}
                   {vistaActual === 'importar_mezclas' && 'Importar Mezclas desde Excel'}
+                  {vistaActual === 'importar_lotes' && 'Importar Lotes y Camionadas'}
                   {vistaActual === 'configuracion' && 'Configuración'}
                 </h2>
                 <p className="text-gray-500 text-sm mt-0.5">
@@ -1353,6 +1382,7 @@ function DispatchContent() {
                   {vistaActual === 'reconstruccion' && 'Trazabilidad completa lote → mezclas → dumpadas'}
                   {vistaActual === 'importar' && 'Carga masiva de dumpadas desde archivo Excel'}
                   {vistaActual === 'importar_mezclas' && 'Carga masiva de mezclas desde archivo Excel'}
+                  {vistaActual === 'importar_lotes' && 'Carga masiva de lotes y camionadas desde archivo Excel'}
                   {vistaActual === 'configuracion' && 'Ajustes del sistema'}
                 </p>
               </div>
@@ -1803,6 +1833,22 @@ function DispatchContent() {
         {/* Vista de Importar Mezclas desde Excel */}
         {vistaActual === 'importar_mezclas' && puedeVer('importar_mezclas') && (
           <ImportarMezclasView
+            toast={toast}
+            setVistaActual={setVistaActual}
+          />
+        )}
+
+        {/* Vista de Importar Lotes y Camionadas desde Excel */}
+        {vistaActual === 'importar_lotes' && puedeVer('importar_lotes') && (
+          <ImportarLotesCamionadasView
+            toast={toast}
+            setVistaActual={setVistaActual}
+          />
+        )}
+
+        {/* Vista de Importar Flujo Completo */}
+        {vistaActual === 'importar_flujo' && puedeVer('importar_flujo') && (
+          <ImportarFlujoCompletoView
             toast={toast}
             setVistaActual={setVistaActual}
           />

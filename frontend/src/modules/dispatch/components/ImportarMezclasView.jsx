@@ -1,8 +1,9 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, Fragment } from 'react';
 import * as XLSX from 'xlsx';
 import {
   HiArrowUpTray, HiCheckCircle, HiExclamationTriangle,
   HiArrowLeft, HiArrowRight, HiDocumentArrowUp, HiTableCells, HiCheckBadge,
+  HiBeaker, HiXMark, HiCalendar, HiChevronDown, HiChevronRight,
 } from 'react-icons/hi2';
 import { useFaena } from '../../../contexts/FaenaContext';
 import dispatchService from '../services/dispatch';
@@ -48,9 +49,9 @@ function detectarMapeoLeyes(rows) {
   }
 
   if (sumInsol >= sumSol) {
-    return { ley_dump: 11, ley_visual: 13, ley_lote: 14, formato: 'catemu-insoluble' };
+    return { ley_dump: 11, ley_lote: 13, ley_visual: 14, formato: 'catemu-insoluble' };
   } else {
-    return { ley_dump: 12, ley_visual: 13, ley_lote: 15, formato: 'catemu-soluble' };
+    return { ley_dump: 12, ley_lote: 13, ley_visual: 15, formato: 'catemu-soluble' };
   }
 }
 
@@ -115,6 +116,18 @@ function buildCamposMezcla(leyCOL) {
   ];
 }
 
+function normStr(s) {
+  return String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
+}
+
+function weightedAvg(items, field) {
+  const valid = items.filter(d => d[field] != null && (d.toneladas ?? 0) > 0);
+  if (!valid.length) return null;
+  const totalTon = valid.reduce((s, d) => s + d.toneladas, 0);
+  if (!totalTon) return null;
+  return valid.reduce((s, d) => s + d[field] * d.toneladas, 0) / totalTon;
+}
+
 const STEPS = ['Configurar', 'Revisar', 'Resultado'];
 
 const FORMATO_LABELS = {
@@ -124,7 +137,7 @@ const FORMATO_LABELS = {
 };
 
 export default function ImportarMezclasView({ toast, setVistaActual }) {
-  const { faenaUsuario } = useFaena();
+  const { faenaUsuario, faenas } = useFaena();
   const faenaId = faenaUsuario?.id ?? faenaUsuario;
 
   const [step, setStep]             = useState(0);
@@ -140,6 +153,11 @@ export default function ImportarMezclasView({ toast, setVistaActual }) {
   const [seleccionadas, setSeleccionadas]        = useState({});
   const [resultado, setResultado]               = useState(null);
   const [formatoDetectado, setFormatoDetectado] = useState('');
+  const [modalMezcla, setModalMezcla]           = useState(null);
+  const [expandidosMezcla, setExpandidosMezcla] = useState({});
+  const [avisoFaena, setAvisoFaena]             = useState(null);
+  const [mesAnio, setMesAnio]                   = useState(null);
+  const [loadingMsg, setLoadingMsg]             = useState('');
 
   // Estado intermedio antes de llamar al backend
   const [colMapData, setColMapData] = useState(null); // { leyCOL, camposMezcla, firstDataRow }
@@ -167,6 +185,18 @@ export default function ImportarMezclasView({ toast, setVistaActual }) {
     setArchivoNombre(file.name);
     setColMapData(null);
     setMezclasTemp(null);
+    setAvisoFaena(null);
+
+    // Validar que el nombre del archivo corresponda a la faena activa
+    const faenaActual = faenas.find(f => f.id == faenaId);
+    if (faenaActual) {
+      const nomFaena = faenaActual.ubicacion || faenaActual.nombre || '';
+      if (nomFaena && !normStr(file.name).includes(normStr(nomFaena))) {
+        setAvisoFaena(`El archivo "${file.name}" no parece corresponder a la faena "${nomFaena}". Verifica que sea el Excel correcto antes de continuar.`);
+      }
+    }
+
+    setLoadingMsg('Leyendo archivo Excel…');
     setParseando(true);
     try {
       const buf = await file.arrayBuffer();
@@ -180,6 +210,10 @@ export default function ImportarMezclasView({ toast, setVistaActual }) {
 
       const ws   = wb.Sheets[HOJA_MEZCLAS];
       const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true });
+
+      const row2 = rows[1] ?? [];
+      const mesRaw = row2[0], anioRaw = row2[1];
+      setMesAnio(mesRaw && anioRaw ? { mes: String(mesRaw).trim(), anio: String(anioRaw).trim() } : null);
 
       const leyCOL = detectarMapeoLeyes(rows);
       setFormatoDetectado(leyCOL.formato);
@@ -280,6 +314,7 @@ export default function ImportarMezclasView({ toast, setVistaActual }) {
   // ── Fase 2: validar con backend y avanzar a paso 1 ──────────────────
   const handleContinuar = useCallback(async () => {
     if (!mezclasTemp) return;
+    setLoadingMsg('Validando con la base de datos…');
     setParseando(true);
     try {
       const previewRes = await dispatchService.importarMezclasPreview(faenaId, mezclasTemp.mezclasArr);
@@ -331,6 +366,7 @@ export default function ImportarMezclasView({ toast, setVistaActual }) {
       toast?.error('Selecciona al menos una mezcla para importar');
       return;
     }
+    setLoadingMsg(`Importando ${seleccionadasArr.length} mezcla${seleccionadasArr.length !== 1 ? 's' : ''}…`);
     setImportando(true);
     try {
       const res = await dispatchService.importarMezclasConfirmar(faenaId, plantaId, seleccionadasArr);
@@ -352,7 +388,12 @@ export default function ImportarMezclasView({ toast, setVistaActual }) {
     setMesFiltro('');
     setColMapData(null);
     setMezclasTemp(null);
+    setAvisoFaena(null);
+    setMesAnio(null);
+    setExpandidosMezcla({});
   };
+
+  const parsedMap = new Map(mezclasParseadas.map(m => [m.codigo, m]));
 
   const mesesDisponibles = [...new Set(mezclasPreview.map(m => m.mes_calc).filter(Boolean))];
   const mezclasVistas    = mesFiltro === '__sin_fecha__'
@@ -367,7 +408,15 @@ export default function ImportarMezclasView({ toast, setVistaActual }) {
   const conFaltantes  = mezclasVistas.filter(m => m.dumpadas_faltantes?.length > 0).length;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 relative">
+
+      {/* Overlay de carga */}
+      {(parseando || importando) && (
+        <div className="absolute inset-0 z-20 bg-white/75 backdrop-blur-[2px] rounded-2xl flex flex-col items-center justify-center gap-4 min-h-[200px]">
+          <div className="animate-spin rounded-full h-10 w-10 border-4 border-violet-200 border-t-violet-600" />
+          <p className="text-sm font-semibold text-violet-700">{loadingMsg}</p>
+        </div>
+      )}
 
       {/* Stepper */}
       <div className="flex items-center gap-0">
@@ -424,6 +473,12 @@ export default function ImportarMezclasView({ toast, setVistaActual }) {
                   <div className="flex flex-col items-center gap-3">
                     <HiCheckCircle className="w-12 h-12 text-green-500" />
                     <p className="font-semibold text-gray-700">{archivoNombre}</p>
+                    {mesAnio && (
+                      <span className="inline-flex items-center gap-1.5 bg-violet-100 text-violet-700 border border-violet-200 px-3 py-1 rounded-full text-xs font-semibold">
+                        <HiCalendar className="w-3.5 h-3.5" />
+                        {mesAnio.mes} {mesAnio.anio}
+                      </span>
+                    )}
                     <p className="text-sm text-gray-400">Haz clic para cambiar el archivo</p>
                   </div>
                 ) : (
@@ -478,6 +533,14 @@ export default function ImportarMezclasView({ toast, setVistaActual }) {
 
             </div>
           </div>
+
+          {/* Aviso de faena */}
+          {avisoFaena && (
+            <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
+              <HiExclamationTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+              <p>{avisoFaena}</p>
+            </div>
+          )}
 
           {/* ── Panel: columnas detectadas ── */}
           {colMapData && mezclasTemp && (
@@ -681,59 +744,160 @@ export default function ImportarMezclasView({ toast, setVistaActual }) {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-gray-50 text-gray-500 text-xs uppercase tracking-wide sticky top-0">
-                    <th className="px-3 py-2 w-8"></th>
+                    <th className="px-3 py-2 w-14"></th>
                     <th className="px-3 py-2 text-left font-semibold">Código</th>
                     <th className="px-3 py-2 text-left font-semibold">Fecha calc.</th>
                     <th className="px-3 py-2 text-right font-semibold">Dumpadas</th>
                     <th className="px-3 py-2 text-right font-semibold">Total ton</th>
                     <th className="px-3 py-2 text-right font-semibold">Ley dump</th>
+                    <th className="px-3 py-2 text-right font-semibold">Ley visual</th>
                     <th className="px-3 py-2 text-right font-semibold">Ley lote</th>
                     <th className="px-3 py-2 text-left font-semibold">Estado</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {mezclasVistas.map(m => (
-                    <tr key={m.codigo} className={`hover:bg-gray-50 ${!seleccionadas[m.codigo] ? 'opacity-40' : ''}`}>
-                      <td className="px-3 py-2">
-                        <input
-                          type="checkbox"
-                          checked={!!seleccionadas[m.codigo]}
-                          onChange={e => setSeleccionadas(prev => ({ ...prev, [m.codigo]: e.target.checked }))}
-                          className="accent-violet-600 w-4 h-4"
-                        />
-                      </td>
-                      <td className="px-3 py-2 font-mono font-semibold text-gray-800">{m.codigo}</td>
-                      <td className="px-3 py-2 font-mono text-gray-500 text-xs">{m.fecha_calculada ?? '—'}</td>
-                      <td className="px-3 py-2 text-right tabular-nums text-gray-600">
-                        {m.dumpadas_encontradas}/{m.dumpadas_total}
-                        {m.remanentes_count > 0 && (
-                          <span className="ml-1 text-violet-500 text-xs font-semibold">
-                            +{m.remanentes_count}R
-                          </span>
+                  {mezclasVistas.map(m => {
+                    const parsed    = parsedMap.get(m.codigo);
+                    const leyVisual = parsed ? weightedAvg(parsed.dumpadas, 'ley_visual') : null;
+                    const faltantes = new Set(m.dumpadas_faltantes ?? []);
+                    const isExpanded = !!expandidosMezcla[m.codigo];
+                    return (
+                      <Fragment key={m.codigo}>
+                        <tr className={`hover:bg-gray-50 ${!seleccionadas[m.codigo] ? 'opacity-40' : ''}`}>
+                          <td className="px-3 py-2">
+                            <div className="flex items-center gap-1">
+                              <input
+                                type="checkbox"
+                                checked={!!seleccionadas[m.codigo]}
+                                onChange={e => setSeleccionadas(prev => ({ ...prev, [m.codigo]: e.target.checked }))}
+                                className="accent-violet-600 w-4 h-4"
+                              />
+                              <button
+                                onClick={() => setExpandidosMezcla(p => ({ ...p, [m.codigo]: !p[m.codigo] }))}
+                                className="text-gray-300 hover:text-violet-500 transition-colors"
+                              >
+                                {isExpanded
+                                  ? <HiChevronDown className="w-3.5 h-3.5" />
+                                  : <HiChevronRight className="w-3.5 h-3.5" />}
+                              </button>
+                            </div>
+                          </td>
+                          <td className="px-3 py-2">
+                            <button
+                              onClick={() => setModalMezcla({ codigo: m.codigo, dumpadas: parsed?.dumpadas ?? [], remanentes: parsed?.remanentes ?? [], faltantes, preview: m })}
+                              className="flex items-center gap-1.5 font-mono font-semibold text-gray-800 hover:text-violet-700 transition-colors group"
+                            >
+                              <HiBeaker className="w-3.5 h-3.5 text-violet-300 group-hover:text-violet-500 flex-shrink-0" />
+                              {m.codigo}
+                            </button>
+                          </td>
+                          <td className="px-3 py-2 font-mono text-gray-500 text-xs">{m.fecha_calculada ?? '—'}</td>
+                          <td className="px-3 py-2 text-right tabular-nums text-gray-600">
+                            <span className={faltantes.size > 0 ? 'text-amber-600 font-semibold' : ''}>
+                              {m.dumpadas_encontradas}/{m.dumpadas_total}
+                            </span>
+                            {m.remanentes_count > 0 && (
+                              <span className="ml-1 text-violet-500 text-xs font-semibold">+{m.remanentes_count}R</span>
+                            )}
+                            {faltantes.size > 0 && (
+                              <span className="ml-1 text-amber-500 cursor-help" title={`Faltantes: ${[...faltantes].join(', ')}`}>⚠</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2 text-right tabular-nums text-gray-600">{m.total_ton?.toFixed(2)}</td>
+                          <td className="px-3 py-2 text-right tabular-nums font-semibold text-violet-700">{m.ley_prom_dump?.toFixed(3) ?? '—'}</td>
+                          <td className="px-3 py-2 text-right tabular-nums text-blue-600">{leyVisual != null ? leyVisual.toFixed(3) : '—'}</td>
+                          <td className="px-3 py-2 text-right tabular-nums text-emerald-700">{m.ley_prom_lote?.toFixed(3) ?? '—'}</td>
+                          <td className="px-3 py-2">
+                            {m.existe ? (
+                              <span className="inline-flex items-center gap-1 text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-semibold">
+                                <HiCheckCircle className="w-3 h-3" /> Ya existe
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-semibold">
+                                Nueva
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                        {isExpanded && (
+                          <tr>
+                            <td colSpan={9} className="p-0 bg-slate-50 border-b border-violet-100">
+                              <div className="px-10 py-2 space-y-2">
+                                {parsed && parsed.dumpadas.length > 0 && (
+                                  <>
+                                    <p className="text-xs font-bold text-violet-700 pt-1">Dumpadas ({parsed.dumpadas.length})</p>
+                                    <table className="w-full text-xs border border-violet-200 rounded overflow-hidden">
+                                      <thead>
+                                        <tr className="bg-violet-50 text-violet-800 uppercase tracking-wide">
+                                          <th className="px-3 py-1 text-left font-semibold">N° Dump</th>
+                                          <th className="px-3 py-1 text-left font-semibold">Origen</th>
+                                          <th className="px-3 py-1 text-right font-semibold">Ton</th>
+                                          <th className="px-3 py-1 text-right font-semibold">Ley dump</th>
+                                          <th className="px-3 py-1 text-right font-semibold">Ley visual</th>
+                                          <th className="px-3 py-1 text-right font-semibold">Ley lote</th>
+                                          <th className="px-3 py-1 text-center font-semibold">En BD</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-violet-100 bg-white">
+                                        {parsed.dumpadas.map((d, di) => {
+                                          const enBD = !faltantes.has(d.numero_dumpada);
+                                          return (
+                                            <tr key={di} className={enBD ? 'hover:bg-violet-50/30' : 'bg-amber-50 hover:bg-amber-100/60'}>
+                                              <td className="px-3 py-1 font-mono text-gray-700">{d.numero_dumpada}</td>
+                                              <td className="px-3 py-1 text-gray-500">{d.acopios || '—'}</td>
+                                              <td className="px-3 py-1 text-right tabular-nums text-gray-600">{d.toneladas?.toFixed(2) ?? '—'}</td>
+                                              <td className="px-3 py-1 text-right tabular-nums text-violet-700 font-semibold">{d.ley_dump != null ? `${d.ley_dump.toFixed(3)}%` : '—'}</td>
+                                              <td className="px-3 py-1 text-right tabular-nums text-blue-600">{d.ley_visual != null ? `${d.ley_visual.toFixed(3)}%` : '—'}</td>
+                                              <td className="px-3 py-1 text-right tabular-nums text-emerald-700">{d.ley_lote != null ? `${d.ley_lote.toFixed(3)}%` : '—'}</td>
+                                              <td className="px-3 py-1 text-center">
+                                                {enBD ? <span className="text-green-600 font-bold">✓</span> : <span className="text-amber-600 text-xs font-semibold">⚠</span>}
+                                              </td>
+                                            </tr>
+                                          );
+                                        })}
+                                      </tbody>
+                                    </table>
+                                  </>
+                                )}
+                                {parsed?.remanentes?.length > 0 && (
+                                  <>
+                                    <p className="text-xs font-bold text-orange-700">Remanentes / Paladas ({parsed.remanentes.length})</p>
+                                    <table className="w-full text-xs border border-orange-200 rounded overflow-hidden">
+                                      <thead>
+                                        <tr className="bg-orange-50 text-orange-800 uppercase tracking-wide">
+                                          <th className="px-3 py-1 text-left font-semibold">N° Paladas</th>
+                                          <th className="px-3 py-1 text-left font-semibold">Origen</th>
+                                          <th className="px-3 py-1 text-right font-semibold">Ton</th>
+                                          <th className="px-3 py-1 text-right font-semibold">Ley dump</th>
+                                          <th className="px-3 py-1 text-right font-semibold">Ley visual</th>
+                                          <th className="px-3 py-1 text-right font-semibold">Ley lote</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-orange-100 bg-white">
+                                        {parsed.remanentes.map((rem, ri) => (
+                                          <tr key={ri} className="hover:bg-orange-50/30">
+                                            <td className="px-3 py-1 font-mono text-gray-700">{rem.numero_paladas}</td>
+                                            <td className="px-3 py-1 text-gray-500">{rem.origen || '—'}</td>
+                                            <td className="px-3 py-1 text-right tabular-nums text-gray-600">{rem.toneladas?.toFixed(2) ?? '—'}</td>
+                                            <td className="px-3 py-1 text-right tabular-nums text-amber-700 font-semibold">{rem.ley_dump != null ? `${rem.ley_dump.toFixed(3)}%` : '—'}</td>
+                                            <td className="px-3 py-1 text-right tabular-nums text-blue-600">{rem.ley_visual != null ? `${rem.ley_visual.toFixed(3)}%` : '—'}</td>
+                                            <td className="px-3 py-1 text-right tabular-nums text-emerald-700">{rem.ley_lote != null ? `${rem.ley_lote.toFixed(3)}%` : '—'}</td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </>
+                                )}
+                                {(!parsed || (parsed.dumpadas.length === 0 && (parsed.remanentes?.length ?? 0) === 0)) && (
+                                  <p className="text-xs text-gray-400 py-1">Sin detalle disponible</p>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
                         )}
-                        {m.dumpadas_faltantes?.length > 0 && (
-                          <span
-                            className="ml-1 text-amber-500 cursor-help"
-                            title={`Faltantes: ${m.dumpadas_faltantes.join(', ')}`}
-                          >⚠</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2 text-right tabular-nums text-gray-600">{m.total_ton?.toFixed(2)}</td>
-                      <td className="px-3 py-2 text-right tabular-nums font-semibold text-violet-700">{m.ley_prom_dump?.toFixed(3) ?? '—'}</td>
-                      <td className="px-3 py-2 text-right tabular-nums text-gray-600">{m.ley_prom_lote?.toFixed(3) ?? '—'}</td>
-                      <td className="px-3 py-2">
-                        {m.existe ? (
-                          <span className="inline-flex items-center gap-1 text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-semibold">
-                            <HiCheckCircle className="w-3 h-3" /> Ya existe
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-semibold">
-                            Nueva
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                      </Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -851,6 +1015,163 @@ export default function ImportarMezclasView({ toast, setVistaActual }) {
               <HiArrowRight className="w-4 h-4" />
               Ver en Mezclas
             </button>
+          </div>
+        </div>
+      )}
+      {/* Modal: composición de dumpadas de una mezcla */}
+      {modalMezcla && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => setModalMezcla(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col"
+            onClick={e => e.stopPropagation()}>
+
+            {/* Header */}
+            <div className="flex items-start gap-3 px-5 py-4 border-b border-gray-100 flex-shrink-0">
+              <HiBeaker className="w-5 h-5 text-violet-500 mt-0.5" />
+              <div className="flex-1">
+                <p className="font-bold text-gray-800">
+                  Mezcla <span className="font-mono text-violet-700">{modalMezcla.codigo}</span>
+                  {modalMezcla.preview?.fecha_calculada && (
+                    <span className="ml-2 text-xs font-normal text-gray-400">— {modalMezcla.preview.fecha_calculada}</span>
+                  )}
+                </p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {modalMezcla.dumpadas.length} dumpada{modalMezcla.dumpadas.length !== 1 ? 's' : ''}
+                  {modalMezcla.remanentes.length > 0 && ` · ${modalMezcla.remanentes.length} remanente${modalMezcla.remanentes.length !== 1 ? 's' : ''}`}
+                  {' · '}{modalMezcla.dumpadas.reduce((s, d) => s + (d.toneladas ?? 0), 0).toFixed(2)} ton
+                  {modalMezcla.faltantes?.size > 0 && (
+                    <span className="ml-2 text-amber-600 font-semibold">⚠ {modalMezcla.faltantes.size} no encontrada{modalMezcla.faltantes.size !== 1 ? 's' : ''} en BD</span>
+                  )}
+                </p>
+              </div>
+              {/* Resumen de leyes */}
+              <div className="flex gap-4 text-xs text-right flex-shrink-0">
+                {modalMezcla.preview?.ley_prom_dump != null && (
+                  <div>
+                    <p className="text-gray-400">Ley dump prom.</p>
+                    <p className="font-bold text-violet-700 tabular-nums">{modalMezcla.preview.ley_prom_dump.toFixed(3)}%</p>
+                  </div>
+                )}
+                {modalMezcla.preview?.ley_prom_lote != null && (
+                  <div>
+                    <p className="text-gray-400">Ley lote prom.</p>
+                    <p className="font-bold text-emerald-700 tabular-nums">{modalMezcla.preview.ley_prom_lote.toFixed(3)}%</p>
+                  </div>
+                )}
+                {modalMezcla.preview?.total_ton != null && (
+                  <div>
+                    <p className="text-gray-400">Total ton</p>
+                    <p className="font-bold text-gray-800 tabular-nums">{modalMezcla.preview.total_ton.toFixed(2)}</p>
+                  </div>
+                )}
+                {(() => {
+                  const allItems = [...modalMezcla.dumpadas, ...modalMezcla.remanentes];
+                  const avgLote  = weightedAvg(allItems, 'ley_lote');
+                  const avgDump  = avgLote != null ? Math.round(avgLote / 0.9 * 1000) / 1000 : null;
+                  const leyLab   = avgDump != null ? Math.round(avgDump / 0.9 * 1000) / 1000 : null;
+                  return leyLab != null ? (
+                    <div>
+                      <p className="text-gray-400">Ley lab</p>
+                      <p className="font-bold text-violet-700 tabular-nums">{leyLab.toFixed(3)}%</p>
+                    </div>
+                  ) : null;
+                })()}
+              </div>
+              <button onClick={() => setModalMezcla(null)}
+                className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100 flex-shrink-0 ml-2">
+                <HiXMark className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Cuerpo */}
+            <div className="overflow-auto flex-1">
+              {/* Tabla de dumpadas */}
+              <table className="w-full text-xs">
+                <thead className="sticky top-0">
+                  <tr className="bg-violet-50 text-violet-800 uppercase tracking-wide">
+                    <th className="px-3 py-2 text-left font-semibold">N° Dump</th>
+                    <th className="px-3 py-2 text-left font-semibold">Origen / Acopio</th>
+                    <th className="px-3 py-2 text-right font-semibold">Ton</th>
+                    <th className="px-3 py-2 text-right font-semibold">Ley dump</th>
+                    <th className="px-3 py-2 text-right font-semibold">Ley visual</th>
+                    <th className="px-3 py-2 text-right font-semibold">Ley lote</th>
+                    <th className="px-3 py-2 text-center font-semibold">En BD</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {modalMezcla.dumpadas.map((d, di) => {
+                    const enBD = !modalMezcla.faltantes?.has(d.numero_dumpada);
+                    return (
+                      <tr key={di} className={enBD ? 'hover:bg-violet-50/30' : 'bg-amber-50 hover:bg-amber-100/60'}>
+                        <td className="px-3 py-1.5 font-mono font-semibold text-gray-700">{d.numero_dumpada}</td>
+                        <td className="px-3 py-1.5 text-gray-600">{d.acopios || '—'}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums text-gray-700 font-semibold">{d.toneladas?.toFixed(2) ?? '—'}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums text-violet-700 font-semibold">
+                          {d.ley_dump != null ? `${d.ley_dump.toFixed(3)}%` : '—'}
+                        </td>
+                        <td className="px-3 py-1.5 text-right tabular-nums text-blue-600">
+                          {d.ley_visual != null ? `${d.ley_visual.toFixed(3)}%` : '—'}
+                        </td>
+                        <td className="px-3 py-1.5 text-right tabular-nums text-emerald-700">
+                          {d.ley_lote != null ? `${d.ley_lote.toFixed(3)}%` : '—'}
+                        </td>
+                        <td className="px-3 py-1.5 text-center">
+                          {enBD
+                            ? <span className="text-green-600 font-bold">✓</span>
+                            : <span className="text-amber-600 font-semibold text-xs">⚠ No encontrada</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  <tr className="bg-violet-50 font-semibold border-t-2 border-violet-200 sticky bottom-0">
+                    <td colSpan={2} className="px-3 py-1.5 text-violet-800">Total</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-gray-800">
+                      {modalMezcla.dumpadas.reduce((s, d) => s + (d.toneladas ?? 0), 0).toFixed(2)}
+                    </td>
+                    <td colSpan={4} />
+                  </tr>
+                </tbody>
+              </table>
+
+              {/* Remanentes */}
+              {modalMezcla.remanentes.length > 0 && (
+                <div className="border-t-2 border-orange-200">
+                  <p className="px-3 py-2 text-xs font-bold text-orange-700 bg-orange-50">
+                    Remanentes ({modalMezcla.remanentes.length})
+                  </p>
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-orange-50 text-orange-800 uppercase tracking-wide">
+                        <th className="px-3 py-1.5 text-left font-semibold">N° Paladas</th>
+                        <th className="px-3 py-1.5 text-left font-semibold">Origen / Acopio</th>
+                        <th className="px-3 py-1.5 text-right font-semibold">Ton</th>
+                        <th className="px-3 py-1.5 text-right font-semibold">Ley dump</th>
+                        <th className="px-3 py-1.5 text-right font-semibold">Ley visual</th>
+                        <th className="px-3 py-1.5 text-right font-semibold">Ley lote</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-orange-100">
+                      {modalMezcla.remanentes.map((r, ri) => (
+                        <tr key={ri} className="hover:bg-orange-50/40">
+                          <td className="px-3 py-1.5 font-mono text-gray-700">{r.numero_paladas}</td>
+                          <td className="px-3 py-1.5 text-gray-600">{r.origen || '—'}</td>
+                          <td className="px-3 py-1.5 text-right tabular-nums text-gray-700 font-semibold">{r.toneladas?.toFixed(2) ?? '—'}</td>
+                          <td className="px-3 py-1.5 text-right tabular-nums text-violet-700 font-semibold">
+                            {r.ley_dump != null ? `${r.ley_dump.toFixed(3)}%` : '—'}
+                          </td>
+                          <td className="px-3 py-1.5 text-right tabular-nums text-blue-600">
+                            {r.ley_visual != null ? `${r.ley_visual.toFixed(3)}%` : '—'}
+                          </td>
+                          <td className="px-3 py-1.5 text-right tabular-nums text-emerald-700">
+                            {r.ley_lote != null ? `${r.ley_lote.toFixed(3)}%` : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

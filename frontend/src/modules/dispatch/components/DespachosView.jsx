@@ -100,6 +100,7 @@ const DespachosView = () => {
   const [loteSeleccionado, setLoteSeleccionado] = useState(null);
   const [loadingDetalleLote, setLoadingDetalleLote] = useState(false);
   const [mostrarModalDetalleLote, setMostrarModalDetalleLote] = useState(false);
+  const [expandidosCam, setExpandidosCam] = useState({});
   const [mostrarModalCerrarLote, setMostrarModalCerrarLote] = useState(false);
   const [loteACerrar, setLoteACerrar] = useState(null);
   const [deleteModal, setDeleteModal] = useState({ show: false, id: null, nombre: '', tipo: '' });
@@ -176,7 +177,7 @@ const DespachosView = () => {
         setPlantas(plantasRes || []);
         setEmpresas(empresasRes || []);
         setLotesAbiertosCards(lotesAbRes || []);
-        await cargarLotes();
+        // cargarLotes se maneja por el effect que observa tabLotesActivo + filtrosLotes
       }
     } catch (error) {
       console.error('Error cargando datos:', error);
@@ -1155,7 +1156,7 @@ const DespachosView = () => {
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
-                      <th className="px-4 py-3 text-left font-semibold text-gray-700">Hora</th>
+                      <th className="px-4 py-3 text-left font-semibold text-gray-700">Fecha</th>
                       <th className="px-4 py-3 text-left font-semibold text-gray-700">Patente</th>
                       <th className="px-4 py-3 text-left font-semibold text-gray-700">Mezcla</th>
                       <th className="px-4 py-3 text-left font-semibold text-gray-700">Planta</th>
@@ -1177,16 +1178,16 @@ const DespachosView = () => {
                         }}
                       >
                         <td className="px-4 py-3 text-gray-900 font-medium">
-                          {camionada.hora_despacho || '-'}
+                          {camionada.fecha_despacho ? new Date(camionada.fecha_despacho).toLocaleDateString('es-CL') : '-'}
                         </td>
                         <td className="px-4 py-3 text-gray-900 font-semibold">
                           {camionada.patente}
                         </td>
-                        <td className="px-4 py-3 text-gray-600">
-                          {camionada.mezcla?.codigo || '-'}
+                        <td className="px-4 py-3 text-gray-600 font-mono font-semibold">
+                          {camionada.mezclas?.map(m => m.codigo).join(', ') || '-'}
                         </td>
                         <td className="px-4 py-3 text-gray-600">
-                          {camionada.planta || '-'}
+                          {camionada.planta || camionada.lote?.planta?.nombre || '-'}
                         </td>
                         <td className="px-4 py-3 text-gray-600">
                           {camionada.cliente || '-'}
@@ -1280,11 +1281,11 @@ const DespachosView = () => {
                   </div>
                   <div className="bg-gray-50 p-3 rounded">
                     <p className="text-xs text-gray-500 mb-1">Mezcla</p>
-                    <p className="font-semibold text-gray-900">{camionadaSeleccionada.mezcla?.codigo || '-'}</p>
+                    <p className="font-mono font-semibold text-gray-900">{camionadaSeleccionada.mezclas?.map(m => m.codigo).join(', ') || '-'}</p>
                   </div>
                   <div className="bg-gray-50 p-3 rounded">
                     <p className="text-xs text-gray-500 mb-1">Planta</p>
-                    <p className="font-semibold text-gray-900">{camionadaSeleccionada.planta || '-'}</p>
+                    <p className="font-semibold text-gray-900">{camionadaSeleccionada.planta || camionadaSeleccionada.lote?.planta?.nombre || '-'}</p>
                   </div>
                   <div className="bg-gray-50 p-3 rounded">
                     <p className="text-xs text-gray-500 mb-1">Empresa</p>
@@ -1293,14 +1294,15 @@ const DespachosView = () => {
                   <div className="bg-gray-50 p-3 rounded">
                     <p className="text-xs text-gray-500 mb-1">Fecha/Hora Despacho</p>
                     <p className="font-semibold text-gray-900">
-                      {camionadaSeleccionada.fecha_despacho} {camionadaSeleccionada.hora_despacho}
+                      {camionadaSeleccionada.fecha_despacho ? new Date(camionadaSeleccionada.fecha_despacho).toLocaleDateString('es-CL') : '-'}
+                      {camionadaSeleccionada.hora_despacho ? ` ${camionadaSeleccionada.hora_despacho}` : ''}
                     </p>
                   </div>
                   <div className="bg-blue-50 p-3 rounded">
                     <p className="text-xs text-blue-600 mb-1">Peso Teórico</p>
                     <p className="text-xl font-bold text-blue-700">{camionadaSeleccionada.peso} t</p>
                   </div>
-                  {camionadaSeleccionada.peso_real && (
+                  {camionadaSeleccionada.peso_real != null && (
                     <>
                       <div className="bg-green-50 p-3 rounded">
                         <p className="text-xs text-green-600 mb-1">Peso Real</p>
@@ -1308,14 +1310,20 @@ const DespachosView = () => {
                       </div>
                       <div className="bg-gray-50 p-3 rounded">
                         <p className="text-xs text-gray-500 mb-1">Diferencia</p>
-                        <p className={`text-lg font-bold ${camionadaSeleccionada.diferencia > 0 ? 'text-red-600' : 'text-green-600'}`}>
-                          {camionadaSeleccionada.diferencia > 0 ? '+' : ''}{camionadaSeleccionada.diferencia} t
-                        </p>
+                        {(() => {
+                          const dif = parseFloat(camionadaSeleccionada.diferencia ?? 0);
+                          return (
+                            <p className={`text-lg font-bold ${dif > 0 ? 'text-red-600' : dif < 0 ? 'text-amber-600' : 'text-green-600'}`}>
+                              {dif > 0 ? '+' : ''}{dif.toFixed(2)} t
+                            </p>
+                          );
+                        })()}
                       </div>
                       <div className="bg-gray-50 p-3 rounded">
                         <p className="text-xs text-gray-500 mb-1">Fecha/Hora Recepción</p>
                         <p className="font-semibold text-gray-900">
-                          {camionadaSeleccionada.fecha_recepcion} {camionadaSeleccionada.hora_recepcion}
+                          {camionadaSeleccionada.fecha_recepcion ? new Date(camionadaSeleccionada.fecha_recepcion).toLocaleDateString('es-CL') : '-'}
+                          {camionadaSeleccionada.hora_recepcion ? ` ${camionadaSeleccionada.hora_recepcion}` : ''}
                         </p>
                       </div>
                     </>
@@ -1920,10 +1928,10 @@ const DespachosView = () => {
                                       <HiScale className="inline text-gray-400 mr-0.5" />
                                       {parseFloat(cam.peso).toFixed(2)} t
                                     </span>
-                                    <span className="text-xs text-blue-600 font-mono hidden md:inline">{cam.mezcla?.codigo || '-'}</span>
-                                    {cam.mezcla?.ley_prom_lote != null && (
+                                    <span className="text-xs text-blue-600 font-mono hidden md:inline">{cam.mezclas?.[0]?.codigo || '-'}</span>
+                                    {cam.mezclas?.[0]?.ley_prom_lote != null && (
                                       <span className="text-xs text-orange-600 font-semibold hidden sm:inline">
-                                        {parseFloat(cam.mezcla.ley_prom_lote).toFixed(2)}%
+                                        {parseFloat(cam.mezclas[0].ley_prom_lote).toFixed(2)}%
                                       </span>
                                     )}
                                     {yaRecepcionado && (
@@ -2205,7 +2213,7 @@ const DespachosView = () => {
       {mostrarModalDetalleLote && loteSeleccionado && (
         <div
           className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
-          onClick={() => setMostrarModalDetalleLote(false)}
+          onClick={() => { setMostrarModalDetalleLote(false); setExpandidosCam({}); }}
         >
           <div
             className="bg-white rounded-lg shadow-2xl max-w-6xl w-full max-h-[90vh] overflow-y-auto"
@@ -2215,7 +2223,7 @@ const DespachosView = () => {
             <div className="sticky top-0 bg-white border-b-4 border-blue-500 px-6 py-4 flex justify-between items-center z-10">
               <h2 className="text-2xl font-bold text-gray-900">Detalle del Lote</h2>
               <button
-                onClick={() => setMostrarModalDetalleLote(false)}
+                onClick={() => { setMostrarModalDetalleLote(false); setExpandidosCam({}); }}
                 className="text-gray-500 hover:text-gray-700 text-3xl font-bold"
               >
                 ✕
@@ -2272,7 +2280,7 @@ const DespachosView = () => {
                     <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
                       <p className="text-xs text-gray-600 mb-1">Mezclas</p>
                       <p className="text-2xl font-bold text-purple-700">
-                        {new Set(loteSeleccionado.camionadas?.map(c => c.mezcla_id)).size || 0}
+                        {new Set(loteSeleccionado.camionadas?.flatMap(c => (c.mezclas ?? []).map(m => m.id))).size || 0}
                       </p>
                     </div>
                     <div className="bg-orange-50 rounded-lg p-4 border border-orange-200">
@@ -2305,93 +2313,142 @@ const DespachosView = () => {
                         <table className="w-full text-sm">
                           <thead className="bg-gray-50 border-b border-gray-200">
                             <tr>
+                              <th className="px-2 py-2 w-6"></th>
                               <th className="px-3 py-2 text-left font-semibold text-gray-700">#</th>
                               <th className="px-3 py-2 text-left font-semibold text-gray-700">Mezcla</th>
                               <th className="px-3 py-2 text-left font-semibold text-gray-700">Patente</th>
                               <th className="px-3 py-2 text-left font-semibold text-gray-700">Fecha</th>
                               <th className="px-3 py-2 text-right font-semibold text-gray-700">Peso</th>
-                              <th className="px-3 py-2 text-center font-semibold text-gray-700">Ley Lab</th>
+                              <th className="px-3 py-2 text-center font-semibold text-gray-700">Ley Lote</th>
                               <th className="px-3 py-2 text-center font-semibold text-gray-700">Ley Visual</th>
                               <th className="px-3 py-2 text-center font-semibold text-gray-700">Estado</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-gray-200">
-                            {loteSeleccionado.camionadas.map((camionada, index) => (
-                              <tr
-                                key={camionada.id}
-                                className={`hover:bg-blue-50 transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
-                                  }`}
-                              >
-                                <td className="px-3 py-2 font-bold text-gray-700">{camionada.numero_camionada}</td>
-                                <td className="px-3 py-2 font-mono text-blue-600">
-                                  {camionada.mezcla?.codigo || '-'}
-                                </td>
-                                <td className="px-3 py-2 font-mono">{camionada.patente}</td>
-                                <td className="px-3 py-2">
-                                  {new Date(camionada.fecha_despacho).toLocaleDateString('es-CL')}
-                                </td>
-                                <td className="px-3 py-2 text-right font-semibold">
-                                  {(() => {
-                                    const peso = camionada.peso_real !== null && camionada.peso_real !== undefined
-                                      ? camionada.peso_real
-                                      : camionada.peso;
-                                    return parseFloat(peso).toFixed(2);
-                                  })()} t
-                                  {camionada.peso_real !== null && camionada.peso_real !== undefined && (
-                                    <span className="text-xs text-green-600 ml-1">✓</span>
+                            {loteSeleccionado.camionadas.map((camionada, index) => {
+                              const isExp = !!expandidosCam[camionada.id];
+                              const tieneMezclas = (camionada.mezclas?.length ?? 0) > 0;
+                              return (
+                                <React.Fragment key={camionada.id}>
+                                  <tr className={`hover:bg-blue-50 transition-colors ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                                    <td className="px-2 py-2 text-center">
+                                      {tieneMezclas && (
+                                        <button
+                                          onClick={() => setExpandidosCam(p => ({ ...p, [camionada.id]: !p[camionada.id] }))}
+                                          className="text-gray-400 hover:text-blue-600 transition-colors"
+                                          title="Ver dumpadas de la mezcla"
+                                        >
+                                          {isExp ? <HiChevronUp className="w-4 h-4" /> : <HiChevronDown className="w-4 h-4" />}
+                                        </button>
+                                      )}
+                                    </td>
+                                    <td className="px-3 py-2 font-bold text-gray-700">{camionada.numero_camionada}</td>
+                                    <td className="px-3 py-2">
+                                      {tieneMezclas
+                                        ? camionada.mezclas.map(m => (
+                                            <span key={m.id} className="font-mono text-blue-600 font-semibold">{m.codigo}</span>
+                                          )).reduce((a, b) => [a, ', ', b])
+                                        : <span className="text-gray-400">-</span>}
+                                    </td>
+                                    <td className="px-3 py-2 font-mono">{camionada.patente}</td>
+                                    <td className="px-3 py-2">
+                                      {new Date(camionada.fecha_despacho).toLocaleDateString('es-CL')}
+                                    </td>
+                                    <td className="px-3 py-2 text-right font-semibold">
+                                      {(() => {
+                                        const peso = camionada.peso_real != null ? camionada.peso_real : camionada.peso;
+                                        return parseFloat(peso).toFixed(2);
+                                      })()} t
+                                      {camionada.peso_real != null && <span className="text-xs text-green-600 ml-1">✓</span>}
+                                    </td>
+                                    <td className="px-3 py-2 text-center">
+                                      {camionada.mezclas?.[0]?.ley_prom_lote != null
+                                        ? <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-orange-100 text-orange-800 font-semibold text-xs">{parseFloat(camionada.mezclas[0].ley_prom_lote).toFixed(2)}%</span>
+                                        : <span className="text-gray-400 text-xs">N/A</span>}
+                                    </td>
+                                    <td className="px-3 py-2 text-center">
+                                      {camionada.mezclas?.[0]?.ley_prom_visual != null
+                                        ? <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-semibold text-xs">{parseFloat(camionada.mezclas[0].ley_prom_visual).toFixed(2)}%</span>
+                                        : <span className="text-gray-400 text-xs">N/A</span>}
+                                    </td>
+                                    <td className="px-3 py-2 text-center">
+                                      <Badge variant={getEstadoVariant(camionada.estado)}>
+                                        {camionada.estado}
+                                      </Badge>
+                                    </td>
+                                  </tr>
+
+                                  {/* Fila expandida: dumpadas de la mezcla */}
+                                  {isExp && tieneMezclas && (
+                                    <tr className="bg-indigo-50">
+                                      <td colSpan="9" className="px-4 py-3">
+                                        {camionada.mezclas.map(mezcla => {
+                                          const detalles = mezcla.detalles ?? [];
+                                          return (
+                                            <div key={mezcla.id} className="mb-3 last:mb-0">
+                                              <p className="text-xs font-bold text-indigo-700 mb-1.5 flex items-center gap-1">
+                                                <span className="font-mono bg-indigo-100 px-1.5 py-0.5 rounded">{mezcla.codigo}</span>
+                                                {mezcla.ley_prom_dump != null && <span className="text-orange-600">Ley dump: {parseFloat(mezcla.ley_prom_dump).toFixed(3)}%</span>}
+                                                {mezcla.ley_prom_lote != null && <span className="text-emerald-700">· Ley lote: {parseFloat(mezcla.ley_prom_lote).toFixed(3)}%</span>}
+                                                {mezcla.ley_lab != null && <span className="text-violet-700">· Ley lab: {parseFloat(mezcla.ley_lab).toFixed(3)}%</span>}
+                                              </p>
+                                              {detalles.length > 0 ? (
+                                                <table className="w-full text-xs border border-indigo-200 rounded overflow-hidden">
+                                                  <thead>
+                                                    <tr className="bg-indigo-100 text-indigo-800">
+                                                      <th className="px-2 py-1 text-left font-semibold">Dump#</th>
+                                                      <th className="px-2 py-1 text-left font-semibold">Origen</th>
+                                                      <th className="px-2 py-1 text-right font-semibold">Ton</th>
+                                                      <th className="px-2 py-1 text-right font-semibold">Ley dump</th>
+                                                      <th className="px-2 py-1 text-right font-semibold">Ley lote</th>
+                                                    </tr>
+                                                  </thead>
+                                                  <tbody className="divide-y divide-indigo-100 bg-white">
+                                                    {detalles.map((det, di) => (
+                                                      <tr key={di} className="hover:bg-indigo-50">
+                                                        <td className="px-2 py-1 font-mono font-semibold text-gray-700">
+                                                          {det.tipo === 'REM'
+                                                            ? <span className="text-amber-600 font-bold">REM</span>
+                                                            : det.dumpada?.numero_dumpada ?? '-'}
+                                                        </td>
+                                                        <td className="px-2 py-1 text-gray-500 max-w-[180px] truncate">{det.origen ?? '-'}</td>
+                                                        <td className="px-2 py-1 text-right tabular-nums">{det.toneladas != null ? parseFloat(det.toneladas).toFixed(2) : '-'}</td>
+                                                        <td className="px-2 py-1 text-right tabular-nums text-orange-700">{det.ley_dump_ajustada != null ? `${parseFloat(det.ley_dump_ajustada).toFixed(3)}%` : '-'}</td>
+                                                        <td className="px-2 py-1 text-right tabular-nums text-emerald-700 font-semibold">{det.ley_lote != null ? `${parseFloat(det.ley_lote).toFixed(3)}%` : '-'}</td>
+                                                      </tr>
+                                                    ))}
+                                                  </tbody>
+                                                </table>
+                                              ) : (
+                                                <p className="text-xs text-gray-400 italic">Sin detalle de dumpadas</p>
+                                              )}
+                                            </div>
+                                          );
+                                        })}
+                                      </td>
+                                    </tr>
                                   )}
-                                </td>
-                                <td className="px-3 py-2 text-center">
-                                  {camionada.mezcla?.ley_lab !== null && camionada.mezcla?.ley_lab !== undefined
-                                    ? (
-                                      <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-orange-100 text-orange-800 font-semibold text-xs">
-                                        {parseFloat(camionada.mezcla.ley_lab).toFixed(2)}%
-                                      </span>
-                                    )
-                                    : <span className="text-gray-400 text-xs">N/A</span>}
-                                </td>
-                                <td className="px-3 py-2 text-center">
-                                  {camionada.mezcla?.ley_prom_visual !== null && camionada.mezcla?.ley_prom_visual !== undefined
-                                    ? (
-                                      <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-semibold text-xs">
-                                        {parseFloat(camionada.mezcla.ley_prom_visual).toFixed(2)}%
-                                      </span>
-                                    )
-                                    : <span className="text-gray-400 text-xs">N/A</span>}
-                                </td>
-                                <td className="px-3 py-2 text-center">
-                                  <Badge variant={getEstadoVariant(camionada.estado)}>
-                                    {camionada.estado}
-                                  </Badge>
-                                </td>
-                              </tr>
-                            ))}
+                                </React.Fragment>
+                              );
+                            })}
                           </tbody>
                           <tfoot className="bg-gradient-to-r from-gray-100 to-gray-50 border-t-2 border-gray-400">
                             <tr>
-                              <td colSpan="4" className="px-3 py-3 text-gray-900 font-bold text-sm">TOTALES</td>
+                              <td colSpan="5" className="px-3 py-3 text-gray-900 font-bold text-sm">TOTALES</td>
                               <td className="px-3 py-3 text-right text-gray-900 font-bold">
                                 {loteSeleccionado.camionadas.reduce((sum, c) => {
-                                  const peso = c.peso_real !== null && c.peso_real !== undefined ? c.peso_real : c.peso;
+                                  const peso = c.peso_real != null ? c.peso_real : c.peso;
                                   return sum + parseFloat(peso || 0);
                                 }, 0).toFixed(2)} t
                               </td>
                               <td className="px-3 py-3 text-center">
-                                {loteSeleccionado.ley_lab_promedio !== null && loteSeleccionado.ley_lab_promedio !== undefined
-                                  ? (
-                                    <span className="inline-flex items-center px-2 py-1 rounded-full bg-orange-200 text-orange-900 font-bold text-xs">
-                                      {loteSeleccionado.ley_lab_promedio.toFixed(2)}%
-                                    </span>
-                                  )
+                                {loteSeleccionado.ley_lote_promedio != null
+                                  ? <span className="inline-flex items-center px-2 py-1 rounded-full bg-orange-200 text-orange-900 font-bold text-xs">{loteSeleccionado.ley_lote_promedio.toFixed(2)}%</span>
                                   : <span className="text-gray-500 text-xs">N/A</span>}
                               </td>
                               <td className="px-3 py-3 text-center">
-                                {loteSeleccionado.ley_visual_promedio !== null && loteSeleccionado.ley_visual_promedio !== undefined
-                                  ? (
-                                    <span className="inline-flex items-center px-2 py-1 rounded-full bg-amber-200 text-amber-900 font-bold text-xs">
-                                      {loteSeleccionado.ley_visual_promedio.toFixed(2)}%
-                                    </span>
-                                  )
+                                {loteSeleccionado.ley_visual_promedio != null
+                                  ? <span className="inline-flex items-center px-2 py-1 rounded-full bg-amber-200 text-amber-900 font-bold text-xs">{loteSeleccionado.ley_visual_promedio.toFixed(2)}%</span>
                                   : <span className="text-gray-500 text-xs">N/A</span>}
                               </td>
                               <td className="px-3 py-3"></td>

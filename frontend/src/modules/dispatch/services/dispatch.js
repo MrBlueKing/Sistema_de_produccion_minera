@@ -123,6 +123,24 @@ class DispatchService {
     }, { timeout: 120000 });
     return response.data;
   }
+
+  async importarLotesPreview(faenaId, lotes) {
+    const response = await api.post('/dispatch/importar/lotes/preview', {
+      faena_id: faenaId,
+      lotes,
+    });
+    return response.data;
+  }
+
+  async importarLotesConfirmar(faenaId, lotes, empresaOverrides, plantaOverrides) {
+    const response = await api.post('/dispatch/importar/lotes/confirmar', {
+      faena_id: faenaId,
+      lotes,
+      empresa_overrides: empresaOverrides,
+      planta_overrides:  plantaOverrides,
+    }, { timeout: 180000 });
+    return response.data;
+  }
 }
 
 export default new DispatchService();

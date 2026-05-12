@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\Dispatch\DumpadaController;
 use App\Http\Controllers\Api\Dispatch\ImportarDumpadasController;
 use App\Http\Controllers\Api\Dispatch\ImportarMezclasController;
+use App\Http\Controllers\Api\Dispatch\ImportarLotesCamionadasController;
 use App\Http\Controllers\Api\Dispatch\MuestraLibreController;
 use App\Http\Controllers\Api\Dispatch\RangoController;
 use App\Http\Controllers\Api\Dispatch\TronaduraController;
@@ -289,6 +290,8 @@ Route::prefix('importar')->group(function () {
     Route::post('/confirmar', [ImportarDumpadasController::class, 'confirmar']);
     Route::post('/mezclas/preview', [ImportarMezclasController::class, 'preview']);
     Route::post('/mezclas/confirmar', [ImportarMezclasController::class, 'confirmar']);
+    Route::post('/lotes/preview', [ImportarLotesCamionadasController::class, 'preview']);
+    Route::post('/lotes/confirmar', [ImportarLotesCamionadasController::class, 'confirmar']);
 });
 
 Route::get('/ordenes', function () {
