@@ -302,6 +302,7 @@ Route::get('/ordenes', function () {
 // MUESTRAS LIBRES
 // ==========================
 Route::prefix('muestras-libres')->group(function () {
+    Route::get('/historial', [MuestraLibreController::class, 'historial']);
     Route::get('/', [MuestraLibreController::class, 'index']);
     Route::post('/', [MuestraLibreController::class, 'store']);
     Route::put('/{id}/completar', [MuestraLibreController::class, 'completarAnalisis']);

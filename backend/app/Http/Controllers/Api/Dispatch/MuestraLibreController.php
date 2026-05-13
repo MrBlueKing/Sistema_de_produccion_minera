@@ -56,6 +56,51 @@ class MuestraLibreController extends Controller
     }
 
     /**
+     * Historial completo de muestras libres con filtros y paginación
+     * GET /api/dispatch/muestras-libres/historial
+     */
+    public function historial(Request $request)
+    {
+        $query = MuestraLibre::with('frenteTrabajo')
+            ->orderBy('created_at', 'desc');
+
+        if (!$this->esUsuarioGlobal($request)) {
+            $query->where('id_faena', $request->auth_faena);
+        } elseif ($request->id_faena) {
+            $query->where('id_faena', $request->id_faena);
+        }
+
+        if ($request->estado) {
+            $query->where('estado', $request->estado);
+        }
+        if ($request->fecha_inicio) {
+            $query->whereDate('fecha', '>=', $request->fecha_inicio);
+        }
+        if ($request->fecha_fin) {
+            $query->whereDate('fecha', '<=', $request->fecha_fin);
+        }
+        if ($request->search) {
+            $search = $request->search;
+            $query->where(function ($q) use ($search) {
+                $q->where('nombre', 'like', "%{$search}%")
+                  ->orWhere('solicitante', 'like', "%{$search}%");
+            });
+        }
+
+        $muestras = $query->paginate($request->get('per_page', 15));
+
+        return response()->json([
+            'success' => true,
+            'data'    => $muestras->items(),
+            'meta'    => [
+                'current_page' => $muestras->currentPage(),
+                'last_page'    => $muestras->lastPage(),
+                'total'        => $muestras->total(),
+            ],
+        ]);
+    }
+
+    /**
      * Listar muestras libres pendientes (para Registros Pendientes en Dispatch)
      * GET /api/dispatch/muestras-libres
      */

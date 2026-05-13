@@ -149,6 +149,17 @@ function DispatchContent() {
   const [loteDetalle, setLoteDetalle] = useState(null);
   const [loadingLoteDetalle, setLoadingLoteDetalle] = useState(false);
 
+  // Sub-tab dentro del historial
+  const [historialTab, setHistorialTab] = useState('dumpadas'); // 'dumpadas' | 'muestras'
+
+  // Estado para historial de muestras libres
+  const [muestrasLibres, setMuestrasLibres] = useState([]);
+  const [muestrasPage, setMuestrasPage] = useState(1);
+  const [muestrasTotalPages, setMuestrasTotalPages] = useState(1);
+  const [muestrasTotalRecords, setMuestrasTotalRecords] = useState(0);
+  const [loadingMuestras, setLoadingMuestras] = useState(false);
+  const [muestrasFilters, setMuestrasFilters] = useState({ estado: '', fecha_inicio: '', fecha_fin: '', search: '' });
+
   // Flag para saber si ya se inicializó (evita cargas duplicadas)
   const [initialized, setInitialized] = useState(false);
 
@@ -202,9 +213,10 @@ function DispatchContent() {
   // Cargar data cuando cambian filtros (solo en historial y ya inicializado)
   useEffect(() => {
     if (initialized && vistaActual === 'historial') {
-      loadData();
+      if (historialTab === 'dumpadas') loadData();
+      else loadMuestrasLibresHistorial();
     }
-  }, [currentPage, debouncedSearchTerm, filters]);
+  }, [currentPage, debouncedSearchTerm, filters, historialTab, muestrasPage, muestrasFilters]);
 
   // Cargar data cuando cambian las faenas seleccionadas (después de inicialización)
   useEffect(() => {
@@ -419,6 +431,34 @@ function DispatchContent() {
     } finally {
       loadingRef.current = false;
       setLoading(false);
+    }
+  };
+
+  const loadMuestrasLibresHistorial = async () => {
+    setLoadingMuestras(true);
+    try {
+      let params = {
+        page: muestrasPage,
+        per_page: 15,
+        estado: muestrasFilters.estado || undefined,
+        fecha_inicio: muestrasFilters.fecha_inicio || undefined,
+        fecha_fin: muestrasFilters.fecha_fin || undefined,
+        search: muestrasFilters.search || undefined,
+      };
+      if (esUsuarioGlobal && selectedFaenas.length > 0) {
+        params.id_faena = selectedFaenas.join(',');
+      }
+      Object.keys(params).forEach(k => params[k] === undefined && delete params[k]);
+      const res = await dispatchService.getMuestrasLibresHistorial(params);
+      setMuestrasLibres(res.data || []);
+      if (res.meta) {
+        setMuestrasTotalPages(res.meta.last_page);
+        setMuestrasTotalRecords(res.meta.total);
+      }
+    } catch (error) {
+      console.error('❌ Error cargando muestras libres:', error);
+    } finally {
+      setLoadingMuestras(false);
     }
   };
 
@@ -1419,9 +1459,9 @@ function DispatchContent() {
             <div className="mb-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <h3 className="text-2xl font-bold text-gray-900">Historial de Dumpadas</h3>
+                  <h3 className="text-2xl font-bold text-gray-900">Historial</h3>
                   <p className="text-sm text-gray-600 mt-1">
-                    Total: <span className="font-semibold text-blue-600">{totalRecords}</span> registro{totalRecords !== 1 ? 's' : ''}
+                    Total: <span className="font-semibold text-blue-600">{historialTab === 'dumpadas' ? totalRecords : muestrasTotalRecords}</span> registro{(historialTab === 'dumpadas' ? totalRecords : muestrasTotalRecords) !== 1 ? 's' : ''}
                   </p>
                 </div>
                 <button
@@ -1435,6 +1475,23 @@ function DispatchContent() {
                   <span className="hidden sm:inline">¿Cómo funciona?</span>
                 </button>
               </div>
+            </div>
+
+            {/* Sub-tabs: Dumpadas | Muestras Libres */}
+            <div className="flex gap-2 mb-4 border-b border-gray-200 pb-3">
+              <button
+                onClick={() => setHistorialTab('dumpadas')}
+                className={`px-4 py-1.5 rounded-lg text-sm font-semibold border transition-colors ${historialTab === 'dumpadas' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-blue-600 border-blue-200 hover:bg-blue-50'}`}
+              >
+                Dumpadas
+              </button>
+              <button
+                onClick={() => { setHistorialTab('muestras'); loadMuestrasLibresHistorial(); }}
+                className={`px-4 py-1.5 rounded-lg text-sm font-semibold border transition-colors ${historialTab === 'muestras' ? 'bg-teal-600 text-white border-teal-600' : 'bg-white text-teal-600 border-teal-200 hover:bg-teal-50'}`}
+              >
+                <HiBeaker className="inline w-4 h-4 mr-1" />
+                Muestras Libres
+              </button>
             </div>
 
             {/* Panel ¿Cómo funciona? Historial */}
@@ -1484,6 +1541,117 @@ function DispatchContent() {
                 </div>
               </div>
             )}
+
+            {/* ── MUESTRAS LIBRES ── */}
+            {historialTab === 'muestras' && (
+              <div>
+                {/* Filtros muestras */}
+                <div className="flex flex-wrap gap-3 mb-4">
+                  <input
+                    type="text"
+                    placeholder="Buscar por nombre o solicitante..."
+                    value={muestrasFilters.search}
+                    onChange={e => setMuestrasFilters(f => ({ ...f, search: e.target.value }))}
+                    className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-teal-400"
+                  />
+                  <select
+                    value={muestrasFilters.estado}
+                    onChange={e => setMuestrasFilters(f => ({ ...f, estado: e.target.value }))}
+                    className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400"
+                  >
+                    <option value="">Todos los estados</option>
+                    <option value="Ingresado">Ingresado</option>
+                    <option value="Completado">Completado</option>
+                  </select>
+                  <input type="date" value={muestrasFilters.fecha_inicio} onChange={e => setMuestrasFilters(f => ({ ...f, fecha_inicio: e.target.value }))} className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400" />
+                  <input type="date" value={muestrasFilters.fecha_fin} onChange={e => setMuestrasFilters(f => ({ ...f, fecha_fin: e.target.value }))} className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400" />
+                  <button
+                    onClick={() => setMuestrasFilters({ estado: '', fecha_inicio: '', fecha_fin: '', search: '' })}
+                    className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
+                  >Limpiar</button>
+                </div>
+
+                {loadingMuestras ? (
+                  <div className="text-center py-12">
+                    <div className="animate-spin rounded-full h-12 w-12 border-4 border-teal-200 border-t-teal-600 mx-auto mb-4"></div>
+                    <p className="text-gray-600 font-medium">Cargando muestras...</p>
+                  </div>
+                ) : muestrasLibres.length === 0 ? (
+                  <div className="text-center py-12">
+                    <p className="text-gray-700 font-medium">No hay muestras libres registradas</p>
+                  </div>
+                ) : (
+                  <>
+                    <div className="overflow-x-auto rounded-lg border-2 border-gray-200 shadow-sm">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b-2 border-teal-300 bg-gradient-to-r from-teal-100 via-teal-50 to-teal-100">
+                            <th className="text-left py-3 px-3 font-bold text-teal-900 text-xs">Código</th>
+                            <th className="text-left py-3 px-3 font-bold text-teal-900 text-xs">Nombre</th>
+                            <th className="text-left py-3 px-3 font-bold text-teal-900 text-xs">Solicitante</th>
+                            <th className="text-left py-3 px-3 font-bold text-teal-900 text-xs">Frente</th>
+                            <th className="text-left py-3 px-3 font-bold text-teal-900 text-xs">Fecha</th>
+                            <th className="text-left py-3 px-3 font-bold text-teal-900 text-xs">Ley</th>
+                            <th className="text-left py-3 px-3 font-bold text-teal-900 text-xs">Ley Cup</th>
+                            <th className="text-left py-3 px-3 font-bold text-teal-900 text-xs">Rango</th>
+                            <th className="text-left py-3 px-3 font-bold text-teal-900 text-xs">Estado</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {muestrasLibres.map(m => (
+                            <tr key={m.id} className="border-b border-gray-200 hover:bg-teal-50 transition-colors">
+                              <td className="py-3 px-3">
+                                <span className="font-mono font-bold text-teal-700 text-xs bg-teal-100 px-2 py-0.5 rounded">{m.codigo}</span>
+                              </td>
+                              <td className="py-3 px-3 text-xs font-semibold text-gray-800">{m.nombre}</td>
+                              <td className="py-3 px-3 text-xs text-gray-600">{m.solicitante || '-'}</td>
+                              <td className="py-3 px-3">
+                                {m.frente_trabajo ? (
+                                  <span className="font-bold text-blue-900 bg-blue-100 px-2 py-0.5 rounded text-xs border border-blue-200">
+                                    {m.frente_trabajo.codigo_completo}
+                                  </span>
+                                ) : <span className="text-gray-400 text-xs">-</span>}
+                              </td>
+                              <td className="py-3 px-3 text-xs text-gray-700">{formatearFecha(m.fecha)}</td>
+                              <td className="py-3 px-3 text-xs">{m.ley ? <span className="font-medium">{parseFloat(m.ley).toFixed(3)}%</span> : '-'}</td>
+                              <td className="py-3 px-3 text-xs">{m.ley_cup ? <span className="font-medium">{parseFloat(m.ley_cup).toFixed(3)}%</span> : '-'}</td>
+                              <td className="py-3 px-3">
+                                {m.rango ? (
+                                  <RangoTooltip rangoActual={m.rango} rangos={rangos}>
+                                    <span className={`${getRangoColor(m.rango)} text-white px-2.5 py-1 rounded-full text-xs font-bold shadow-sm cursor-help`}>{m.rango}</span>
+                                  </RangoTooltip>
+                                ) : <span className="text-gray-400 text-xs">-</span>}
+                              </td>
+                              <td className="py-3 px-3">
+                                <div className="flex items-center justify-center">
+                                  <div className={`w-8 h-8 rounded-full flex items-center justify-center shadow-sm ${m.estado === 'Completado' ? 'bg-green-500' : 'bg-yellow-500'}`} title={m.estado}>
+                                    {m.estado === 'Completado' ? <HiCheckCircle className="w-5 h-5 text-white" /> : <HiXCircle className="w-5 h-5 text-white" />}
+                                  </div>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    {muestrasTotalRecords > 0 && (
+                      <Pagination
+                        currentPage={muestrasPage}
+                        totalPages={muestrasTotalPages}
+                        totalRecords={muestrasTotalRecords}
+                        perPage={15}
+                        onPageChange={setMuestrasPage}
+                        showInfo={true}
+                        showFirstLast={true}
+                      />
+                    )}
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* ── DUMPADAS ── */}
+            {historialTab === 'dumpadas' && <>
 
             {/* Indicador de filtros activos */}
             {(searchTerm || Object.values(filters).some(v => v)) && (
@@ -1782,6 +1950,7 @@ function DispatchContent() {
                 )}
               </>
             )}
+            </>}
           </Card>
         )}
 

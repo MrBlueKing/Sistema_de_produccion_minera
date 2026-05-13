@@ -56,6 +56,11 @@ class DispatchService {
     return response.data;
   }
 
+  async getMuestrasLibresHistorial(params = {}) {
+    const response = await api.get('/dispatch/muestras-libres/historial', { params });
+    return response.data;
+  }
+
   async createMuestraLibre(data) {
     const response = await api.post('/dispatch/muestras-libres', data);
     return response.data;
