@@ -27,7 +27,7 @@ class FaenaController extends Controller
 
             // Hacer petición al sistema central para obtener faenas
             $response = Http::withToken($token)
-                ->get(env('SISTEMA_CENTRAL_API') . '/faenas');
+                ->get(config('services.sistema_central_api') . '/faenas');
 
             if ($response->successful()) {
                 $faenas = $response->json('data', []);
@@ -84,7 +84,7 @@ class FaenaController extends Controller
 
             // Hacer petición al sistema central
             $response = Http::withToken($token)
-                ->get(env('SISTEMA_CENTRAL_API') . "/faenas/{$id}");
+                ->get(config('services.sistema_central_api') . "/faenas/{$id}");
 
             if ($response->successful()) {
                 return response()->json([

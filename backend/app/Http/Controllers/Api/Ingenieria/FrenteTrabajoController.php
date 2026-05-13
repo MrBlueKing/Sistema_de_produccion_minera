@@ -558,7 +558,7 @@ class FrenteTrabajoController extends Controller
         try {
             // Hacer petición al sistema central para obtener todas las faenas
             $response = Http::withToken($token)
-                ->get(env('SISTEMA_CENTRAL_API') . '/faenas');
+                ->get(config('services.sistema_central_api') . '/faenas');
 
             if ($response->successful()) {
                 $todasLasFaenas = $response->json('data', []);

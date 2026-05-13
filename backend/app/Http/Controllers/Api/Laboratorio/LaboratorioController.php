@@ -498,7 +498,7 @@ class LaboratorioController extends Controller
 
         try {
             $response = Http::withToken($token)
-                ->get(env('SISTEMA_CENTRAL_API') . '/faenas');
+                ->get(config('services.sistema_central_api') . '/faenas');
 
             if ($response->successful()) {
                 $todasLasFaenas = $response->json('data', []);
