@@ -207,6 +207,14 @@ function parsearLotes(rows) {
     }
     delete lote._rVals;
   }
+
+  // Carry-forward: si un lote no tiene planta, hereda la del lote anterior
+  let ultimaPlanta = null;
+  for (const lote of lotes) {
+    if (lote.planta_destino) ultimaPlanta = lote.planta_destino;
+    else if (ultimaPlanta)   lote.planta_destino = ultimaPlanta;
+  }
+
   return lotes.filter(l => l.camionadas.length > 0);
 }
 
