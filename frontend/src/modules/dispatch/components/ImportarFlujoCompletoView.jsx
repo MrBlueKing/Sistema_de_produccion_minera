@@ -146,6 +146,8 @@ function parsearLotes(rows) {
   for (let i = 0; i < rows.length; i++) {
     const r = rows[i];
     const colR = r[17], colS = r[18];
+
+    // Trigger 1: "N°Lote" en columna R (formato estándar)
     if (typeof colR === 'string' && colR.trim() === 'N°Lote') {
       if (actual) lotes.push(actual);
       let plantaDestino = null;
@@ -159,6 +161,15 @@ function parsearLotes(rows) {
       actual = { numero_lote: null, empresa_nombre: null, planta_destino: plantaDestino, camionadas: [], _rVals: [] };
       continue;
     }
+
+    // Trigger 2: "Camionada" en columna S (bloques sin encabezado N°Lote)
+    if (colS != null && String(colS).trim().toLowerCase() === 'camionada') {
+      if (actual) lotes.push(actual);
+      const empresaHeader = colR != null ? String(colR).trim() : null;
+      actual = { numero_lote: null, empresa_nombre: empresaHeader || null, planta_destino: null, camionadas: [], _rVals: [] };
+      continue;
+    }
+
     if (!actual) continue;
     const numCam = typeof colS === 'number' && Number.isInteger(colS) && colS > 0
       ? colS : (typeof colS === 'string' && /^\d+$/.test(colS.trim()) ? parseInt(colS) : null);
