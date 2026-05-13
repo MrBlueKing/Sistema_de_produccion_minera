@@ -30,7 +30,7 @@ class ValidateTokenWithCentral
 
         try {
             $response = Http::withToken($token)
-                ->post(env('SISTEMA_CENTRAL_API') . '/validar-token', [
+                ->post(config('services.sistema_central_api') . '/validar-token', [
                     'modulo_id' => $moduloId,
                 ]);
 

@@ -35,4 +35,6 @@ return [
         ],
     ],
 
+    'sistema_central_api' => env('SISTEMA_CENTRAL_API'),
+
 ];
