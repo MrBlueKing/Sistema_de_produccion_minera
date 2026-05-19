@@ -9,7 +9,7 @@ const HOJA_DATOS = 'DB';
 const FILA_ENCABEZADO = 3;
 const FILA_DATOS_INICIO = 4;
 
-const COL = {
+const COL_DEFAULT = {
   punto:          2,  // C
   tipo:           3,  // D
   numero_dumpada: 4,  // E
@@ -23,6 +23,18 @@ const COL = {
   ley_visual:     13, // N
   rango:          14, // O
 };
+
+function detectarCOL(headerRow) {
+  const cols = { ...COL_DEFAULT };
+  const norm = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, '');
+  for (let c = 8; c < headerRow.length; c++) {
+    const v = norm(headerRow[c]);
+    if (v.includes('certif') || v.includes('certidicado')) cols.certificado = c;
+    else if (v.includes('leyvisual') || v === 'leyvis')    cols.ley_visual  = c;
+    else if (v === 'rango')                                 cols.rango       = c;
+  }
+  return cols;
+}
 
 const colLetra = (idx) => String.fromCharCode(65 + idx);
 
@@ -126,6 +138,7 @@ export default function ImportarDumpadasView({ toast, setVistaActual }) {
       const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true });
 
       const headerRow = rows[FILA_ENCABEZADO] ?? [];
+      const COL = detectarCOL(headerRow);
 
       const desde = fechaDesde ? new Date(fechaDesde + 'T00:00:00') : null;
       const hasta = fechaHasta ? new Date(fechaHasta + 'T23:59:59') : null;
@@ -408,6 +421,57 @@ export default function ImportarDumpadasView({ toast, setVistaActual }) {
                   Si algo está mal, carga un archivo diferente.
                 </div>
               </div>
+
+              {/* Aviso: dumpadas que quedarán en estado Ingresado */}
+              {(() => {
+                const sinAnalisis = parsedTemp.parsed.filter(
+                  d => d.ley === null || d.ley_cup === null || d.certificado === null
+                );
+                if (sinAnalisis.length === 0) return null;
+                return (
+                  <div className="bg-amber-50 border border-amber-300 rounded-xl overflow-hidden">
+                    <div className="px-4 py-3 border-b border-amber-200 flex items-center gap-2">
+                      <HiExclamationTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                      <p className="font-bold text-amber-800 text-sm">
+                        {sinAnalisis.length} dumpada{sinAnalisis.length !== 1 ? 's' : ''} quedarán en estado <span className="font-mono">Ingresado</span>
+                      </p>
+                      <span className="ml-auto text-xs text-amber-600">Les falta ley, ley CuP o certificado</span>
+                    </div>
+                    <div className="overflow-auto max-h-48">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="bg-amber-100 text-amber-700 uppercase tracking-wide">
+                            <th className="px-3 py-2 text-left font-semibold">Nº Dumpada</th>
+                            <th className="px-3 py-2 text-left font-semibold">Fecha</th>
+                            <th className="px-3 py-2 text-left font-semibold">Frente</th>
+                            <th className="px-3 py-2 text-center font-semibold">Ley</th>
+                            <th className="px-3 py-2 text-center font-semibold">Ley CuP</th>
+                            <th className="px-3 py-2 text-center font-semibold">Certificado</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-amber-100">
+                          {sinAnalisis.map((d, i) => (
+                            <tr key={i} className="hover:bg-amber-50">
+                              <td className="px-3 py-1.5 font-mono font-semibold text-amber-900">{d.numero_dumpada || '—'}</td>
+                              <td className="px-3 py-1.5 text-gray-600">{d.fecha}</td>
+                              <td className="px-3 py-1.5 text-gray-600">{d.punto}</td>
+                              <td className="px-3 py-1.5 text-center">
+                                {d.ley !== null ? <span className="text-green-700">{d.ley}%</span> : <span className="text-red-500 font-bold">—</span>}
+                              </td>
+                              <td className="px-3 py-1.5 text-center">
+                                {d.ley_cup !== null ? <span className="text-green-700">{d.ley_cup}%</span> : <span className="text-red-500 font-bold">—</span>}
+                              </td>
+                              <td className="px-3 py-1.5 text-center">
+                                {d.certificado !== null ? <span className="text-green-700">{d.certificado}</span> : <span className="text-red-500 font-bold">—</span>}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                );
+              })()}
 
               <div className="flex justify-end">
                 <button

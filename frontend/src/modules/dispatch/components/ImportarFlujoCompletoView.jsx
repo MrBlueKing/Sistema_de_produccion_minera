@@ -12,10 +12,24 @@ import dispatchService from '../services/dispatch';
 const HOJA_MEZCLAS = 'Mezcla';
 const HOJA_DB      = 'DB';
 const DB_FILA_INICIO = 4; // 1-based; row index 3 (0-based)
-const COL_DB = {
+const COL_DB_DEFAULT = {
   punto: 2, tipo: 3, numero_dumpada: 4, acopios: 5, jornada: 6,
   fecha: 7, ton: 8, ley: 9, ley_cup: 10, certificado: 11, ley_visual: 13, rango: 14,
 };
+
+// Detecta columnas de la hoja DB por nombre de header para tolerar columnas extra
+// (ej. Catemu tiene "Ley Soluble" entre ley_cup y certificado)
+function detectarColsDB(headerRow) {
+  const cols = { ...COL_DB_DEFAULT };
+  const norm = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, '');
+  for (let c = 8; c < headerRow.length; c++) {
+    const v = norm(headerRow[c]);
+    if (v.includes('certif') || v.includes('certidicado')) cols.certificado = c;
+    else if (v.includes('leyvisual') || v === 'leyvis')    cols.ley_visual  = c;
+    else if (v === 'rango')                                 cols.rango       = c;
+  }
+  return cols;
+}
 const MESES_CORTO = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 const STEPS = ['Subir Excel', 'Revisar', 'Resultado'];
 
@@ -158,28 +172,55 @@ function parsearMezclasExcel(rows) {
 }
 
 // Detecta en qué columna está el header de lotes escaneando un rango amplio.
-// Devuelve { nLoteCol, camCol } o null si no encuentra.
+// También detecta dinámicamente la columna "Origen" (mezcla_codigo) y "Ley Lab Camion"
+// para tolerar diferencias entre faenas (ej. Catemu tiene "Consumo Ácido" que Cabildo no tiene).
 function detectarColsLotes(r) {
   const SCAN_MIN = 13, SCAN_MAX = 27;
+  let nLoteCol = null, camCol = null, tipo = null;
+
   // Trigger 1: celda exactamente "N°Lote"
   for (let c = SCAN_MIN; c <= SCAN_MAX; c++) {
-    if (r[c] != null && String(r[c]).trim() === 'N°Lote')
-      return { tipo: 'nlote', nLoteCol: c, camCol: c + 1 };
+    if (r[c] != null && String(r[c]).trim() === 'N°Lote') {
+      nLoteCol = c; camCol = c + 1; tipo = 'nlote'; break;
+    }
   }
   // Trigger 2: celda exactamente "Camionada" (case-insensitive)
-  for (let c = SCAN_MIN; c <= SCAN_MAX; c++) {
-    if (r[c] != null && String(r[c]).trim().toLowerCase() === 'camionada')
-      return { tipo: 'camionada', nLoteCol: c - 1, camCol: c };
+  if (!tipo) {
+    for (let c = SCAN_MIN; c <= SCAN_MAX; c++) {
+      if (r[c] != null && String(r[c]).trim().toLowerCase() === 'camionada') {
+        nLoteCol = c - 1; camCol = c; tipo = 'camionada'; break;
+      }
+    }
   }
-  return null;
+  if (!tipo) return null;
+
+  // Detectar columna "Origen" en el mismo header
+  let origenCol = camCol + 10; // fallback Catemu (tiene Consumo Ácido antes)
+  for (let c = camCol + 8; c <= camCol + 16; c++) {
+    if (r[c] != null && String(r[c]).trim().toLowerCase() === 'origen') {
+      origenCol = c; break;
+    }
+  }
+
+  // "Ley Lab Camion" → primera celda con "ley lab" después de Origen
+  let leyLabCol = origenCol + 1; // fallback
+  for (let c = origenCol + 1; c <= camCol + 16; c++) {
+    if (r[c] != null && String(r[c]).trim().toLowerCase().includes('ley lab')) {
+      leyLabCol = c; break;
+    }
+  }
+
+  return { tipo, nLoteCol, camCol, origenCol, leyLabCol };
 }
 
 function parsearLotes(rows) {
   const lotes = [];
   let actual = null;
   // Posición por defecto (formato estándar R/S)
-  let nLoteCol = 17;
-  let camCol   = 18;
+  let nLoteCol  = 17;
+  let camCol    = 18;
+  let origenCol = 28; // camCol + 10 por defecto
+  let leyLabCol = 29; // camCol + 11 por defecto
 
   const toISO = (v) => { if (!v) return null; if (v instanceof Date) return v.toISOString(); return String(v); };
 
@@ -189,8 +230,10 @@ function parsearLotes(rows) {
 
     if (found) {
       // Actualiza las posiciones detectadas para este bloque
-      nLoteCol = found.nLoteCol;
-      camCol   = found.camCol;
+      nLoteCol  = found.nLoteCol;
+      camCol    = found.camCol;
+      origenCol = found.origenCol;
+      leyLabCol = found.leyLabCol;
 
       if (found.tipo === 'nlote') {
         // Trigger 1: busca planta en las filas previas de la misma columna
@@ -226,8 +269,8 @@ function parsearLotes(rows) {
       if (rStr && rStr !== 'N°Lote') actual._rVals.push(rStr);
     }
 
-    const mezclaCodigo = r[camCol + 9] != null ? String(r[camCol + 9]).trim() || null : null;
-    if (!mezclaCodigo) continue;  // sin origen de mezcla → no considerar
+    const mezclaCodigo = r[origenCol] != null ? String(r[origenCol]).trim() || null : null;
+    if (!mezclaCodigo || mezclaCodigo.toUpperCase() === 'N/A') continue;
 
     const patente = r[camCol + 2] != null ? String(r[camCol + 2]).trim() : null;
     const pesoRaw = r[camCol + 6];
@@ -247,7 +290,7 @@ function parsearLotes(rows) {
       ley_mezcla:      safeLey(r[camCol + 7]),
       ley_visual:      safeLey(r[camCol + 8]),
       mezcla_codigo:   mezclaCodigo,
-      ley_lab_camion:  safeLey(r[camCol + 10]),
+      ley_lab_camion:  safeLey(r[leyLabCol]),
     });
   }
   if (actual) lotes.push(actual);
@@ -401,6 +444,7 @@ export default function ImportarFlujoCompletoView({ toast, setVistaActual }) {
       if (wb.SheetNames.includes(HOJA_DB)) {
         const wsDB   = wb.Sheets[HOJA_DB];
         const rowsDB = XLSX.utils.sheet_to_json(wsDB, { header: 1, defval: null, raw: true });
+        const COL_DB = detectarColsDB(rowsDB[DB_FILA_INICIO - 2] ?? []); // header row
         for (let i = DB_FILA_INICIO - 1; i < rowsDB.length; i++) {
           const r       = rowsDB[i];
           const numRaw  = r[COL_DB.numero_dumpada];
@@ -514,7 +558,7 @@ export default function ImportarFlujoCompletoView({ toast, setVistaActual }) {
 
     setImportando(true);
     let resDumpadas = { creadas: 0, saltadas: 0, errores: [] };
-    let resMezclas  = { creadas: 0, saltadas: 0, errores: [] };
+    let resMezclas  = { creadas: 0, saltadas: 0, saltadas_detalle: [], errores: [] };
     let resLotes    = { creados: 0, saltados: 0, errores: [] };
 
     try {
@@ -601,9 +645,10 @@ export default function ImportarFlujoCompletoView({ toast, setVistaActual }) {
         for (const [k, grupo] of grupos) {
           const plantaId = k === 'null' ? null : k;
           const r = await dispatchService.importarMezclasConfirmar(faenaId, plantaId, grupo);
-          resMezclas.creadas  += r.creadas  ?? 0;
-          resMezclas.saltadas += r.saltadas ?? 0;
-          resMezclas.errores   = [...resMezclas.errores, ...(r.errores ?? [])];
+          resMezclas.creadas          += r.creadas  ?? 0;
+          resMezclas.saltadas         += r.saltadas ?? 0;
+          resMezclas.saltadas_detalle  = [...resMezclas.saltadas_detalle, ...(r.saltadas_detalle ?? [])];
+          resMezclas.errores           = [...resMezclas.errores, ...(r.errores ?? [])];
         }
       }
 
@@ -832,6 +877,57 @@ export default function ImportarFlujoCompletoView({ toast, setVistaActual }) {
                     })}
                   </tbody>
                 </table>
+              </div>
+            );
+          })()}
+
+          {/* Dumpadas que quedarán en estado Ingresado (sin análisis completo) */}
+          {(() => {
+            const sinAnalisis = [...dumpadasDBSheet.values()].filter(
+              d => d.ley === null || d.ley_cup === null || d.certificado === null
+            );
+            if (sinAnalisis.length === 0) return null;
+            return (
+              <div className="bg-amber-50 border border-amber-300 rounded-xl overflow-hidden">
+                <div className="px-4 py-3 border-b border-amber-200 flex items-center gap-2">
+                  <HiExclamationTriangle className="w-4 h-4 text-amber-500 flex-shrink-0" />
+                  <p className="font-bold text-amber-800 text-sm">
+                    {sinAnalisis.length} dumpada{sinAnalisis.length !== 1 ? 's' : ''} quedarán en estado <span className="font-mono">Ingresado</span>
+                  </p>
+                  <span className="ml-auto text-xs text-amber-600">Les falta ley, ley CuP o certificado</span>
+                </div>
+                <div className="overflow-auto max-h-48">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-amber-100 text-amber-700 uppercase tracking-wide">
+                        <th className="px-3 py-2 text-left font-semibold">Nº Dumpada</th>
+                        <th className="px-3 py-2 text-left font-semibold">Fecha</th>
+                        <th className="px-3 py-2 text-left font-semibold">Frente</th>
+                        <th className="px-3 py-2 text-center font-semibold">Ley</th>
+                        <th className="px-3 py-2 text-center font-semibold">Ley CuP</th>
+                        <th className="px-3 py-2 text-center font-semibold">Certificado</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-amber-100">
+                      {sinAnalisis.map((d, i) => (
+                        <tr key={i} className="hover:bg-amber-50">
+                          <td className="px-3 py-1.5 font-mono font-semibold text-amber-900">{d.numero_dumpada || '—'}</td>
+                          <td className="px-3 py-1.5 text-gray-600">{d.fecha ?? '—'}</td>
+                          <td className="px-3 py-1.5 text-gray-600">{d.punto ?? '—'}</td>
+                          <td className="px-3 py-1.5 text-center">
+                            {d.ley !== null ? <span className="text-green-700">{d.ley}%</span> : <span className="text-red-500 font-bold">—</span>}
+                          </td>
+                          <td className="px-3 py-1.5 text-center">
+                            {d.ley_cup !== null ? <span className="text-green-700">{d.ley_cup}%</span> : <span className="text-red-500 font-bold">—</span>}
+                          </td>
+                          <td className="px-3 py-1.5 text-center">
+                            {d.certificado !== null ? <span className="text-green-700">{d.certificado}</span> : <span className="text-red-500 font-bold">—</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             );
           })()}
@@ -1213,6 +1309,19 @@ export default function ImportarFlujoCompletoView({ toast, setVistaActual }) {
                 <div><p className="text-2xl font-bold text-blue-500">{resultado.mezclas.saltadas}</p><p className="text-xs text-gray-500">Ya existían</p></div>
                 <div><p className={`text-2xl font-bold ${resultado.mezclas.errores.length > 0 ? 'text-red-500' : 'text-gray-300'}`}>{resultado.mezclas.errores.length}</p><p className="text-xs text-gray-500">Errores</p></div>
               </div>
+              {resultado.mezclas.saltadas_detalle?.length > 0 && (
+                <div className="mt-3 border-t border-violet-200 pt-3">
+                  <p className="text-xs font-semibold text-violet-600 mb-1">Detalle omitidas:</p>
+                  <div className="space-y-1">
+                    {resultado.mezclas.saltadas_detalle.map((d, i) => (
+                      <div key={i} className="flex items-center justify-between text-xs">
+                        <span className="font-mono font-semibold text-violet-800">{d.codigo}</span>
+                        <span className="text-gray-500">{d.razon}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
             <div className="bg-teal-50 border border-teal-100 rounded-xl p-5">
               <p className="font-bold text-teal-700 mb-3 flex items-center gap-2"><HiTruck className="w-4 h-4" /> Lotes</p>

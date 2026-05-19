@@ -1760,8 +1760,7 @@ export default function MezclasView({
                 >
                   <option value="">⚠️ Seleccionar planta...</option>
                   {plantas.map((planta) => (
-                    <o
-                    ption key={planta.id} value={planta.id}>
+                    <option key={planta.id} value={planta.id}>
                       {planta.nombre} {planta.prefijo_codigo && `(${planta.prefijo_codigo})`}
                     </option>
                   ))}

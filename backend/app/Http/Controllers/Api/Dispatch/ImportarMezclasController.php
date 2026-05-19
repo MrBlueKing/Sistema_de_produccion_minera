@@ -111,9 +111,10 @@ class ImportarMezclasController extends Controller
         $plantaId     = $request->input('planta_id');
         $mezclasInput = $request->input('mezclas', []);
 
-        $creadas  = 0;
-        $saltadas = 0;
-        $errores  = [];
+        $creadas         = 0;
+        $saltadas        = 0;
+        $saltadasDetalle = []; // [['codigo'=>..., 'razon'=>...]]
+        $errores         = [];
 
         // Cache dumpadas completo (para crear los detalles)
         $numerosInput = collect($mezclasInput)
@@ -137,6 +138,7 @@ class ImportarMezclasController extends Controller
 
                 if ($mezclasExistentes->has($codigo)) {
                     $saltadas++;
+                    $saltadasDetalle[] = ['codigo' => $codigo, 'razon' => 'Ya existe en BD'];
                     continue;
                 }
 
@@ -198,6 +200,7 @@ class ImportarMezclasController extends Controller
 
                 if (empty($detalles) && empty($remDetalles)) {
                     $saltadas++;
+                    $saltadasDetalle[] = ['codigo' => $codigo, 'razon' => 'Sin dumpadas en BD'];
                     continue;
                 }
                 $fecha       = !empty($fechas) ? max($fechas) : now()->format('Y-m-d');
@@ -268,10 +271,11 @@ class ImportarMezclasController extends Controller
         }
 
         return response()->json([
-            'success'  => true,
-            'creadas'  => $creadas,
-            'saltadas' => $saltadas,
-            'errores'  => $errores,
+            'success'          => true,
+            'creadas'          => $creadas,
+            'saltadas'         => $saltadas,
+            'saltadas_detalle' => $saltadasDetalle,
+            'errores'          => $errores,
         ]);
     }
 }
