@@ -218,7 +218,7 @@ class ImportarMezclasController extends Controller
                     'ley_prom_visual'       => $leyPromVis,
                     'ley_prom_lote'         => $leyPromLote,
                     'ley_lab'               => $leyLab,
-                    'estado'                => Mezcla::ESTADO_CONFIRMADO,
+                    'estado'                => Mezcla::ESTADO_DESPACHADO,
                     'es_remanente'          => false,
                     'es_descarte'           => false,
                     'user_id'               => $request->auth_user_id,

@@ -208,14 +208,18 @@ class ImportarLotesCamionadasController extends Controller
 
                 DB::beginTransaction();
 
+                $tienePendientes = !empty($loteData['tiene_pendientes']);
+
                 $lote = Lote::create([
                     'numero_lote'    => $numeroLote,
                     'planta_id'      => $plantaId,
                     'empresa_id'     => $empresaId,
                     'id_faena'       => $faenaId,
                     'fecha_creacion' => $primeraFecha ?? now()->toDateString(),
-                    'estado'         => Lote::ESTADO_COMPLETADO,
-                    'observaciones'  => 'Importado desde Excel',
+                    'estado'         => $tienePendientes ? Lote::ESTADO_ABIERTO : Lote::ESTADO_COMPLETADO,
+                    'observaciones'  => $tienePendientes
+                        ? 'Importado desde Excel — camionadas sin peso pendientes'
+                        : 'Importado desde Excel',
                     'user_id'        => $request->auth_user_id,
                 ]);
 
@@ -238,6 +242,8 @@ class ImportarLotesCamionadasController extends Controller
                     $leyVisual      = isset($camData['ley_visual'])     ? (float)$camData['ley_visual']     : null;
                     $leyLab         = isset($camData['ley_lab_camion']) ? (float)$camData['ley_lab_camion'] : null;
 
+                    $esPendiente = !empty($camData['peso_pendiente']);
+
                     $camionada = Camionada::create([
                         'lote_id'          => $lote->id,
                         'id_faena'         => $faenaId,
@@ -248,17 +254,17 @@ class ImportarLotesCamionadasController extends Controller
                         'cliente'          => $empresaNombre ?: null,
                         'fecha_despacho'   => $fechaDespacho,
                         'hora_despacho'    => $camData['hora'] ?? null,
-                        'fecha_recepcion'  => $fechaRecepcion,
+                        'fecha_recepcion'  => $esPendiente ? null : $fechaRecepcion,
                         'peso'             => $peso,
-                        'peso_real'        => $peso,
+                        'peso_real'        => $esPendiente ? null : $peso,
                         'ley_mezcla'       => $leyMezcla,
                         'ley_visual'       => $leyVisual,
                         'ley_lab_camion'   => $leyLab,
-                        'estado'           => Camionada::ESTADO_COMPLETADO,
+                        'estado'           => $esPendiente ? Camionada::ESTADO_EN_TRANSITO : Camionada::ESTADO_COMPLETADO,
                         'user_id'          => $request->auth_user_id,
                     ]);
 
-                    if ($mezcla) {
+                    if ($mezcla && !$esPendiente) {
                         $camionada->mezclas()->attach($mezcla->id, [
                             'toneladas'  => $peso ?? 0,
                             'ley_mezcla' => $leyMezcla,
@@ -272,6 +278,9 @@ class ImportarLotesCamionadasController extends Controller
                     if (!$m) continue;
                     $m->toneladas_despachadas = round(($m->toneladas_despachadas ?? 0) + $tonAdd, 2);
                     $m->toneladas_disponibles = round(max(0, $m->total_ton - $m->toneladas_despachadas), 2);
+                    $m->estado = $m->toneladas_disponibles <= 0
+                        ? Mezcla::ESTADO_DESPACHADO
+                        : Mezcla::ESTADO_EN_DESPACHO;
                     $m->save();
                 }
 
@@ -333,12 +342,15 @@ class ImportarLotesCamionadasController extends Controller
 
     private function normalizar(string $str): string
     {
-        $str = mb_strtolower(trim($str));
-        return str_replace(
-            ['á','é','í','ó','ú','ü','ñ','à','è','ì','ò','ù',"\r","\n"],
-            ['a','e','i','o','u','u','n','a','e','i','o','u',' ',' '],
+        // Reemplaza cualquier tipo de whitespace (incluyendo &nbsp; U+00A0, tabs, saltos) por espacio normal
+        $str = preg_replace('/[\pZ\pC\s]+/u', ' ', trim($str));
+        $str = mb_strtolower($str);
+        $str = str_replace(
+            ['á','é','í','ó','ú','ü','ñ','à','è','ì','ò','ù'],
+            ['a','e','i','o','u','u','n','a','e','i','o','u'],
             $str
         );
+        return trim($str);
     }
 
     private function parseFecha(?string $fecha): ?string

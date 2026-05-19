@@ -146,6 +146,10 @@ class DispatchService {
     }, { timeout: 180000 });
     return response.data;
   }
+  async crearEmpresa(nombre) {
+    const response = await api.post('/dispatch/empresas', { nombre });
+    return response.data.empresa;
+  }
 }
 
 export default new DispatchService();

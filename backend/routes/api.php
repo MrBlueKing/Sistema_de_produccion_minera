@@ -20,6 +20,13 @@ Route::get('/ping', function () {
 Route::prefix('gerencial')->group(function () {
     Route::get('/resumen', [GerencialController::class, 'resumen']);
     Route::get('/faenas', [GerencialController::class, 'faenas']);
+    Route::get('/reporte-produccion', [GerencialController::class, 'reporteProduccion']);
+    // Trazabilidad de lotes (consumido por sistema de petróleo sin auth propia)
+    Route::get('/lotes', [GerencialController::class, 'buscarLotes']);
+    Route::get('/lotes/{id}/reconstruccion', [GerencialController::class, 'reconstruccionLote']);
+    Route::get('/analisis-lotes', [GerencialController::class, 'analisisLotes']);
+    Route::get('/plantas', [GerencialController::class, 'plantas']);
+    Route::get('/empresas', [GerencialController::class, 'empresas']);
 });
 
 // Rutas protegidas

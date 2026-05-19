@@ -31,6 +31,13 @@ export default function MezclasView({
   const { factorAjusteLey, factorRemanenteVisual, leyCappingMaximo, usarSistemaAcopios, toneladas_por_palada } = useConfig();
   const { faenaUsuario } = useFaena();
   const [showInfo, setShowInfo] = useState(false);
+  const [vistaTab, setVistaTab] = useState('crear'); // 'crear' | 'historial'
+
+  // Mezclas disponibles (con toneladas_disponibles > 0) para el panel inferior
+  const [mezclasDisponibles, setMezclasDisponibles] = useState([]);
+  const [mezclasDispLoading, setMezclasDispLoading] = useState(false);
+  const [dispPagina, setDispPagina] = useState(1);
+  const dispPerPage = 15;
 
   // Evitar flash de "sin datos" antes del primer ciclo de carga
   const hasEverLoaded = useRef(false);
@@ -58,6 +65,18 @@ export default function MezclasView({
   const [plantas, setPlantas] = useState([]);
   const [mezclaSeleccionada, setMezclaSeleccionada] = useState(null);
   const [loteRemanenteSeleccionado, setLoteRemanenteSeleccionado] = useState('');
+
+  // Historial paginado (independiente del prop mezclas)
+  const [historial, setHistorial] = useState([]);
+  const [histPagina, setHistPagina] = useState(1);
+  const [histTotal, setHistTotal] = useState(0);
+  const [histLastPage, setHistLastPage] = useState(1);
+  const [histLoading, setHistLoading] = useState(false);
+  const [histSearch, setHistSearch] = useState('');
+  const [histPerPage, setHistPerPage] = useState(20);
+  const [histEstado, setHistEstado] = useState('');
+  const [histFechaDesde, setHistFechaDesde] = useState('');
+  const [histFechaHasta, setHistFechaHasta] = useState('');
 
   // Estados para remanentes de mezclas
   const [remanentesDisponibles, setRemanentesDisponibles] = useState([]);
@@ -138,6 +157,56 @@ export default function MezclasView({
   }, [usarSistemaAcopios]);
 
   // Cargar remanentes disponibles al montar el componente
+  // ── Historial paginado ───────────────────────────────────────────────────
+  const cargarHistorial = async (
+    page = 1,
+    search = histSearch,
+    perPage = histPerPage,
+    estado = histEstado,
+    fechaDesde = histFechaDesde,
+    fechaHasta = histFechaHasta,
+  ) => {
+    setHistLoading(true);
+    try {
+      const params = { page, per_page: perPage };
+      if (search.trim())   params.codigo       = search.trim();
+      if (estado)          params.estado       = estado;
+      if (fechaDesde)      params.fecha_desde  = fechaDesde;
+      if (fechaHasta)      params.fecha_hasta  = fechaHasta;
+      const res = await mezclasService.getMezclas(params);
+      setHistorial(res?.data || []);
+      setHistPagina(res?.current_page || 1);
+      setHistTotal(res?.total || 0);
+      setHistLastPage(res?.last_page || 1);
+    } catch (e) {
+      console.error('Error cargando historial mezclas:', e);
+    } finally {
+      setHistLoading(false);
+    }
+  };
+
+  // Carga inicial del historial
+  useEffect(() => { cargarHistorial(1); }, []);
+
+  // Recargar historial cuando el padre actualiza mezclas (nueva creada/eliminada)
+  useEffect(() => { cargarHistorial(1, '', histPerPage); }, [mezclas]);
+  // ─────────────────────────────────────────────────────────────────────────
+
+  // ── Mezclas disponibles (panel inferior) ─────────────────────────────────
+  const cargarMezclasDisponibles = async () => {
+    setMezclasDispLoading(true);
+    try {
+      const res = await mezclasService.getMezclasDisponiblesParaDespacho();
+      setMezclasDisponibles(res || []);
+    } catch (e) {
+      console.error('Error cargando mezclas disponibles:', e);
+    } finally {
+      setMezclasDispLoading(false);
+    }
+  };
+  useEffect(() => { cargarMezclasDisponibles(); }, [mezclas]);
+  // ─────────────────────────────────────────────────────────────────────────
+
   useEffect(() => {
     const cargarRemanentes = async () => {
       try {
@@ -950,6 +1019,38 @@ export default function MezclasView({
             </div>
           </div>
         )}
+
+        {/* ── Tabs: Crear Mezcla / Historial ── */}
+        <div className="flex gap-1 mb-5 bg-gray-100 p-1 rounded-xl w-fit">
+          <button
+            onClick={() => setVistaTab('crear')}
+            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+              vistaTab === 'crear'
+                ? 'bg-white text-purple-700 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            🧪 Crear Mezcla
+          </button>
+          <button
+            onClick={() => setVistaTab('historial')}
+            className={`px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+              vistaTab === 'historial'
+                ? 'bg-white text-orange-600 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            📦 Historial
+            {histTotal > 0 && (
+              <span className={`ml-1.5 text-xs px-1.5 py-0.5 rounded-full ${vistaTab === 'historial' ? 'bg-orange-100 text-orange-600' : 'bg-gray-200 text-gray-500'}`}>
+                {histTotal}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* ── Contenido tab "Crear Mezcla" ── */}
+        {vistaTab === 'crear' && (<>
 
         {/* Selección de Acopios O Dumpadas según configuración */}
         {usarSistemaAcopios ? (
@@ -1954,86 +2055,395 @@ export default function MezclasView({
             )}
           </Card>
         )}
+        </>)}
 
-      {/* Historial de Mezclas */}
-      {/* pb-20: espacio para que la barra sticky no tape el contenido cuando está visible */}
-      <LoadingOverlay isLoading={loading} text="Cargando mezclas...">
-        <Card className="border-l-4 border-orange-400 mt-6 pb-20">
-          <h3 className="text-2xl font-bold text-gray-900 mb-6">📦 Historial de Mezclas (Lote Interno)</h3>
+      {/* Historial de Mezclas — solo visible en tab historial */}
+      {vistaTab === 'historial' && (
+      <Card className="border-l-4 border-orange-400 mt-6 pb-20">
+        {/* Header */}
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+          <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+            📦 Historial de Mezclas
+            {histTotal > 0 && (
+              <span className="text-sm font-normal text-gray-500 bg-orange-50 border border-orange-200 px-2 py-0.5 rounded-full">
+                {histTotal} total
+              </span>
+            )}
+          </h3>
+        </div>
 
-          {mezclas.length === 0 ? (
-          <div className="text-center py-12">
-            <HiCube className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-            <p className="text-gray-700 font-medium mb-2">No hay mezclas registradas</p>
-            <p className="text-gray-500 text-sm">Crea tu primera mezcla seleccionando dumpadas arriba</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b-2 border-orange-200 bg-gradient-to-r from-orange-50 to-orange-100">
-                  <th className="text-left py-2 px-2 font-bold text-orange-900 text-xs">Código</th>
-                  <th className="text-left py-2 px-2 font-bold text-orange-900 text-xs">Fecha</th>
-                  <th className="text-left py-2 px-2 font-bold text-orange-900 text-xs">Total Ton</th>
-                  <th className="text-left py-2 px-2 font-bold text-orange-900 text-xs">Ley Prom</th>
-                  <th className="text-left py-2 px-2 font-bold text-orange-900 text-xs">Estado</th>
-                  <th className="text-left py-2 px-2 font-bold text-orange-900 text-xs">Acciones</th>
-                </tr>
-              </thead>
-              <tbody>
-                {mezclas.map((mezcla, index) => (
-                  <tr
-                    key={mezcla.id}
-                    className={`border-b border-gray-200 hover:bg-orange-50 transition-all ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'
-                      }`}
+        {/* Filtros */}
+        {(() => {
+          const hayFiltros = histSearch || histEstado || histFechaDesde || histFechaHasta;
+          const aplicar = () => cargarHistorial(1, histSearch, histPerPage, histEstado, histFechaDesde, histFechaHasta);
+          const limpiar = () => {
+            setHistSearch('');
+            setHistEstado('');
+            setHistFechaDesde('');
+            setHistFechaHasta('');
+            cargarHistorial(1, '', histPerPage, '', '', '');
+          };
+          const inputCls = "w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-300 focus:border-orange-400 transition-shadow placeholder-gray-400";
+          const labelCls = "block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1";
+          return (
+            <div className="rounded-xl border border-orange-100 bg-gradient-to-br from-orange-50/60 to-white p-4 mb-5 shadow-sm">
+              <div className="flex flex-wrap gap-3 items-end">
+                {/* Código */}
+                <div className="flex-1 min-w-[130px]">
+                  <label className={labelCls}>Código</label>
+                  <input
+                    type="text"
+                    value={histSearch}
+                    onChange={e => setHistSearch(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && aplicar()}
+                    placeholder="Ej: MZ-001…"
+                    className={inputCls}
+                  />
+                </div>
+
+                {/* Estado */}
+                <div className="flex-1 min-w-[140px]">
+                  <label className={labelCls}>Estado</label>
+                  <select value={histEstado} onChange={e => setHistEstado(e.target.value)} className={inputCls}>
+                    <option value="">Todos los estados</option>
+                    <option value="Confirmado">Confirmado</option>
+                    <option value="En Despacho">En Despacho</option>
+                    <option value="Despachado">Despachado</option>
+                  </select>
+                </div>
+
+                {/* Fechas */}
+                <div className="flex-1 min-w-[120px]">
+                  <label className={labelCls}>Desde</label>
+                  <input type="date" value={histFechaDesde} onChange={e => setHistFechaDesde(e.target.value)} className={inputCls} />
+                </div>
+                <div className="flex-1 min-w-[120px]">
+                  <label className={labelCls}>Hasta</label>
+                  <input type="date" value={histFechaHasta} onChange={e => setHistFechaHasta(e.target.value)} className={inputCls} />
+                </div>
+
+                {/* Botones */}
+                <div className="flex gap-2 shrink-0">
+                  <button
+                    onClick={aplicar}
+                    className="px-5 py-2 bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white text-sm font-bold rounded-lg shadow-sm hover:shadow-md transition-all"
                   >
-                    <td className="py-2 px-2 font-bold text-orange-900">
-                      {mezcla.codigo}
-                    </td>
-                    <td className="py-2 px-2 text-xs">
-                      {formatearFecha(mezcla.fecha)}
-                    </td>
-                    <td className="py-2 px-2 text-xs font-semibold">
-                      {parseFloat(mezcla.total_ton).toFixed(2)} t
-                    </td>
-                    <td className="py-2 px-2 text-xs">
-                      {mezcla.ley_prom_dump ? `${parseFloat(mezcla.ley_prom_dump).toFixed(2)}%` : '-'}
-                    </td>
-                    <td className="py-2 px-2">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-                        mezcla.estado === 'Despachado' ? 'bg-green-500 text-white' :
-                        mezcla.estado === 'En Despacho' ? 'bg-yellow-500 text-white' :
-                        'bg-blue-500 text-white'
-                        }`}>
-                        {mezcla.estado}
-                      </span>
-                    </td>
-                    <td className="py-2 px-2">
-                      <div className="flex gap-1">
-                        <button
-                          onClick={() => handleVerDetalleMezcla(mezcla.id)}
-                          className="px-2 py-1 bg-blue-500 hover:bg-blue-600 text-white rounded transition-colors text-xs"
-                          title="Ver Detalle"
-                        >
-                          <HiEye className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleEliminarMezcla(mezcla.id, mezcla.codigo)}
-                          className="px-2 py-1 bg-red-500 hover:bg-red-600 text-white rounded transition-colors text-xs"
-                          title="Eliminar"
-                        >
-                          <HiTrash className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    Buscar
+                  </button>
+                  {hayFiltros && (
+                    <button
+                      onClick={limpiar}
+                      className="px-4 py-2 text-sm font-semibold text-gray-500 hover:text-orange-600 bg-white border border-gray-200 hover:border-orange-300 rounded-lg transition-all"
+                    >
+                      Limpiar
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Pills de filtros activos */}
+              {hayFiltros && (
+                <div className="flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-orange-100">
+                  {histSearch && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-orange-100 text-orange-700 text-xs font-semibold rounded-full">
+                      Código: {histSearch}
+                      <button onClick={() => { setHistSearch(''); cargarHistorial(1, '', histPerPage, histEstado, histFechaDesde, histFechaHasta); }} className="hover:text-orange-900 ml-0.5">×</button>
+                    </span>
+                  )}
+                  {histEstado && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-orange-100 text-orange-700 text-xs font-semibold rounded-full">
+                      {histEstado}
+                      <button onClick={() => { setHistEstado(''); cargarHistorial(1, histSearch, histPerPage, '', histFechaDesde, histFechaHasta); }} className="hover:text-orange-900 ml-0.5">×</button>
+                    </span>
+                  )}
+                  {histFechaDesde && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-orange-100 text-orange-700 text-xs font-semibold rounded-full">
+                      Desde: {histFechaDesde}
+                      <button onClick={() => { setHistFechaDesde(''); cargarHistorial(1, histSearch, histPerPage, histEstado, '', histFechaHasta); }} className="hover:text-orange-900 ml-0.5">×</button>
+                    </span>
+                  )}
+                  {histFechaHasta && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-orange-100 text-orange-700 text-xs font-semibold rounded-full">
+                      Hasta: {histFechaHasta}
+                      <button onClick={() => { setHistFechaHasta(''); cargarHistorial(1, histSearch, histPerPage, histEstado, histFechaDesde, ''); }} className="hover:text-orange-900 ml-0.5">×</button>
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
+        {histLoading ? (
+          <div className="text-center py-10">
+            <div className="animate-spin rounded-full h-10 w-10 border-4 border-orange-200 border-t-orange-500 mx-auto" />
+            <p className="text-gray-400 text-sm mt-3">Cargando historial…</p>
           </div>
+        ) : historial.length === 0 ? (
+          (() => {
+            const hayFiltros = histSearch || histEstado || histFechaDesde || histFechaHasta;
+            return (
+              <div className="text-center py-12">
+                <HiCube className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                <p className="text-gray-600 font-medium mb-1">
+                  {hayFiltros ? 'Sin resultados con los filtros aplicados' : 'No hay mezclas registradas'}
+                </p>
+                <p className="text-gray-400 text-sm">
+                  {hayFiltros ? 'Prueba ajustando o limpiando los filtros' : 'Crea tu primera mezcla en la pestaña Crear Mezcla'}
+                </p>
+              </div>
+            );
+          })()
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-gradient-to-r from-gray-800 to-gray-700 text-white text-xs uppercase tracking-wider">
+                    <th className="py-2.5 px-3 text-left font-semibold">Código</th>
+                    <th className="py-2.5 px-3 text-left font-semibold">Fecha</th>
+                    <th className="py-2.5 px-3 text-right font-semibold">Total Ton</th>
+                    <th className="py-2.5 px-3 text-right font-semibold">Ton. Disp.</th>
+                    <th className="py-2.5 px-3 text-center font-semibold">Ley Prom</th>
+                    <th className="py-2.5 px-3 text-center font-semibold">Estado</th>
+                    <th className="py-2.5 px-3 text-center font-semibold">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {historial.map((mezcla) => {
+                    const estadoColor =
+                      mezcla.estado === 'Despachado'  ? 'bg-green-100 text-green-700 border-green-200' :
+                      mezcla.estado === 'En Despacho' ? 'bg-yellow-100 text-yellow-700 border-yellow-200' :
+                      'bg-blue-100 text-blue-700 border-blue-200';
+                    const dispPct = mezcla.total_ton > 0
+                      ? Math.round((mezcla.toneladas_disponibles / mezcla.total_ton) * 100)
+                      : 0;
+                    return (
+                      <tr key={mezcla.id} className="hover:bg-orange-50/50 transition-colors">
+                        <td className="py-2 px-3 font-mono font-bold text-orange-800">{mezcla.codigo}</td>
+                        <td className="py-2 px-3 text-xs text-gray-500 tabular-nums">{formatearFecha(mezcla.fecha)}</td>
+                        <td className="py-2 px-3 text-right font-semibold tabular-nums text-gray-800">
+                          {parseFloat(mezcla.total_ton).toFixed(2)} <span className="text-gray-400 font-normal">t</span>
+                        </td>
+                        <td className="py-2 px-3 text-right text-xs tabular-nums">
+                          <span className={`font-semibold ${dispPct < 20 ? 'text-red-500' : dispPct < 60 ? 'text-yellow-600' : 'text-green-600'}`}>
+                            {parseFloat(mezcla.toneladas_disponibles ?? 0).toFixed(2)} t
+                          </span>
+                          <span className="text-gray-300 ml-1">({dispPct}%)</span>
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          {mezcla.ley_prom_dump
+                            ? <span className="font-semibold text-orange-700 tabular-nums">{parseFloat(mezcla.ley_prom_dump).toFixed(3)}%</span>
+                            : <span className="text-gray-300">—</span>}
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${estadoColor}`}>
+                            {mezcla.estado}
+                          </span>
+                        </td>
+                        <td className="py-2 px-3">
+                          <div className="flex gap-1 justify-center">
+                            <button
+                              onClick={() => handleVerDetalleMezcla(mezcla.id)}
+                              className="px-2 py-1 bg-blue-500 hover:bg-blue-600 text-white rounded text-xs transition-colors"
+                              title="Ver Detalle"
+                            >
+                              <HiEye className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleEliminarMezcla(mezcla.id, mezcla.codigo)}
+                              className="px-2 py-1 bg-red-500 hover:bg-red-600 text-white rounded text-xs transition-colors"
+                              title="Eliminar"
+                            >
+                              <HiTrash className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Footer paginación — solo si hay más de una página o más de 20 */}
+            {(histLastPage > 1 || histTotal > 20) && (
+              <div className="flex flex-wrap items-center justify-between gap-3 mt-3 pt-3 border-t border-gray-100">
+                <div className="flex items-center gap-2 text-xs text-gray-500">
+                  <span>Por página:</span>
+                  {[20, 50, 100].map(n => (
+                    <button
+                      key={n}
+                      onClick={() => { setHistPerPage(n); cargarHistorial(1, histSearch, n); }}
+                      className={`w-8 h-7 rounded font-semibold transition-colors ${histPerPage === n ? 'bg-orange-500 text-white' : 'bg-white text-gray-600 border border-gray-200 hover:border-gray-400'}`}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                  {histTotal > 0 && (
+                    <span className="ml-2 text-gray-400 tabular-nums">
+                      {((histPagina - 1) * histPerPage) + 1}–{Math.min(histPagina * histPerPage, histTotal)} de {histTotal}
+                    </span>
+                  )}
+                </div>
+
+                {histLastPage > 1 && (
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => cargarHistorial(histPagina - 1)}
+                      disabled={histPagina === 1}
+                      className="px-2.5 py-1 rounded text-xs font-semibold bg-white border border-gray-200 text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      ‹
+                    </button>
+                    {(() => {
+                      const total = histLastPage, cur = histPagina;
+                      let pages = total <= 7
+                        ? [...Array(total)].map((_, i) => i + 1)
+                        : cur <= 4 ? [1,2,3,4,5,'…',total]
+                        : cur >= total - 3 ? [1,'…',total-4,total-3,total-2,total-1,total]
+                        : [1,'…',cur-1,cur,cur+1,'…',total];
+                      return pages.map((p, i) =>
+                        p === '…'
+                          ? <span key={`d${i}`} className="px-1 text-gray-400 text-xs">…</span>
+                          : <button key={p} onClick={() => cargarHistorial(p)}
+                              className={`w-7 h-7 rounded text-xs font-semibold transition-colors ${cur === p ? 'bg-orange-500 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-100'}`}>
+                              {p}
+                            </button>
+                      );
+                    })()}
+                    <button
+                      onClick={() => cargarHistorial(histPagina + 1)}
+                      disabled={histPagina === histLastPage}
+                      className="px-2.5 py-1 rounded text-xs font-semibold bg-white border border-gray-200 text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      ›
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
         )}
-        </Card>
-      </LoadingOverlay>
+      </Card>
+      )}
+
+      {/* ── Panel: Mezclas con tonelaje disponible ── */}
+      {(() => {
+        const dispLastPage = Math.ceil(mezclasDisponibles.length / dispPerPage) || 1;
+        const dispSlice = mezclasDisponibles.slice((dispPagina - 1) * dispPerPage, dispPagina * dispPerPage);
+        return (
+          <Card className="border-l-4 border-purple-400 mt-6">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+              <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
+                Mezclas con tonelaje disponible
+                {mezclasDisponibles.length > 0 && (
+                  <span className="text-xs font-normal bg-purple-50 border border-purple-200 text-purple-600 px-2 py-0.5 rounded-full">
+                    {mezclasDisponibles.length}
+                  </span>
+                )}
+              </h3>
+              <button
+                onClick={() => { setDispPagina(1); cargarMezclasDisponibles(); }}
+                className="text-xs text-purple-500 hover:text-purple-700 hover:bg-purple-50 px-2 py-1 rounded transition-colors"
+              >
+                ↻ Actualizar
+              </button>
+            </div>
+            {mezclasDispLoading ? (
+              <div className="text-center py-6">
+                <div className="animate-spin rounded-full h-7 w-7 border-4 border-purple-100 border-t-purple-500 mx-auto" />
+              </div>
+            ) : mezclasDisponibles.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-4">No hay mezclas con tonelaje disponible</p>
+            ) : (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-purple-50 text-purple-700 text-xs uppercase tracking-wide">
+                        <th className="py-2 px-3 text-left font-semibold">Código</th>
+                        <th className="py-2 px-3 text-left font-semibold">Fecha</th>
+                        <th className="py-2 px-3 text-right font-semibold">Total</th>
+                        <th className="py-2 px-3 text-right font-semibold">Disponible</th>
+                        <th className="py-2 px-3 text-right font-semibold">Despachado</th>
+                        <th className="py-2 px-3 text-center font-semibold">Ley</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {dispSlice.map(m => {
+                        const pct = m.total_ton > 0 ? Math.round((m.toneladas_disponibles / m.total_ton) * 100) : 0;
+                        return (
+                          <tr key={m.id} className="hover:bg-purple-50/40 transition-colors">
+                            <td className="py-2 px-3 font-mono font-bold text-purple-800">{m.codigo}</td>
+                            <td className="py-2 px-3 text-xs text-gray-500 tabular-nums">{formatearFecha(m.fecha)}</td>
+                            <td className="py-2 px-3 text-right tabular-nums text-gray-700">
+                              {parseFloat(m.total_ton).toFixed(2)} <span className="text-gray-400">t</span>
+                            </td>
+                            <td className="py-2 px-3 text-right tabular-nums">
+                              <span className={`font-semibold ${pct < 20 ? 'text-red-500' : pct < 60 ? 'text-yellow-600' : 'text-green-600'}`}>
+                                {parseFloat(m.toneladas_disponibles).toFixed(2)} t
+                              </span>
+                              <span className="text-gray-300 text-xs ml-1">({pct}%)</span>
+                            </td>
+                            <td className="py-2 px-3 text-right tabular-nums text-gray-500 text-xs">
+                              {parseFloat(m.toneladas_despachadas ?? 0).toFixed(2)} t
+                            </td>
+                            <td className="py-2 px-3 text-center">
+                              {m.ley_lab
+                                ? <span className="font-semibold text-purple-700 tabular-nums">{parseFloat(m.ley_lab).toFixed(3)}%</span>
+                                : m.ley_visual
+                                ? <span className="font-semibold text-yellow-600 tabular-nums">{parseFloat(m.ley_visual).toFixed(3)}% <span className="text-gray-400 font-normal text-xs">vis</span></span>
+                                : <span className="text-gray-300">—</span>}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Paginación — solo si hay más de una página */}
+                {dispLastPage > 1 && (
+                  <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
+                    <span className="text-xs text-gray-400 tabular-nums">
+                      {((dispPagina - 1) * dispPerPage) + 1}–{Math.min(dispPagina * dispPerPage, mezclasDisponibles.length)} de {mezclasDisponibles.length}
+                    </span>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => setDispPagina(p => Math.max(1, p - 1))}
+                        disabled={dispPagina === 1}
+                        className="px-2.5 py-1 rounded text-xs font-semibold bg-white border border-gray-200 text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                      >‹</button>
+                      {(() => {
+                        const total = dispLastPage, cur = dispPagina;
+                        const pages = total <= 7
+                          ? [...Array(total)].map((_, i) => i + 1)
+                          : cur <= 4 ? [1,2,3,4,5,'…',total]
+                          : cur >= total - 3 ? [1,'…',total-4,total-3,total-2,total-1,total]
+                          : [1,'…',cur-1,cur,cur+1,'…',total];
+                        return pages.map((p, i) =>
+                          p === '…'
+                            ? <span key={`d${i}`} className="px-1 text-gray-400 text-xs">…</span>
+                            : <button key={p} onClick={() => setDispPagina(p)}
+                                className={`w-7 h-7 rounded text-xs font-semibold transition-colors ${cur === p ? 'bg-purple-500 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-100'}`}>
+                                {p}
+                              </button>
+                        );
+                      })()}
+                      <button
+                        onClick={() => setDispPagina(p => Math.min(dispLastPage, p + 1))}
+                        disabled={dispPagina === dispLastPage}
+                        className="px-2.5 py-1 rounded text-xs font-semibold bg-white border border-gray-200 text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed"
+                      >›</button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </Card>
+        );
+      })()}
 
       {/* Modal de detalle de mezcla */}
       {mezclaSeleccionada && (

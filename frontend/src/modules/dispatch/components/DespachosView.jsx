@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   HiPlus,
   HiRefresh,
@@ -81,6 +81,7 @@ const DespachosView = () => {
   });
 
   // Estados para lotes
+  const cargarLotesReqId = useRef(0);
   const [lotes, setLotes] = useState([]);
   const [empresas, setEmpresas] = useState([]);
   const [tabLotesActivo, setTabLotesActivo] = useState('abiertos'); // 'abiertos' o 'completados'
@@ -187,20 +188,19 @@ const DespachosView = () => {
     }
   };
 
-  const cargarLotes = async (page = 1) => {
+  const cargarLotes = async (page = 1, perPage = null) => {
+    const reqId = ++cargarLotesReqId.current;
     setLoading(true);
     try {
       const params = {
         estado: tabLotesActivo === 'abiertos' ? 'Abierto' : 'Completado',
       };
 
-      // Solo agregar paginación para completados
       if (tabLotesActivo === 'completados') {
         params.page = page;
-        params.per_page = paginacionLotes.per_page;
+        params.per_page = perPage ?? paginacionLotes.per_page;
       }
 
-      // Filtros
       if (filtrosLotes.planta_id) params.planta_id = filtrosLotes.planta_id;
       if (filtrosLotes.empresa_id) params.empresa_id = filtrosLotes.empresa_id;
       if (filtrosLotes.search) params.search = filtrosLotes.search;
@@ -209,27 +209,30 @@ const DespachosView = () => {
 
       const response = await laboratorioService.getLotes(params);
 
-      // Si la respuesta es paginada (solo para completados)
+      // Descartar si llegó una petición más nueva mientras esperábamos
+      if (reqId !== cargarLotesReqId.current) return;
+
+      // Laravel paginate() devuelve metadatos en el root (no en .meta)
       if (response.data && Array.isArray(response.data)) {
         setLotes(response.data);
-        if (response.meta) {
-          setPaginacionLotes({
-            page: response.meta.current_page || 1,
-            per_page: response.meta.per_page || 20,
-            total: response.meta.total || 0,
-            last_page: response.meta.last_page || 1
-          });
-        }
+        setPaginacionLotes(prev => ({
+          ...prev,
+          page: response.current_page || 1,
+          per_page: response.per_page || prev.per_page,
+          total: response.total || 0,
+          last_page: response.last_page || 1,
+        }));
       } else if (Array.isArray(response)) {
         setLotes(response);
       } else {
         setLotes([]);
       }
     } catch (error) {
+      if (reqId !== cargarLotesReqId.current) return;
       console.error('Error cargando lotes:', error);
       toast.error('Error al cargar los lotes');
     } finally {
-      setLoading(false);
+      if (reqId === cargarLotesReqId.current) setLoading(false);
     }
   };
 
@@ -556,8 +559,17 @@ const DespachosView = () => {
     });
   };
 
+  const setFiltroLote = (field, value) => {
+    setFiltrosLotes(prev => ({ ...prev, [field]: value }));
+  };
+
   const handlePaginaLotesChange = (newPage) => {
     cargarLotes(newPage);
+  };
+
+  const handlePerPageChange = (newPerPage) => {
+    setPaginacionLotes(prev => ({ ...prev, per_page: newPerPage, page: 1 }));
+    cargarLotes(1, newPerPage);
   };
 
   const handleCrearLote = async () => {
@@ -1504,41 +1516,75 @@ const DespachosView = () => {
               </div>
             </div>
 
-            {/* Filtros de Fecha (solo para completados) */}
+            {/* Filtros extra para completados: pills planta/empresa + fecha */}
             {tabLotesActivo === 'completados' && (
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4 pt-4 border-t border-gray-200">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    📅 Desde
-                  </label>
-                  <input
-                    type="date"
-                    name="fecha_desde"
-                    value={filtrosLotes.fecha_desde}
-                    onChange={handleFiltroLoteChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    📅 Hasta
-                  </label>
-                  <input
-                    type="date"
-                    name="fecha_hasta"
-                    value={filtrosLotes.fecha_hasta}
-                    onChange={handleFiltroLoteChange}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
-                  />
-                </div>
-                <div className="flex items-end">
-                  <Button
-                    variant="secondary"
-                    onClick={limpiarFiltrosLotes}
-                    className="w-full"
+              <div className="mt-4 pt-4 border-t border-gray-200 space-y-3">
+                {/* Pills planta */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide w-16 shrink-0">Planta</span>
+                  <button
+                    onClick={() => setFiltroLote('planta_id', '')}
+                    className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${!filtrosLotes.planta_id ? 'bg-gray-700 text-white border-gray-700' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-500'}`}
                   >
-                    Limpiar Filtros
-                  </Button>
+                    Todas
+                  </button>
+                  {plantas.map(p => (
+                    <button
+                      key={p.id}
+                      onClick={() => setFiltroLote('planta_id', filtrosLotes.planta_id === String(p.id) ? '' : String(p.id))}
+                      className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${filtrosLotes.planta_id === String(p.id) ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-blue-700 border-blue-200 hover:border-blue-500'}`}
+                    >
+                      {p.nombre}
+                    </button>
+                  ))}
+                </div>
+                {/* Pills empresa */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide w-16 shrink-0">Empresa</span>
+                  <button
+                    onClick={() => setFiltroLote('empresa_id', '')}
+                    className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${!filtrosLotes.empresa_id ? 'bg-gray-700 text-white border-gray-700' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-500'}`}
+                  >
+                    Todas
+                  </button>
+                  {empresas.map(e => (
+                    <button
+                      key={e.id}
+                      onClick={() => setFiltroLote('empresa_id', filtrosLotes.empresa_id === String(e.id) ? '' : String(e.id))}
+                      className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${filtrosLotes.empresa_id === String(e.id) ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-violet-700 border-violet-200 hover:border-violet-500'}`}
+                    >
+                      {e.nombre}
+                    </button>
+                  ))}
+                </div>
+                {/* Rango de fecha + limpiar */}
+                <div className="flex flex-wrap items-end gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Desde</label>
+                    <input
+                      type="date"
+                      name="fecha_desde"
+                      value={filtrosLotes.fecha_desde}
+                      onChange={handleFiltroLoteChange}
+                      className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Hasta</label>
+                    <input
+                      type="date"
+                      name="fecha_hasta"
+                      value={filtrosLotes.fecha_hasta}
+                      onChange={handleFiltroLoteChange}
+                      className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <button
+                    onClick={limpiarFiltrosLotes}
+                    className="px-4 py-1.5 text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg border border-gray-200 transition-colors"
+                  >
+                    Limpiar
+                  </button>
                 </div>
               </div>
             )}
@@ -1546,11 +1592,7 @@ const DespachosView = () => {
             {/* Botón limpiar (para tab abiertos) */}
             {tabLotesActivo === 'abiertos' && (
               <div className="mt-4">
-                <Button
-                  variant="secondary"
-                  onClick={limpiarFiltrosLotes}
-                  size="sm"
-                >
+                <Button variant="secondary" onClick={limpiarFiltrosLotes} size="sm">
                   Limpiar Filtros
                 </Button>
               </div>
@@ -2032,180 +2074,204 @@ const DespachosView = () => {
                 })}
               </div>
             )
-          ) : (
-            /* === TABLA DE LOTES COMPLETADOS === */
-            loading ? (
+          ) : (() => {
+            /* === LOTES COMPLETADOS === */
+            const PLANTA_STYLES = [
+              { border: 'border-l-blue-500',   dotBg: 'bg-blue-500',   badge: 'bg-blue-50 text-blue-700 border-blue-200' },
+              { border: 'border-l-slate-500',  dotBg: 'bg-slate-500',  badge: 'bg-slate-50 text-slate-700 border-slate-200' },
+              { border: 'border-l-teal-500',   dotBg: 'bg-teal-500',   badge: 'bg-teal-50 text-teal-700 border-teal-200' },
+              { border: 'border-l-indigo-500', dotBg: 'bg-indigo-500', badge: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
+            ];
+            const plantaStyleMap = {};
+            plantas.forEach((p, i) => { plantaStyleMap[p.id] = PLANTA_STYLES[i % PLANTA_STYLES.length]; });
+            const getPS = (plantaId) => plantaStyleMap[plantaId] || PLANTA_STYLES[0];
+
+            const totalPesoPag    = lotes.reduce((s, l) => s + parseFloat(l.peso_total || 0), 0);
+            const totalCamPag     = lotes.reduce((s, l) => s + (l.numero_camionadas || l.camionadas?.length || 0), 0);
+            const leyItems        = lotes.filter(l => l.ley_lote_promedio != null && parseFloat(l.peso_total || 0) > 0);
+            const leyPromPag      = leyItems.length
+              ? leyItems.reduce((s, l) => s + l.ley_lote_promedio * parseFloat(l.peso_total || 0), 0) / leyItems.reduce((s, l) => s + parseFloat(l.peso_total || 0), 0)
+              : null;
+
+            const desde = ((paginacionLotes.page - 1) * paginacionLotes.per_page) + 1;
+            const hasta = Math.min(paginacionLotes.page * paginacionLotes.per_page, paginacionLotes.total);
+
+            return loading ? (
               <Card>
                 <div className="text-center py-12">
-                  <div className="animate-spin rounded-full h-12 w-12 border-4 border-blue-200 border-t-blue-600 mx-auto"></div>
-                  <p className="text-gray-600 mt-4">Cargando lotes...</p>
+                  <div className="animate-spin rounded-full h-12 w-12 border-4 border-green-200 border-t-green-600 mx-auto" />
+                  <p className="text-gray-500 mt-4 text-sm">Cargando lotes…</p>
                 </div>
               </Card>
             ) : lotes.length === 0 ? (
               <Card>
                 <div className="text-center py-12">
-                  <HiCube className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                  <p className="text-gray-700 font-medium mb-2">No hay lotes completados</p>
-                  <p className="text-gray-500 text-sm">
-                    Los lotes completados aparecerán aquí una vez que cierres lotes abiertos
-                  </p>
+                  <HiCube className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                  <p className="text-gray-600 font-medium mb-1">Sin resultados</p>
+                  <p className="text-gray-400 text-sm">Prueba ajustando los filtros</p>
                 </div>
               </Card>
             ) : (
-              <Card className="border-l-4 border-green-500">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-gradient-to-r from-green-50 to-emerald-50 border-b-2 border-green-200">
-                      <tr>
-                        <th className="text-left py-3 px-4 font-bold text-green-900">Número Lote</th>
-                        <th className="text-left py-3 px-4 font-bold text-green-900">Planta</th>
-                        <th className="text-left py-3 px-4 font-bold text-green-900">Empresa</th>
-                        <th className="text-center py-3 px-4 font-bold text-green-900">Camionadas</th>
-                        <th className="text-right py-3 px-4 font-bold text-green-900">Peso Total</th>
-                        <th className="text-center py-3 px-4 font-bold text-green-900">Ley Mezcla</th>
-                        <th className="text-center py-3 px-4 font-bold text-green-900">Ley Visual</th>
-                        <th className="text-center py-3 px-4 font-bold text-green-900">Fecha</th>
-                        <th className="text-center py-3 px-4 font-bold text-green-900">Estado</th>
-                        <th className="text-center py-3 px-4 font-bold text-green-900">Acciones</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-200">
-                      {lotes.map((lote, index) => {
-                        const totalCamionadas = lote.numero_camionadas || lote.camionadas?.length || 0;
-                        const totalPeso = lote.peso_total || 0;
-
-                        return (
-                          <tr
-                            key={lote.id}
-                            className={`hover:bg-green-50 transition-colors cursor-pointer ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}
-                            onClick={() => handleVerDetalleLote(lote.id)}
-                          >
-                            <td className="py-3 px-4">
-                              <div className="font-bold text-gray-900">{lote.numero_lote}</div>
-                            </td>
-                            <td className="py-3 px-4">
-                              <div className="flex items-center gap-2">
-                                <HiOfficeBuilding className="w-4 h-4 text-blue-600" />
-                                <span className="text-gray-700">{lote.planta?.nombre || lote.planta_nombre || '-'}</span>
-                              </div>
-                            </td>
-                            <td className="py-3 px-4">
-                              <div className="flex items-center gap-2">
-                                <HiBriefcase className="w-4 h-4 text-purple-600" />
-                                <span className="text-gray-700">{lote.empresa?.nombre || lote.empresa_nombre || '-'}</span>
-                              </div>
-                            </td>
-                            <td className="py-3 px-4 text-center">
-                              <span className="inline-flex items-center px-2 py-1 rounded-full bg-blue-100 text-blue-800 font-semibold">
-                                <HiTruck className="w-4 h-4 mr-1" />
-                                {totalCamionadas}
-                              </span>
-                            </td>
-                            <td className="py-3 px-4 text-right font-semibold text-gray-900">
-                              {parseFloat(totalPeso).toFixed(2)} t
-                            </td>
-                            <td className="py-3 px-4 text-center">
-                              {lote.ley_lote_promedio !== null && lote.ley_lote_promedio !== undefined
-                                ? (
-                                  <span className="inline-flex items-center px-2 py-1 rounded-full bg-orange-100 text-orange-800 font-semibold text-xs">
-                                    {lote.ley_lote_promedio.toFixed(2)}%
-                                  </span>
-                                )
-                                : <span className="text-gray-400 text-xs">N/A</span>}
-                            </td>
-                            <td className="py-3 px-4 text-center">
-                              {lote.ley_visual_promedio !== null && lote.ley_visual_promedio !== undefined
-                                ? (
-                                  <span className="inline-flex items-center px-2 py-1 rounded-full bg-amber-100 text-amber-800 font-semibold text-xs">
-                                    {lote.ley_visual_promedio.toFixed(2)}%
-                                  </span>
-                                )
-                                : <span className="text-gray-400 text-xs">N/A</span>}
-                            </td>
-                            <td className="py-3 px-4 text-center text-gray-600">
-                              {lote.fecha_creacion ? new Date(lote.fecha_creacion).toLocaleDateString('es-CL') : '-'}
-                            </td>
-                            <td className="py-3 px-4 text-center">
-                              <Badge color="green" size="sm">Completado</Badge>
-                            </td>
-                            <td className="py-3 px-4">
-                              <div className="flex gap-2 justify-center" onClick={(e) => e.stopPropagation()}>
-                                <Button
-                                  variant="secondary"
-                                  size="sm"
-                                  icon={HiEye}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleVerDetalleLote(lote.id);
-                                  }}
-                                >
-                                  Ver
-                                </Button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+              <div className="space-y-3">
+                {/* Stats bar */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  {[
+                    { label: 'Total lotes',    val: paginacionLotes.total > 0 ? paginacionLotes.total : lotes.length, unit: '',    color: 'text-green-700',   bg: 'bg-green-50 border-green-100'   },
+                    { label: 'Peso esta pág.', val: totalPesoPag.toFixed(1),                                          unit: ' t',  color: 'text-blue-700',    bg: 'bg-blue-50 border-blue-100'     },
+                    { label: 'Ley prom.',      val: leyPromPag != null ? leyPromPag.toFixed(3) : '—',                 unit: leyPromPag != null ? '%' : '', color: 'text-orange-700', bg: 'bg-orange-50 border-orange-100' },
+                    { label: 'Camionadas',     val: totalCamPag,                                                      unit: '',    color: 'text-violet-700',  bg: 'bg-violet-50 border-violet-100' },
+                  ].map(s => (
+                    <div key={s.label} className={`rounded-xl border p-4 ${s.bg}`}>
+                      <p className="text-xs text-gray-500 mb-0.5">{s.label}</p>
+                      <p className={`text-2xl font-bold tabular-nums ${s.color}`}>{s.val}{s.unit}</p>
+                    </div>
+                  ))}
                 </div>
 
-                {/* Paginación */}
-                {paginacionLotes.last_page > 1 && (
-                  <div className="mt-6 pt-4 border-t border-gray-200 flex items-center justify-between">
-                    <div className="text-sm text-gray-600">
-                      Mostrando {((paginacionLotes.page - 1) * paginacionLotes.per_page) + 1} - {Math.min(paginacionLotes.page * paginacionLotes.per_page, paginacionLotes.total)} de {paginacionLotes.total} lotes
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => handlePaginaLotesChange(paginacionLotes.page - 1)}
-                        disabled={paginacionLotes.page === 1}
-                      >
-                        Anterior
-                      </Button>
-                      <div className="flex gap-1">
-                        {[...Array(Math.min(5, paginacionLotes.last_page))].map((_, i) => {
-                          let pageNum;
-                          if (paginacionLotes.last_page <= 5) {
-                            pageNum = i + 1;
-                          } else if (paginacionLotes.page <= 3) {
-                            pageNum = i + 1;
-                          } else if (paginacionLotes.page >= paginacionLotes.last_page - 2) {
-                            pageNum = paginacionLotes.last_page - 4 + i;
-                          } else {
-                            pageNum = paginacionLotes.page - 2 + i;
-                          }
-
+                {/* Tabla */}
+                <Card className="overflow-hidden p-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-gradient-to-r from-gray-800 to-gray-700 text-white text-xs uppercase tracking-wider">
+                          <th className="py-3 px-4 text-left font-semibold">N° Lote</th>
+                          <th className="py-3 px-4 text-left font-semibold">Planta</th>
+                          <th className="py-3 px-4 text-left font-semibold">Empresa</th>
+                          <th className="py-3 px-4 text-center font-semibold">Cam.</th>
+                          <th className="py-3 px-4 text-right font-semibold">Peso Total</th>
+                          <th className="py-3 px-4 text-center font-semibold">Ley Mezcla</th>
+                          <th className="py-3 px-4 text-center font-semibold">Ley Visual</th>
+                          <th className="py-3 px-4 text-center font-semibold">Fecha</th>
+                          <th className="py-3 px-4 text-center font-semibold">Acción</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {lotes.map((lote) => {
+                          const ps   = getPS(lote.planta_id);
+                          const nCam = lote.numero_camionadas || lote.camionadas?.length || 0;
+                          const peso = parseFloat(lote.peso_total || 0);
                           return (
-                            <button
-                              key={pageNum}
-                              onClick={() => handlePaginaLotesChange(pageNum)}
-                              className={`px-3 py-1 rounded ${paginacionLotes.page === pageNum
-                                  ? 'bg-green-600 text-white font-bold'
-                                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                }`}
+                            <tr
+                              key={lote.id}
+                              onClick={() => handleVerDetalleLote(lote.id)}
+                              className={`border-l-4 ${ps.border} hover:bg-green-50/60 cursor-pointer transition-colors`}
                             >
-                              {pageNum}
-                            </button>
+                              <td className="py-2.5 px-4">
+                                <span className="font-mono font-bold text-gray-900">{lote.numero_lote}</span>
+                              </td>
+                              <td className="py-2.5 px-4">
+                                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border ${ps.badge}`}>
+                                  <span className={`w-1.5 h-1.5 rounded-full ${ps.dotBg}`} />
+                                  {lote.planta?.nombre || '-'}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-4 text-gray-700 text-xs">
+                                {lote.empresa?.nombre || '-'}
+                              </td>
+                              <td className="py-2.5 px-4 text-center">
+                                <span className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full">
+                                  <HiTruck className="w-3 h-3" />{nCam}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-4 text-right font-bold tabular-nums text-gray-800">
+                                {peso.toFixed(2)} <span className="text-gray-400 font-normal text-xs">t</span>
+                              </td>
+                              <td className="py-2.5 px-4 text-center">
+                                {lote.ley_lote_promedio != null
+                                  ? <span className="tabular-nums font-semibold text-orange-700">{Number(lote.ley_lote_promedio).toFixed(3)}%</span>
+                                  : <span className="text-gray-300 text-xs">—</span>}
+                              </td>
+                              <td className="py-2.5 px-4 text-center">
+                                {lote.ley_visual_promedio != null && lote.ley_visual_promedio > 0
+                                  ? <span className="tabular-nums font-semibold text-amber-600">{Number(lote.ley_visual_promedio).toFixed(3)}%</span>
+                                  : <span className="text-gray-300 text-xs">—</span>}
+                              </td>
+                              <td className="py-2.5 px-4 text-center text-xs text-gray-500 tabular-nums">
+                                {lote.fecha_creacion ? new Date(lote.fecha_creacion).toLocaleDateString('es-CL') : '—'}
+                              </td>
+                              <td className="py-2.5 px-4 text-center" onClick={e => e.stopPropagation()}>
+                                <button
+                                  onClick={() => handleVerDetalleLote(lote.id)}
+                                  className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors"
+                                >
+                                  <HiEye className="w-3.5 h-3.5" /> Ver
+                                </button>
+                              </td>
+                            </tr>
                           );
                         })}
-                      </div>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => handlePaginaLotesChange(paginacionLotes.page + 1)}
-                        disabled={paginacionLotes.page === paginacionLotes.last_page}
-                      >
-                        Siguiente
-                      </Button>
-                    </div>
+                      </tbody>
+                    </table>
                   </div>
-                )}
-              </Card>
-            )
-          )}
+
+                  {/* Footer: solo se muestra si hay más de una página o más de 20 lotes */}
+                  {(paginacionLotes.last_page > 1 || paginacionLotes.total > 20) && (
+                    <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 border-t border-gray-100 bg-gray-50">
+                      <div className="flex items-center gap-2 text-xs text-gray-500">
+                        <span>Por página:</span>
+                        {[20, 50, 100].map(n => (
+                          <button
+                            key={n}
+                            onClick={() => handlePerPageChange(n)}
+                            className={`w-8 h-7 rounded font-semibold transition-colors ${paginacionLotes.per_page === n ? 'bg-green-600 text-white' : 'bg-white text-gray-600 border border-gray-200 hover:border-gray-400'}`}
+                          >
+                            {n}
+                          </button>
+                        ))}
+                        <span className="ml-2 text-gray-400 tabular-nums">
+                          {desde}–{hasta} de {paginacionLotes.total}
+                        </span>
+                      </div>
+
+                      {paginacionLotes.last_page > 1 && (
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => handlePaginaLotesChange(paginacionLotes.page - 1)}
+                            disabled={paginacionLotes.page === 1}
+                            className="px-2.5 py-1 rounded text-xs font-semibold bg-white border border-gray-200 text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                          >
+                            ‹
+                          </button>
+                          {(() => {
+                            const total = paginacionLotes.last_page;
+                            const cur   = paginacionLotes.page;
+                            let pages = [];
+                            if (total <= 7) {
+                              pages = [...Array(total)].map((_, i) => i + 1);
+                            } else if (cur <= 4) {
+                              pages = [1,2,3,4,5,'…',total];
+                            } else if (cur >= total - 3) {
+                              pages = [1,'…',total-4,total-3,total-2,total-1,total];
+                            } else {
+                              pages = [1,'…',cur-1,cur,cur+1,'…',total];
+                            }
+                            return pages.map((p, i) =>
+                              p === '…'
+                                ? <span key={`dots-${i}`} className="px-1 text-gray-400 text-xs">…</span>
+                                : <button
+                                    key={p}
+                                    onClick={() => handlePaginaLotesChange(p)}
+                                    className={`w-7 h-7 rounded text-xs font-semibold transition-colors ${cur === p ? 'bg-green-600 text-white' : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-100'}`}
+                                  >
+                                    {p}
+                                  </button>
+                            );
+                          })()}
+                          <button
+                            onClick={() => handlePaginaLotesChange(paginacionLotes.page + 1)}
+                            disabled={paginacionLotes.page === paginacionLotes.last_page}
+                            className="px-2.5 py-1 rounded text-xs font-semibold bg-white border border-gray-200 text-gray-600 hover:bg-gray-100 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                          >
+                            ›
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </Card>
+              </div>
+            );
+          })()}
         </div>
       )}
 

@@ -19,6 +19,23 @@ const COL_DB = {
 const MESES_CORTO = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
 const STEPS = ['Subir Excel', 'Revisar', 'Resultado'];
 
+function parseExcelTime(val) {
+  if (!val) return null;
+  if (val instanceof Date) {
+    const h = String(val.getHours()).padStart(2, '0');
+    const m = String(val.getMinutes()).padStart(2, '0');
+    return `${h}:${m}:00`;
+  }
+  if (typeof val === 'number') {
+    const totalMin = Math.round(val * 24 * 60);
+    const h = Math.floor(totalMin / 60) % 24;
+    const m = totalMin % 60;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
+  }
+  const s = String(val).trim();
+  return s || null;
+}
+
 function parseExcelDate(val) {
   if (!val) return null;
   if (val instanceof Date) {
@@ -140,64 +157,99 @@ function parsearMezclasExcel(rows) {
   return map;
 }
 
+// Detecta en qué columna está el header de lotes escaneando un rango amplio.
+// Devuelve { nLoteCol, camCol } o null si no encuentra.
+function detectarColsLotes(r) {
+  const SCAN_MIN = 13, SCAN_MAX = 27;
+  // Trigger 1: celda exactamente "N°Lote"
+  for (let c = SCAN_MIN; c <= SCAN_MAX; c++) {
+    if (r[c] != null && String(r[c]).trim() === 'N°Lote')
+      return { tipo: 'nlote', nLoteCol: c, camCol: c + 1 };
+  }
+  // Trigger 2: celda exactamente "Camionada" (case-insensitive)
+  for (let c = SCAN_MIN; c <= SCAN_MAX; c++) {
+    if (r[c] != null && String(r[c]).trim().toLowerCase() === 'camionada')
+      return { tipo: 'camionada', nLoteCol: c - 1, camCol: c };
+  }
+  return null;
+}
+
 function parsearLotes(rows) {
   const lotes = [];
   let actual = null;
+  // Posición por defecto (formato estándar R/S)
+  let nLoteCol = 17;
+  let camCol   = 18;
+
+  const toISO = (v) => { if (!v) return null; if (v instanceof Date) return v.toISOString(); return String(v); };
+
   for (let i = 0; i < rows.length; i++) {
-    const r = rows[i];
-    const colR = r[17], colS = r[18];
+    const r     = rows[i];
+    const found = detectarColsLotes(r);
 
-    // Trigger 1: "N°Lote" en columna R (formato estándar)
-    if (typeof colR === 'string' && colR.trim() === 'N°Lote') {
-      if (actual) lotes.push(actual);
-      let plantaDestino = null;
-      for (let j = i - 1; j >= Math.max(0, i - 10); j--) {
-        const prev = rows[j][17];
-        if (prev != null) {
-          const s = String(prev).trim().replace(/[\r\n]+/g, ' ');
-          if (s && s !== 'N°Lote' && s !== '-' && !/^\d+$/.test(s)) { plantaDestino = s; break; }
+    if (found) {
+      // Actualiza las posiciones detectadas para este bloque
+      nLoteCol = found.nLoteCol;
+      camCol   = found.camCol;
+
+      if (found.tipo === 'nlote') {
+        // Trigger 1: busca planta en las filas previas de la misma columna
+        if (actual) lotes.push(actual);
+        let plantaDestino = null;
+        for (let j = i - 1; j >= Math.max(0, i - 10); j--) {
+          const prev = rows[j][nLoteCol];
+          if (prev != null) {
+            const s = String(prev).trim().replace(/[\r\n]+/g, ' ');
+            if (s && s !== 'N°Lote' && s !== '-' && !/^\d+$/.test(s)) { plantaDestino = s; break; }
+          }
         }
+        actual = { numero_lote: null, empresa_nombre: null, planta_destino: plantaDestino, camionadas: [], _rVals: [], _sinPeso: 0 };
+      } else {
+        // Trigger 2: la empresa puede venir en la celda nLoteCol de la misma fila header
+        if (actual) lotes.push(actual);
+        const empresaHeader = r[nLoteCol] != null ? String(r[nLoteCol]).trim() : null;
+        actual = { numero_lote: null, empresa_nombre: empresaHeader || null, planta_destino: null, camionadas: [], _rVals: [], _sinPeso: 0 };
       }
-      actual = { numero_lote: null, empresa_nombre: null, planta_destino: plantaDestino, camionadas: [], _rVals: [] };
-      continue;
-    }
-
-    // Trigger 2: "Camionada" en columna S (bloques sin encabezado N°Lote)
-    if (colS != null && String(colS).trim().toLowerCase() === 'camionada') {
-      if (actual) lotes.push(actual);
-      const empresaHeader = colR != null ? String(colR).trim() : null;
-      actual = { numero_lote: null, empresa_nombre: empresaHeader || null, planta_destino: null, camionadas: [], _rVals: [] };
       continue;
     }
 
     if (!actual) continue;
-    const numCam = typeof colS === 'number' && Number.isInteger(colS) && colS > 0
-      ? colS : (typeof colS === 'string' && /^\d+$/.test(colS.trim()) ? parseInt(colS) : null);
+
+    const colR   = r[nLoteCol];
+    const colCam = r[camCol];
+    const numCam = typeof colCam === 'number' && Number.isInteger(colCam) && colCam > 0
+      ? colCam : (typeof colCam === 'string' && /^\d+$/.test(colCam.trim()) ? parseInt(colCam) : null);
     if (!numCam) continue;
+
     if (colR != null) {
       const rStr = String(colR).trim().replace(/[\r\n]+/g, ' ');
       if (rStr && rStr !== 'N°Lote') actual._rVals.push(rStr);
     }
-    const patente = r[20] != null ? String(r[20]).trim() : null;
-    const pesoRaw = r[24];
-    const peso = typeof pesoRaw === 'number' ? pesoRaw : parseFloat(String(pesoRaw ?? ''));
-    if (!patente && (isNaN(peso) || peso <= 0)) continue;
-    const toISO = (v) => { if (!v) return null; if (v instanceof Date) return v.toISOString(); return String(v); };
+
+    const patente = r[camCol + 2] != null ? String(r[camCol + 2]).trim() : null;
+    const pesoRaw = r[camCol + 6];
+    const peso    = typeof pesoRaw === 'number' ? pesoRaw : parseFloat(String(pesoRaw ?? ''));
+    const pendiente = isNaN(peso) || peso <= 0;
+    if (pendiente && !patente) continue;  // fila vacía sin datos reales
+    if (pendiente) actual._sinPeso++;
+
     actual.camionadas.push({
       numero_camionada: numCam,
-      ticket:          r[19] != null ? String(r[19]).trim() || null : null,
+      ticket:          r[camCol + 1] != null ? String(r[camCol + 1]).trim() || null : null,
       patente:         patente || null,
-      fecha_despacho:  toISO(r[21]),
-      fecha_recepcion: toISO(r[22]),
-      hora:            r[23] != null ? String(r[23]).trim() || null : null,
-      peso:            isNaN(peso) ? null : peso,
-      ley_mezcla:      safeLey(r[25]),
-      ley_visual:      safeLey(r[26]),
-      mezcla_codigo:   r[27] != null ? String(r[27]).trim() || null : null,
-      ley_lab_camion:  safeLey(r[28]),
+      fecha_despacho:  toISO(r[camCol + 3]),
+      fecha_recepcion: toISO(r[camCol + 4]),
+      hora:            parseExcelTime(r[camCol + 5]),
+      peso:            pendiente ? 29 : peso,
+      peso_pendiente:  pendiente,
+      ley_mezcla:      safeLey(r[camCol + 7]),
+      ley_visual:      safeLey(r[camCol + 8]),
+      mezcla_codigo:   r[camCol + 9] != null ? String(r[camCol + 9]).trim() || null : null,
+      ley_lab_camion:  safeLey(r[camCol + 10]),
     });
   }
   if (actual) lotes.push(actual);
+
   for (const lote of lotes) {
     for (const val of lote._rVals) {
       const clasif = clasificarRVal(val);
@@ -206,6 +258,8 @@ function parsearLotes(rows) {
       else if (clasif.tipo === 'empresa' && !lote.empresa_nombre) lote.empresa_nombre = clasif.valor;
     }
     delete lote._rVals;
+    lote.tiene_pendientes = lote._sinPeso > 0;
+    delete lote._sinPeso;
   }
 
   // Carry-forward: si un lote no tiene planta, hereda la del lote anterior
@@ -216,6 +270,15 @@ function parsearLotes(rows) {
   }
 
   return lotes.filter(l => l.camionadas.length > 0);
+}
+
+function limpiarNombreEmpresa(raw) {
+  if (!raw) return '';
+  return raw
+    .replace(/[ ​‌‍﻿]/g, ' ')  // espacios especiales → espacio normal
+    .replace(/\s+/g, ' ')                                 // múltiples espacios → uno
+    .trim()
+    .replace(/\b\w/g, c => c.toUpperCase());              // Title Case
 }
 
 function normStr(s) {
@@ -280,6 +343,7 @@ export default function ImportarFlujoCompletoView({ toast, setVistaActual }) {
   const [mezclasPreview, setMezclasPreview] = useState([]);
   const [lotesPreview, setLotesPreview]     = useState([]);
   const [empresasDB, setEmpresasDB]         = useState([]);
+  const [creandoEmpresa, setCreandoEmpresa] = useState({});
   const [plantasDB, setPlantasDB]           = useState([]);
 
   const [seleccionadas, setSeleccionadas]       = useState({});
@@ -711,16 +775,101 @@ export default function ImportarFlujoCompletoView({ toast, setVistaActual }) {
             ))}
           </div>
 
-          {(sinEmpresa > 0 || sinPlanta > 0) && (
-            <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
-              <HiExclamationTriangle className="w-5 h-5 flex-shrink-0 mt-0.5" />
-              <p>
-                {sinEmpresa > 0 && <><span className="font-semibold">{sinEmpresa} lote(s) sin empresa.</span>{' '}</>}
-                {sinPlanta  > 0 && <><span className="font-semibold">{sinPlanta} lote(s) sin planta.</span>{' '}</>}
-                Asigna manualmente abajo.
-              </p>
-            </div>
-          )}
+          {/* Desglose mensual */}
+          {(() => {
+            const selectedLotes = lotesParseados.filter(l => seleccionadas[l.numero_lote]);
+            const byMonth = {};
+            selectedLotes.forEach(lote => {
+              (lote.camionadas ?? []).forEach(cam => {
+                if (!cam.fecha_despacho) return;
+                const key = cam.fecha_despacho.substring(0, 7);
+                if (!byMonth[key]) byMonth[key] = { lotes: new Set(), cams: 0, fechas: [] };
+                byMonth[key].lotes.add(lote.numero_lote);
+                byMonth[key].cams++;
+                byMonth[key].fechas.push(cam.fecha_despacho);
+              });
+            });
+            const months = Object.keys(byMonth).sort();
+            if (months.length === 0) return null;
+            const MESES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+            const mesLabel = (key) => {
+              const [y, m] = key.split('-');
+              return `${MESES[parseInt(m, 10) - 1]} ${y}`;
+            };
+            return (
+              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <div className="px-4 py-2.5 border-b border-gray-100 flex items-center gap-2">
+                  <HiCalendar className="w-4 h-4 text-teal-500" />
+                  <p className="font-bold text-gray-700 text-sm">
+                    Distribución mensual — {months.length} mes{months.length !== 1 ? 'es' : ''}
+                  </p>
+                </div>
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-gray-50 text-gray-500 uppercase tracking-wide text-left">
+                      <th className="px-4 py-2 font-semibold">Mes</th>
+                      <th className="px-4 py-2 font-semibold text-right">Lotes</th>
+                      <th className="px-4 py-2 font-semibold text-right">Camionadas</th>
+                      <th className="px-4 py-2 font-semibold">Desde</th>
+                      <th className="px-4 py-2 font-semibold">Hasta</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {months.map(key => {
+                      const g = byMonth[key];
+                      const sorted = [...g.fechas].sort();
+                      return (
+                        <tr key={key} className="hover:bg-gray-50">
+                          <td className="px-4 py-2 font-semibold text-gray-800">{mesLabel(key)}</td>
+                          <td className="px-4 py-2 text-right tabular-nums text-teal-700 font-bold">{g.lotes.size}</td>
+                          <td className="px-4 py-2 text-right tabular-nums text-emerald-700 font-bold">{g.cams}</td>
+                          <td className="px-4 py-2 text-gray-500 font-mono">{sorted[0]}</td>
+                          <td className="px-4 py-2 text-gray-500 font-mono">{sorted[sorted.length - 1]}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
+
+          {(sinEmpresa > 0 || sinPlanta > 0) && (() => {
+            const lotesEmp = lotesPreview.filter(l => seleccionadas[l.numero_lote] && !empresaOverrides[l.numero_lote]);
+            const lotesPlanta = lotesPreview.filter(l => seleccionadas[l.numero_lote] && !plantaOverrides[l.numero_lote]);
+            return (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800 space-y-2">
+                <div className="flex items-center gap-2">
+                  <HiExclamationTriangle className="w-5 h-5 flex-shrink-0" />
+                  <p className="font-semibold">Estos lotes <span className="underline">no se importarán</span> si no asignas empresa/planta manualmente:</p>
+                </div>
+                {lotesEmp.length > 0 && (
+                  <div className="space-y-1 pl-7">
+                    <p className="text-amber-700 font-medium text-xs">Sin empresa — selecciona del desplegable en cada lote:</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {lotesEmp.map(l => (
+                        <span key={l.numero_lote} className="bg-amber-100 border border-amber-300 text-amber-800 font-mono text-xs px-2 py-0.5 rounded">
+                          {l.numero_lote}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {lotesPlanta.length > 0 && (
+                  <div className="space-y-1 pl-7">
+                    <p className="text-amber-700 font-medium text-xs">Sin planta — selecciona del desplegable en cada lote:</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {lotesPlanta.map(l => (
+                        <span key={l.numero_lote} className="bg-amber-100 border border-amber-300 text-amber-800 font-mono text-xs px-2 py-0.5 rounded">
+                          {l.numero_lote}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Árbol */}
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -773,15 +922,42 @@ export default function ImportarFlujoCompletoView({ toast, setVistaActual }) {
                         <select value={plantaOverrides[l.numero_lote] ?? ''}
                           onChange={e => setPlantaOverrides(p => ({ ...p, [l.numero_lote]: e.target.value }))}
                           className={`text-xs border rounded px-2 py-1 w-36 ${!plantaOverrides[l.numero_lote] ? 'border-amber-300 bg-amber-50 text-amber-700' : 'border-gray-200 bg-white text-gray-700'}`}>
-                          <option value="">— {l.planta_destino ? `"${l.planta_destino}"` : 'Sin planta'} —</option>
+                          <option value="">{l.planta_destino ? `No está en BD: ${l.planta_destino}` : 'No encontrada en Excel'}</option>
                           {plantasDB.map(p => <option key={p.id} value={String(p.id)}>{p.nombre}{p.codigo ? ` (${p.codigo})` : ''}</option>)}
                         </select>
-                        <select value={empresaOverrides[l.numero_lote] ?? ''}
-                          onChange={e => setEmpresaOverrides(p => ({ ...p, [l.numero_lote]: e.target.value }))}
-                          className={`text-xs border rounded px-2 py-1 w-40 ${!empresaOverrides[l.numero_lote] ? 'border-amber-300 bg-amber-50 text-amber-700' : 'border-gray-200 bg-white text-gray-700'}`}>
-                          <option value="">— {l.empresa_nombre ? `"${l.empresa_nombre}"` : 'Sin empresa'} —</option>
-                          {empresasDB.map(e => <option key={e.id} value={String(e.id)}>{e.nombre}</option>)}
-                        </select>
+                        <div className="flex items-center gap-1">
+                          <select value={empresaOverrides[l.numero_lote] ?? ''}
+                            onChange={e => setEmpresaOverrides(p => ({ ...p, [l.numero_lote]: e.target.value }))}
+                            className={`text-xs border rounded px-2 py-1 w-40 ${!empresaOverrides[l.numero_lote] ? 'border-amber-300 bg-amber-50 text-amber-700' : 'border-gray-200 bg-white text-gray-700'}`}>
+                            <option value="">{l.empresa_nombre ? `No está en BD: ${l.empresa_nombre}` : 'No encontrada en Excel'}</option>
+                            {empresasDB.map(e => <option key={e.id} value={String(e.id)}>{e.nombre}</option>)}
+                          </select>
+                          {l.empresa_nombre && !empresaOverrides[l.numero_lote] && (() => {
+                            const nombreLimpio = limpiarNombreEmpresa(l.empresa_nombre);
+                            const cargando = !!creandoEmpresa[l.numero_lote];
+                            return (
+                              <button
+                                disabled={cargando}
+                                title={`Crear empresa "${nombreLimpio}"`}
+                                onClick={async () => {
+                                  setCreandoEmpresa(p => ({ ...p, [l.numero_lote]: true }));
+                                  try {
+                                    const nueva = await dispatchService.crearEmpresa(nombreLimpio);
+                                    setEmpresasDB(prev => [...prev, nueva].sort((a, b) => a.nombre.localeCompare(b.nombre)));
+                                    setEmpresaOverrides(p => ({ ...p, [l.numero_lote]: String(nueva.id) }));
+                                    toast?.success(`Empresa "${nueva.nombre}" creada`);
+                                  } catch (err) {
+                                    toast?.error('Error al crear empresa: ' + (err.response?.data?.detalles?.nombre?.[0] || err.message));
+                                  }
+                                  setCreandoEmpresa(p => ({ ...p, [l.numero_lote]: false }));
+                                }}
+                                className="flex-shrink-0 text-xs bg-teal-600 hover:bg-teal-700 disabled:bg-gray-300 text-white px-2 py-1 rounded font-semibold transition-colors"
+                              >
+                                {cargando ? '…' : '+ Crear'}
+                              </button>
+                            );
+                          })()}
+                        </div>
                       </div>
                     </div>
 
@@ -1045,6 +1221,43 @@ export default function ImportarFlujoCompletoView({ toast, setVistaActual }) {
               </div>
             </div>
           </div>
+
+          {/* Detalle de errores */}
+          {(() => {
+            const errDump = resultado.dumpadas?.errores ?? [];
+            const errMez  = resultado.mezclas?.errores  ?? [];
+            const errLote = resultado.lotes?.errores    ?? [];
+            const total   = errDump.length + errMez.length + errLote.length;
+            if (total === 0) return null;
+            return (
+              <div className="max-w-3xl mx-auto w-full border border-red-200 rounded-xl overflow-hidden">
+                <div className="bg-red-50 px-4 py-3 flex items-center gap-2">
+                  <HiExclamationTriangle className="w-4 h-4 text-red-500 flex-shrink-0" />
+                  <p className="font-bold text-red-700 text-sm">{total} error{total !== 1 ? 'es' : ''} — detalle</p>
+                </div>
+                <div className="divide-y divide-red-100 bg-white text-xs">
+                  {errDump.map((e, i) => (
+                    <div key={`d-${i}`} className="px-4 py-2.5 flex gap-3">
+                      <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-700 px-2 py-0.5 rounded font-semibold whitespace-nowrap">Dump #{e.numero_dumpada ?? i}</span>
+                      <span className="text-gray-700">{e.error}</span>
+                    </div>
+                  ))}
+                  {errMez.map((e, i) => (
+                    <div key={`m-${i}`} className="px-4 py-2.5 flex gap-3">
+                      <span className="inline-flex items-center gap-1 bg-violet-100 text-violet-700 px-2 py-0.5 rounded font-semibold whitespace-nowrap">Mezcla {e.codigo ?? i}</span>
+                      <span className="text-gray-700">{e.error}</span>
+                    </div>
+                  ))}
+                  {errLote.map((e, i) => (
+                    <div key={`l-${i}`} className="px-4 py-2.5 flex gap-3">
+                      <span className="inline-flex items-center gap-1 bg-teal-100 text-teal-700 px-2 py-0.5 rounded font-semibold whitespace-nowrap">Lote {e.numero_lote ?? i}</span>
+                      <span className="text-gray-700">{e.error}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
 
           <div className="flex items-center justify-center gap-4 pt-2">
             <button onClick={resetear}
