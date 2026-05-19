@@ -472,4 +472,44 @@ class GerencialController extends Controller
             'camionadas' => $camionadas,
         ]);
     }
+
+    /**
+     * Dumpadas por día y frente — para gráfico de avance diario
+     * GET /api/gerencial/dumpadas-diarias
+     */
+    public function dumpadasDiarias(Request $request)
+    {
+        $fechaDesde = $request->get('fecha_desde', Carbon::now()->startOfMonth()->format('Y-m-d'));
+        $fechaHasta = $request->get('fecha_hasta', Carbon::now()->format('Y-m-d'));
+        $idFaena    = $request->get('id_faena');
+
+        $query = DB::table('dumpadas as d')
+            ->join('frentes_trabajo as f', 'f.id', '=', 'd.id_frente_trabajo')
+            ->select(
+                'd.fecha',
+                DB::raw('COALESCE(f.codigo_completo, CONCAT(f.manto, "-", COALESCE(f.calle, ""), COALESCE(f.hebra, ""))) as frente'),
+                DB::raw('COUNT(d.id) as cantidad'),
+                DB::raw('COALESCE(SUM(d.ton), 0) as toneladas')
+            )
+            ->whereNotNull('d.fecha')
+            ->whereBetween('d.fecha', [$fechaDesde, $fechaHasta]);
+
+        if ($idFaena) $query->where('d.id_faena', $idFaena);
+
+        $rows = $query
+            ->groupBy('d.fecha', 'frente')
+            ->orderBy('d.fecha')
+            ->orderBy('frente')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'data'    => $rows->map(fn($r) => [
+                'fecha'     => $r->fecha,
+                'frente'    => $r->frente,
+                'cantidad'  => (int) $r->cantidad,
+                'toneladas' => (float) $r->toneladas,
+            ]),
+        ]);
+    }
 }

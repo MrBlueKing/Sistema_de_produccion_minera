@@ -226,11 +226,13 @@ function parsearLotes(rows) {
       if (rStr && rStr !== 'N°Lote') actual._rVals.push(rStr);
     }
 
+    const mezclaCodigo = r[camCol + 9] != null ? String(r[camCol + 9]).trim() || null : null;
+    if (!mezclaCodigo) continue;  // sin origen de mezcla → no considerar
+
     const patente = r[camCol + 2] != null ? String(r[camCol + 2]).trim() : null;
     const pesoRaw = r[camCol + 6];
     const peso    = typeof pesoRaw === 'number' ? pesoRaw : parseFloat(String(pesoRaw ?? ''));
     const pendiente = isNaN(peso) || peso <= 0;
-    if (pendiente && !patente) continue;  // fila vacía sin datos reales
     if (pendiente) actual._sinPeso++;
 
     actual.camionadas.push({
@@ -244,7 +246,7 @@ function parsearLotes(rows) {
       peso_pendiente:  pendiente,
       ley_mezcla:      safeLey(r[camCol + 7]),
       ley_visual:      safeLey(r[camCol + 8]),
-      mezcla_codigo:   r[camCol + 9] != null ? String(r[camCol + 9]).trim() || null : null,
+      mezcla_codigo:   mezclaCodigo,
       ley_lab_camion:  safeLey(r[camCol + 10]),
     });
   }

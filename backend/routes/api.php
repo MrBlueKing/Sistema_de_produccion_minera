@@ -25,6 +25,7 @@ Route::prefix('gerencial')->group(function () {
     Route::get('/lotes', [GerencialController::class, 'buscarLotes']);
     Route::get('/lotes/{id}/reconstruccion', [GerencialController::class, 'reconstruccionLote']);
     Route::get('/analisis-lotes', [GerencialController::class, 'analisisLotes']);
+    Route::get('/dumpadas-diarias', [GerencialController::class, 'dumpadasDiarias']);
     Route::get('/plantas', [GerencialController::class, 'plantas']);
     Route::get('/empresas', [GerencialController::class, 'empresas']);
 });
