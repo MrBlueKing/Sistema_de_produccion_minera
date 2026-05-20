@@ -39,16 +39,16 @@ function detectarCOL(headerRow) {
 const colLetra = (idx) => String.fromCharCode(65 + idx);
 
 const CAMPOS_DUMP = [
-  { label: 'Frente',       colIdx: COL.punto,          key: 'punto' },
-  { label: 'Tipo frente',  colIdx: COL.tipo,           key: 'tipo' },
-  { label: 'Nº Dumpada',  colIdx: COL.numero_dumpada, key: 'numero_dumpada' },
-  { label: 'Fecha',        colIdx: COL.fecha,          key: 'fecha' },
-  { label: 'Toneladas',    colIdx: COL.ton,            key: 'ton' },
-  { label: 'Ley',          colIdx: COL.ley,            key: 'ley' },
-  { label: 'Ley CuP',     colIdx: COL.ley_cup,        key: 'ley_cup' },
-  { label: 'Certificado',  colIdx: COL.certificado,    key: 'certificado' },
-  { label: 'Ley visual',   colIdx: COL.ley_visual,     key: 'ley_visual' },
-  { label: 'Rango',        colIdx: COL.rango,          key: 'rango' },
+  { label: 'Frente',       colIdx: COL_DEFAULT.punto,          key: 'punto' },
+  { label: 'Tipo frente',  colIdx: COL_DEFAULT.tipo,           key: 'tipo' },
+  { label: 'Nº Dumpada',  colIdx: COL_DEFAULT.numero_dumpada, key: 'numero_dumpada' },
+  { label: 'Fecha',        colIdx: COL_DEFAULT.fecha,          key: 'fecha' },
+  { label: 'Toneladas',    colIdx: COL_DEFAULT.ton,            key: 'ton' },
+  { label: 'Ley',          colIdx: COL_DEFAULT.ley,            key: 'ley' },
+  { label: 'Ley CuP',     colIdx: COL_DEFAULT.ley_cup,        key: 'ley_cup' },
+  { label: 'Certificado',  colIdx: COL_DEFAULT.certificado,    key: 'certificado' },
+  { label: 'Ley visual',   colIdx: COL_DEFAULT.ley_visual,     key: 'ley_visual' },
+  { label: 'Rango',        colIdx: COL_DEFAULT.rango,          key: 'rango' },
 ];
 
 function parseExcelDate(val) {
