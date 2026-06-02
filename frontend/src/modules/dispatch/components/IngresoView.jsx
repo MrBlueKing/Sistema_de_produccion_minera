@@ -14,6 +14,7 @@ export default function IngresoView({
   frentes,
   jornadas,
   maquinas,
+  fuenteMaquinas = 'petroleo_api',
   tonelajeDumpadaDefault,
   usarSistemaAcopios,
 }) {
@@ -454,7 +455,7 @@ export default function IngresoView({
                 </div>
 
                 {/* Campos */}
-                <div className="flex-1 grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3">
+                <div className="flex-1 grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3 items-end">
                   <SearchableSelect
                     label="Frente de Trabajo *"
                     options={frentes.map(frente => ({ value: frente.id, label: frente.codigo_completo }))}
@@ -473,11 +474,11 @@ export default function IngresoView({
                       value={form.jornada}
                       onChange={(e) => actualizarFilaIngreso(form.id, 'jornada', e.target.value)}
                       required
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-400 focus:border-transparent bg-white text-sm"
+                      className={`w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-400 focus:border-transparent bg-white text-sm ${form.jornada ? 'text-gray-900' : 'text-gray-400'}`}
                     >
-                      <option value="">Seleccione...</option>
+                      <option value="" className="text-gray-400">Jornada...</option>
                       {jornadas.map((jornada) => (
-                        <option key={jornada} value={jornada}>{jornada}</option>
+                        <option key={jornada} value={jornada} className="text-gray-900">{jornada}</option>
                       ))}
                     </select>
                   </div>
@@ -495,6 +496,14 @@ export default function IngresoView({
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2">
                       Máquina/Dumper <span className="text-red-500">*</span>
+                      {index === 0 && fuenteMaquinas === 'bd_local' && (
+                        <span
+                          title="API de petróleo no disponible — lista cargada desde BD local"
+                          className="ml-2 inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5"
+                        >
+                          ⚠ BD local
+                        </span>
+                      )}
                     </label>
                     <select
                       value={form.id_maquina}
@@ -508,11 +517,11 @@ export default function IngresoView({
                         ));
                       }}
                       required
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-400 focus:border-transparent bg-white text-sm"
+                      className={`w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-400 focus:border-transparent bg-white text-sm ${form.id_maquina ? 'text-gray-900' : 'text-gray-400'}`}
                     >
-                      <option value="">Seleccione...</option>
+                      <option value="" className="text-gray-400">Máquina...</option>
                       {maquinas.map((m) => (
-                        <option key={m.id_maquina} value={m.id_maquina}>
+                        <option key={m.id_maquina} value={m.id_maquina} className="text-gray-900">
                           {m.nombre_maquina}{m.patente ? ` (${m.patente})` : ''}
                         </option>
                       ))}

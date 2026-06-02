@@ -83,7 +83,7 @@ export default function SearchableSelect({
         onClick={() => !disabled && setIsOpen(!isOpen)}
         disabled={disabled}
         className={`w-full text-left bg-white border rounded-lg flex items-center justify-between transition-all ${
-          size === 'sm' ? 'px-2 py-1 text-xs' : 'px-4 py-2.5'
+          size === 'sm' ? 'px-2 py-1 text-xs' : 'px-3 py-2.5 text-sm'
         } ${
           disabled
             ? 'bg-gray-100 cursor-not-allowed text-gray-500'

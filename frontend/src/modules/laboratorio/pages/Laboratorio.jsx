@@ -1106,13 +1106,9 @@ export default function Laboratorio() {
                               )}
                             </td>
                             <td className="py-3 px-2">
-                              {esMuestraLibre ? (
-                                <span className="text-xs text-gray-400 italic">—</span>
-                              ) : (
-                                <span className="text-xs font-semibold text-gray-800">
-                                  {dumpada.frente_trabajo?.codigo_completo || '—'}
-                                </span>
-                              )}
+                              <span className={`text-xs ${dumpada.frente_trabajo?.codigo_completo ? 'font-semibold text-gray-800' : 'text-gray-400 italic'}`}>
+                                {dumpada.frente_trabajo?.codigo_completo || '—'}
+                              </span>
                             </td>
                             <td className="py-3 px-2 text-xs text-gray-800 whitespace-nowrap">
                               {formatearFecha(dumpada.fecha)}

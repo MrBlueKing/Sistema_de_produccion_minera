@@ -6,8 +6,18 @@ import { useFaena } from '../../../contexts/FaenaContext';
 import dispatchService from '../services/dispatch';
 
 const HOJA_DATOS = 'DB';
-const FILA_ENCABEZADO = 3;
-const FILA_DATOS_INICIO = 4;
+
+function detectarFilaEncabezado(rows) {
+  const norm = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, '');
+  for (let r = 0; r < Math.min(10, rows.length); r++) {
+    const row = rows[r] ?? [];
+    if (row.some(cell => {
+      const v = norm(cell);
+      return v.includes('certificado') || v.includes('certidicado') || v.includes('certif');
+    })) return r;
+  }
+  return 3;
+}
 
 const COL_DEFAULT = {
   punto:          2,  // C
@@ -39,16 +49,16 @@ function detectarCOL(headerRow) {
 const colLetra = (idx) => String.fromCharCode(65 + idx);
 
 const CAMPOS_DUMP = [
-  { label: 'Frente',       colIdx: COL_DEFAULT.punto,          key: 'punto' },
-  { label: 'Tipo frente',  colIdx: COL_DEFAULT.tipo,           key: 'tipo' },
-  { label: 'Nº Dumpada',  colIdx: COL_DEFAULT.numero_dumpada, key: 'numero_dumpada' },
-  { label: 'Fecha',        colIdx: COL_DEFAULT.fecha,          key: 'fecha' },
-  { label: 'Toneladas',    colIdx: COL_DEFAULT.ton,            key: 'ton' },
-  { label: 'Ley',          colIdx: COL_DEFAULT.ley,            key: 'ley' },
-  { label: 'Ley CuP',     colIdx: COL_DEFAULT.ley_cup,        key: 'ley_cup' },
-  { label: 'Certificado',  colIdx: COL_DEFAULT.certificado,    key: 'certificado' },
-  { label: 'Ley visual',   colIdx: COL_DEFAULT.ley_visual,     key: 'ley_visual' },
-  { label: 'Rango',        colIdx: COL_DEFAULT.rango,          key: 'rango' },
+  { label: 'Frente',      key: 'punto' },
+  { label: 'Tipo frente', key: 'tipo' },
+  { label: 'Nº Dumpada', key: 'numero_dumpada' },
+  { label: 'Fecha',       key: 'fecha' },
+  { label: 'Toneladas',   key: 'ton' },
+  { label: 'Ley',         key: 'ley' },
+  { label: 'Ley CuP',    key: 'ley_cup' },
+  { label: 'Certificado', key: 'certificado' },
+  { label: 'Ley visual',  key: 'ley_visual' },
+  { label: 'Rango',       key: 'rango' },
 ];
 
 function parseExcelDate(val) {
@@ -137,14 +147,16 @@ export default function ImportarDumpadasView({ toast, setVistaActual }) {
       const ws   = wb.Sheets[HOJA_DATOS];
       const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: true });
 
-      const headerRow = rows[FILA_ENCABEZADO] ?? [];
+      const filaEncabezado = detectarFilaEncabezado(rows);
+      const headerRow = rows[filaEncabezado] ?? [];
       const COL = detectarCOL(headerRow);
+      const filaDatosInicio = filaEncabezado + 1;
 
       const desde = fechaDesde ? new Date(fechaDesde + 'T00:00:00') : null;
       const hasta = fechaHasta ? new Date(fechaHasta + 'T23:59:59') : null;
 
       const parsed = [];
-      for (let i = FILA_DATOS_INICIO; i < rows.length; i++) {
+      for (let i = filaDatosInicio; i < rows.length; i++) {
         const r = rows[i];
         if (!r[COL.punto]) continue;
 
@@ -181,7 +193,7 @@ export default function ImportarDumpadasView({ toast, setVistaActual }) {
         parsed.map(d => [d.punto, { nombre: d.punto, tipo: d.tipo }])
       ).values()];
 
-      setColMapData({ headerRow, ejemplo: parsed[0] });
+      setColMapData({ headerRow, ejemplo: parsed[0], colDetectado: COL });
       setParsedTemp({ parsed, frentesUnicos });
     } catch (err) {
       console.error(err);
@@ -393,7 +405,8 @@ export default function ImportarDumpadasView({ toast, setVistaActual }) {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-gray-100">
-                      {CAMPOS_DUMP.map(({ label, colIdx, key }) => {
+                      {CAMPOS_DUMP.map(({ label, key }) => {
+                        const colIdx = colMapData.colDetectado[key];
                         const encabezado = colMapData.headerRow[colIdx];
                         const ejemplo = colMapData.ejemplo[key];
                         return (

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { HiCheckCircle, HiXCircle, HiTrash, HiBeaker, HiInformationCircle, HiArrowUpTray, HiArrowDownTray } from 'react-icons/hi2';
+import { HiCheckCircle, HiXCircle, HiTrash, HiBeaker, HiInformationCircle, HiArrowUpTray, HiArrowDownTray, HiArrowPath } from 'react-icons/hi2';
 import Card from '../../../shared/components/atoms/Card';
 import Button from '../../../shared/components/atoms/Button';
 import SearchableSelect from '../../../shared/components/atoms/SearchableSelect';
@@ -317,6 +317,14 @@ export default function EnvioMuestrasView({
               </p>
             </div>
             <div className="flex items-center gap-3">
+              <button
+                onClick={() => loadPendientes()}
+                className="flex items-center gap-2 px-3 py-1.5 bg-white hover:bg-gray-50 text-gray-600 text-sm font-semibold rounded-lg border border-gray-200 transition-colors shadow-sm"
+                title="Actualizar lista"
+              >
+                <HiArrowPath className="w-4 h-4" />
+                Actualizar
+              </button>
               <button
                 onClick={() => setShowMuestraLibreModal(true)}
                 className="flex items-center gap-2 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 text-white text-sm font-semibold rounded-lg transition-colors shadow-sm"

@@ -1026,7 +1026,7 @@ const DespachosView = () => {
 
           {/* Modal de Recepción */}
           {mostrarRecepcion && camionadaSeleccionada && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="fixed inset-0 bg-gray-900/25 backdrop-blur-sm flex items-center justify-center z-50">
               <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
                 <h3 className="text-xl font-bold mb-4">Recepcionar Camionada</h3>
                 <div className="mb-4 bg-gray-50 p-3 rounded">
@@ -1271,7 +1271,7 @@ const DespachosView = () => {
 
           {/* Modal de Detalles */}
           {mostrarDetalles && camionadaSeleccionada && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={() => setMostrarDetalles(false)}>
+            <div className="fixed inset-0 bg-gray-900/25 backdrop-blur-sm flex items-center justify-center z-50" onClick={() => setMostrarDetalles(false)}>
               <div className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
                 <div className="flex justify-between items-start mb-4">
                   <h3 className="text-2xl font-bold text-gray-800">Detalles de Camionada</h3>
@@ -1601,7 +1601,7 @@ const DespachosView = () => {
 
           {/* Modal Crear Lote */}
           {mostrarFormLote && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="fixed inset-0 bg-gray-900/25 backdrop-blur-sm flex items-center justify-center p-4 z-50">
               <Card className="max-w-md w-full">
                 <div className="flex items-center justify-between mb-6">
                   <h3 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
@@ -2117,7 +2117,7 @@ const DespachosView = () => {
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   {[
                     { label: 'Total lotes',    val: paginacionLotes.total > 0 ? paginacionLotes.total : lotes.length, unit: '',    color: 'text-green-700',   bg: 'bg-green-50 border-green-100'   },
-                    { label: 'Peso esta pág.', val: totalPesoPag.toFixed(1),                                          unit: ' t',  color: 'text-blue-700',    bg: 'bg-blue-50 border-blue-100'     },
+                    { label: 'Peso esta pág.', val: totalPesoPag.toFixed(2),                                          unit: ' t',  color: 'text-blue-700',    bg: 'bg-blue-50 border-blue-100'     },
                     { label: 'Ley prom.',      val: leyPromPag != null ? leyPromPag.toFixed(3) : '—',                 unit: leyPromPag != null ? '%' : '', color: 'text-orange-700', bg: 'bg-orange-50 border-orange-100' },
                     { label: 'Camionadas',     val: totalCamPag,                                                      unit: '',    color: 'text-violet-700',  bg: 'bg-violet-50 border-violet-100' },
                   ].map(s => (
@@ -2278,7 +2278,7 @@ const DespachosView = () => {
       {/* Modal de Detalle de Lote */}
       {mostrarModalDetalleLote && loteSeleccionado && (
         <div
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50"
+          className="fixed inset-0 bg-gray-900/25 backdrop-blur-sm flex items-center justify-center p-4 z-50"
           onClick={() => { setMostrarModalDetalleLote(false); setExpandidosCam({}); }}
         >
           <div
@@ -2896,7 +2896,7 @@ const DespachosView = () => {
 
       {/* Modal de Formulario de Planta */}
       {mostrarFormPlanta && vistaPlantasActiva === 'plantas' && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-gray-900/25 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <Card className="max-w-2xl w-full">
             <form onSubmit={handleSubmitPlanta}>
               <div className="flex items-center justify-between mb-6">
@@ -3012,7 +3012,7 @@ const DespachosView = () => {
 
       {/* Modal de Formulario de Empresa */}
       {mostrarFormPlanta && vistaPlantasActiva === 'empresas' && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-gray-900/25 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <Card className="max-w-2xl w-full">
             <form onSubmit={handleSubmitEmpresa}>
               <div className="flex items-center justify-between mb-6">
@@ -3149,7 +3149,7 @@ const DespachosView = () => {
 
       {/* Modal de Formulario de Camión */}
       {mostrarFormPlanta && vistaPlantasActiva === 'camiones' && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-gray-900/25 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <Card className="max-w-2xl w-full">
             <form onSubmit={handleSubmitCamion}>
               <div className="flex items-center justify-between mb-6">
@@ -3315,7 +3315,7 @@ const DespachosView = () => {
 
       {/* Modal de Recepción Completa */}
       {showModalRecepcion && camionadaParaRecepcion && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 bg-gray-900/25 backdrop-blur-sm flex items-center justify-center p-4 z-50">
           <Card className="max-w-lg w-full">
             <form onSubmit={handleSubmitRecepcionModal}>
               <div className="flex items-center justify-between mb-4">

@@ -25,12 +25,14 @@ class TonelajeMaquinaController extends Controller
         $idFaena = $this->getFaenaParaFiltrar($request) ?? $request->auth_faena;
 
         try {
-            // 1. Obtener dumpers desde petroleo (no crítico: si falla, lista vacía)
+            // 1. Obtener dumpers desde petroleo
+            $fuenteMaquinas = 'petroleo_api';
+            $maquinasPetroleo = [];
             try {
-                $response = Http::timeout(5)->get(env('SISTEMA_PETROLEO_API') . '/dumpers');
+                $response = Http::timeout(5)->get(config('services.petroleo_api') . '/dumpers');
                 $maquinasPetroleo = $response->successful() ? ($response->json()['data'] ?? []) : [];
             } catch (\Exception $e) {
-                $maquinasPetroleo = [];
+                // silencioso — se usa fallback
             }
 
             // 2. Obtener configuraciones de tonelaje locales
@@ -44,6 +46,40 @@ class TonelajeMaquinaController extends Controller
 
             // 3. Obtener tonelaje default del sistema
             $tonelajeDefault = ConfiguracionSistema::obtener('tonelaje_dumpada_default', 4.6, $idFaena);
+
+            // Si petroleo respondió bien → actualizar cache local (solo registros es_cache=true)
+            if (!empty($maquinasPetroleo)) {
+                foreach ($maquinasPetroleo as $m) {
+                    $existe = TonelajeMaquina::where('id_maquina', $m['id_maquina'])
+                        ->where('es_cache', false)
+                        ->exists();
+                    if (!$existe) {
+                        TonelajeMaquina::updateOrCreate(
+                            ['id_maquina' => $m['id_maquina'], 'id_faena' => null, 'es_cache' => true],
+                            [
+                                'nombre_maquina' => $m['nombre_maquina'] ?? "Máquina {$m['id_maquina']}",
+                                'patente'        => $m['patente'] ?? null,
+                                'tonelaje'       => $tonelajeDefault,
+                                'activo'         => true,
+                            ]
+                        );
+                    }
+                }
+            }
+
+            // Si petroleo falló → usar registros locales como fallback
+            if (empty($maquinasPetroleo)) {
+                $fuenteMaquinas = 'bd_local';
+                $maquinasPetroleo = TonelajeMaquina::activos()
+                    ->whereNull('id_faena')
+                    ->get()
+                    ->map(fn($m) => [
+                        'id_maquina'     => $m->id_maquina,
+                        'nombre_maquina' => $m->nombre_maquina,
+                        'patente'        => $m->patente,
+                        'tipo_maquina'   => null,
+                    ])->all();
+            }
 
             // 4. Combinar datos
             $resultado = collect($maquinasPetroleo)->map(function ($maquina) use ($tonelajesConfig, $tonelajeDefault, $idFaena) {
@@ -86,6 +122,7 @@ class TonelajeMaquinaController extends Controller
                 'data' => $resultado,
                 'tonelaje_default' => $tonelajeDefault,
                 'total' => $resultado->count(),
+                'fuente' => $fuenteMaquinas,
             ]);
 
         } catch (Exception $e) {

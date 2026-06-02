@@ -56,9 +56,9 @@ class PersonalAutorizadoController extends Controller
             // Consultar TODO el personal de petroleo (sin filtro de faena)
             $response = Http::timeout(10)
                 ->withHeaders([
-                    'X-API-Key' => env('PETROLEO_API_KEY')
+                    'X-API-Key' => config('services.petroleo_api_key')
                 ])
-                ->get(env('SISTEMA_PETROLEO_API') . '/personal-interno-disponible');
+                ->get(config('services.petroleo_api') . '/personal-interno-disponible');
 
             if (!$response->successful()) {
                 return response()->json([

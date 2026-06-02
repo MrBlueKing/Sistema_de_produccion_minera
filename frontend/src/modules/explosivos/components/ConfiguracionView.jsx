@@ -94,6 +94,12 @@ export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin =
   const [showModalPersonal, setShowModalPersonal] = useState(false);
   const [busquedaPersonal, setBusquedaPersonal] = useState('');
 
+  // Autocomplete responsable polvorín
+  const [todoElPersonal, setTodoElPersonal] = useState([]);
+  const [busquedaResponsable, setBusquedaResponsable] = useState('');
+  const [mostrarSugerencias, setMostrarSugerencias] = useState(false);
+  const [loadingResponsable, setLoadingResponsable] = useState(false);
+
   // Estados para Proveedores
   const [proveedores, setProveedores] = useState([]);
   const [loadingProveedores, setLoadingProveedores] = useState(false);
@@ -120,6 +126,37 @@ export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin =
     } catch (error) {
       console.error('Error al cargar personal autorizado:', error);
     }
+  };
+
+  const cargarTodoElPersonal = async () => {
+    if (todoElPersonal.length > 0) return;
+    setLoadingResponsable(true);
+    try {
+      const data = await explosivosService.getPersonalDisponible();
+      setTodoElPersonal(data.data || []);
+    } catch (error) {
+      console.error('Error al cargar personal:', error);
+    } finally {
+      setLoadingResponsable(false);
+    }
+  };
+
+  const sugerenciasResponsable = busquedaResponsable.length < 2 ? [] : todoElPersonal.filter(p => {
+    const nombre = `${p.nombre || ''} ${p.apellido || ''}`.toLowerCase();
+    const rut = (p.rut || '').toLowerCase();
+    const q = busquedaResponsable.toLowerCase();
+    return nombre.includes(q) || rut.includes(q);
+  }).slice(0, 8);
+
+  const seleccionarResponsable = (persona) => {
+    const nombreCompleto = `${persona.nombre || ''} ${persona.apellido || ''}`.trim();
+    setFormPolvorin(prev => ({
+      ...prev,
+      responsable: nombreCompleto,
+      telefono_responsable: persona.telefono || persona.celular || prev.telefono_responsable,
+    }));
+    setBusquedaResponsable(nombreCompleto);
+    setMostrarSugerencias(false);
   };
 
   const cargarPersonalDisponible = async () => {
@@ -449,7 +486,7 @@ export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin =
             <h3 className="text-lg font-semibold text-gray-800">
               {esAdmin ? 'Polvorines (Todas las Faenas)' : 'Polvorín de la Faena'}
             </h3>
-            {(esAdmin || !polvorin) && (
+            {esAdmin && (
               <Button variant="primary" icon={HiPlus} onClick={nuevoPolvorin}>
                 Crear Polvorín
               </Button>
@@ -461,7 +498,8 @@ export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin =
             polvorines.length > 0 ? (
               <div className="space-y-3">
                 {polvorines.map((p) => {
-                  const faenaNombre = faenas.find(f => f.id === p.id_faena)?.nombre || `Faena #${p.id_faena}`;
+                  const faenaObj = faenas.find(f => f.id === p.id_faena);
+                  const faenaNombre = faenaObj ? (faenaObj.ubicacion || faenaObj.nombre || `Faena #${p.id_faena}`) : `Faena #${p.id_faena}`;
                   return (
                     <div key={p.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg border border-gray-200">
                       <div className="flex-1">
@@ -917,11 +955,11 @@ export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin =
                     value={formPolvorin.id_faena}
                     onChange={(e) => setFormPolvorin(prev => ({ ...prev, id_faena: e.target.value }))}
                     required
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 bg-white text-gray-900"
                   >
                     <option value="">Seleccionar faena...</option>
                     {faenas.map(f => (
-                      <option key={f.id} value={f.id}>{f.nombre}</option>
+                      <option key={f.id} value={f.id}>{f.ubicacion || f.nombre || `Faena ${f.id}`}</option>
                     ))}
                   </select>
                 </div>
@@ -937,18 +975,55 @@ export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin =
                 value={formPolvorin.ubicacion}
                 onChange={(e) => setFormPolvorin(prev => ({ ...prev, ubicacion: e.target.value }))}
               />
-              <div className="grid grid-cols-2 gap-4">
-                <Input
-                  label="Capacidad Máxima (kg)"
-                  type="number"
-                  value={formPolvorin.capacidad_maxima_kg}
-                  onChange={(e) => setFormPolvorin(prev => ({ ...prev, capacidad_maxima_kg: e.target.value }))}
+              <Input
+                label="Capacidad Máxima (kg)"
+                type="number"
+                value={formPolvorin.capacidad_maxima_kg}
+                onChange={(e) => setFormPolvorin(prev => ({ ...prev, capacidad_maxima_kg: e.target.value }))}
+              />
+              <div className="relative">
+                <label className="block text-sm font-medium text-gray-700 mb-1">Responsable</label>
+                <input
+                  type="text"
+                  value={busquedaResponsable}
+                  onFocus={() => { cargarTodoElPersonal(); setMostrarSugerencias(true); }}
+                  onBlur={() => setTimeout(() => setMostrarSugerencias(false), 150)}
+                  onChange={(e) => {
+                    setBusquedaResponsable(e.target.value);
+                    setFormPolvorin(prev => ({ ...prev, responsable: e.target.value }));
+                    setMostrarSugerencias(true);
+                  }}
+                  autoComplete="nope"
+                  placeholder={loadingResponsable ? 'Cargando personal del sistema...' : 'Escribe para buscar...'}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:outline-none"
                 />
-                <Input
-                  label="Responsable"
-                  value={formPolvorin.responsable}
-                  onChange={(e) => setFormPolvorin(prev => ({ ...prev, responsable: e.target.value }))}
-                />
+                {mostrarSugerencias && !loadingResponsable && busquedaResponsable.length >= 2 && (
+                  <div
+                    onMouseDown={(e) => e.preventDefault()}
+                    className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden max-h-60 overflow-y-auto"
+                  >
+                    {sugerenciasResponsable.length > 0 ? sugerenciasResponsable.map((p) => (
+                      <button
+                        key={p.id_personal_interno}
+                        type="button"
+                        onClick={() => seleccionarResponsable(p)}
+                        className="w-full px-4 py-2.5 text-left hover:bg-red-50 flex items-center justify-between gap-3 border-b border-gray-100 last:border-0"
+                      >
+                        <div>
+                          <span className="font-medium text-gray-800 text-sm">{p.nombre} {p.apellido}</span>
+                          {p.cargo && <span className="text-xs text-gray-500 ml-2">· {p.cargo}</span>}
+                        </div>
+                        <span className="text-xs text-gray-400 flex-shrink-0">{p.rut}</span>
+                      </button>
+                    )) : (
+                      <div className="px-4 py-3 text-sm text-gray-400 text-center">
+                        {todoElPersonal.length === 0
+                          ? 'No se pudo cargar el personal — escribe el nombre manualmente'
+                          : 'Sin resultados para esa búsqueda'}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
               <Input
                 label="Teléfono Responsable"
@@ -1005,12 +1080,6 @@ export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin =
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
                 />
               </div>
-              <Input
-                label="Orden"
-                type="number"
-                value={formCategoria.orden}
-                onChange={(e) => setFormCategoria(prev => ({ ...prev, orden: parseInt(e.target.value) || 0 }))}
-              />
               <div className="flex justify-end gap-3 pt-4 border-t">
                 <Button type="button" variant="secondary" onClick={() => setShowModalCategoria(false)}>
                   Cancelar

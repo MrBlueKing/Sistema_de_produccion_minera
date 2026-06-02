@@ -46,7 +46,7 @@ const ROLES_ADMIN = ['admin_explosivos'];
 
 export default function Explosivos() {
   const toast = useToast();
-  const { faenaSeleccionada, faenas } = useFaena();
+  const { faenaSeleccionada, faenas, esUsuarioGlobal, cambiarFaena } = useFaena();
   const { getRolActivo } = useAuth();
 
   const rolActivo = getRolActivo();
@@ -289,7 +289,7 @@ export default function Explosivos() {
     );
   }
 
-  // Mostrar mensaje si no hay faena seleccionada (admin puede continuar sin faena)
+  // Mostrar selector si es usuario global sin faena, o mensaje si es usuario de faena sin asignación
   if (!faenaSeleccionada && !esAdmin) {
     return (
       <div className={bgGradient}>
@@ -300,9 +300,23 @@ export default function Explosivos() {
             <h3 className="text-xl font-semibold text-gray-700 mb-2">
               Seleccione una faena
             </h3>
-            <p className="text-gray-500">
+            <p className="text-gray-500 mb-6">
               Debe seleccionar una faena para acceder al inventario de explosivos.
             </p>
+            {esUsuarioGlobal && (
+              <div className="flex flex-col items-center gap-3">
+                <select
+                  defaultValue=""
+                  onChange={(e) => { if (e.target.value) cambiarFaena(e.target.value); }}
+                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:outline-none min-w-[240px] bg-white text-gray-700"
+                >
+                  <option value="" disabled>-- Seleccione una faena --</option>
+                  {faenas.map(f => (
+                    <option key={f.id} value={f.id}>{f.ubicacion || f.nombre || `Faena ${f.id}`}</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </Card>
         </main>
       </div>

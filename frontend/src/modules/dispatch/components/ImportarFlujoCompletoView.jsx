@@ -17,6 +17,18 @@ const COL_DB_DEFAULT = {
   fecha: 7, ton: 8, ley: 9, ley_cup: 10, certificado: 11, ley_visual: 13, rango: 14,
 };
 
+function detectarFilaEncabezadoDB(rows) {
+  const norm = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, '');
+  for (let r = 0; r < Math.min(10, rows.length); r++) {
+    const row = rows[r] ?? [];
+    if (row.some(cell => {
+      const v = norm(cell);
+      return v.includes('certificado') || v.includes('certidicado') || v.includes('certif');
+    })) return r;
+  }
+  return DB_FILA_INICIO - 2;
+}
+
 // Detecta columnas de la hoja DB por nombre de header para tolerar columnas extra
 // (ej. Catemu tiene "Ley Soluble" entre ley_cup y certificado)
 function detectarColsDB(headerRow) {
@@ -213,9 +225,28 @@ function detectarColsLotes(r) {
   return { tipo, nLoteCol, camCol, origenCol, leyLabCol };
 }
 
+// Detecta si una fila es un encabezado de sección (planta).
+// Criterio: nLoteCol tiene texto no-numérico Y camCol está vacío.
+// Así distinguimos "Enami" / "Cenizas" / "Cerro Negro" de filas de datos
+// (que siempre tienen número de camionada en camCol) y de triggers (que tienen
+// "Camionada" en camCol).
+function esEncabezadoSeccion(r, nLoteCol, camCol) {
+  const camV = r[camCol];
+  if (camV != null && String(camV).trim() !== '') return null;
+  const v = r[nLoteCol];
+  if (v == null) return null;
+  const s = String(v).trim().replace(/[\r\n]+/g, ' ');
+  if (!s || /^-+$/.test(s)) return null;
+  if (/^[\d.,% ]+$/.test(s)) return null;
+  if (s.includes('#')) return null;
+  if (s === 'N°Lote' || s.toLowerCase() === 'camionada') return null;
+  return s;
+}
+
 function parsearLotes(rows) {
   const lotes = [];
   let actual = null;
+  let plantaActual = null;
   // Posición por defecto (formato estándar R/S)
   let nLoteCol  = 17;
   let camCol    = 18;
@@ -226,6 +257,11 @@ function parsearLotes(rows) {
 
   for (let i = 0; i < rows.length; i++) {
     const r     = rows[i];
+
+    // Detectar encabezado de sección (planta) top-down
+    const seccion = esEncabezadoSeccion(r, nLoteCol, camCol);
+    if (seccion) { plantaActual = seccion; continue; }
+
     const found = detectarColsLotes(r);
 
     if (found) {
@@ -236,22 +272,13 @@ function parsearLotes(rows) {
       leyLabCol = found.leyLabCol;
 
       if (found.tipo === 'nlote') {
-        // Trigger 1: busca planta en las filas previas de la misma columna
         if (actual) lotes.push(actual);
-        let plantaDestino = null;
-        for (let j = i - 1; j >= Math.max(0, i - 10); j--) {
-          const prev = rows[j][nLoteCol];
-          if (prev != null) {
-            const s = String(prev).trim().replace(/[\r\n]+/g, ' ');
-            if (s && s !== 'N°Lote' && s !== '-' && !/^\d+$/.test(s)) { plantaDestino = s; break; }
-          }
-        }
-        actual = { numero_lote: null, empresa_nombre: null, planta_destino: plantaDestino, camionadas: [], _rVals: [], _sinPeso: 0 };
+        actual = { numero_lote: null, empresa_nombre: null, planta_destino: plantaActual, camionadas: [], _rVals: [], _sinPeso: 0 };
       } else {
-        // Trigger 2: la empresa puede venir en la celda nLoteCol de la misma fila header
+        // Trigger 2: empresa viene en la celda nLoteCol de la misma fila header
         if (actual) lotes.push(actual);
         const empresaHeader = r[nLoteCol] != null ? String(r[nLoteCol]).trim() : null;
-        actual = { numero_lote: null, empresa_nombre: empresaHeader || null, planta_destino: null, camionadas: [], _rVals: [], _sinPeso: 0 };
+        actual = { numero_lote: null, empresa_nombre: empresaHeader || null, planta_destino: plantaActual, camionadas: [], _rVals: [], _sinPeso: 0 };
       }
       continue;
     }
@@ -305,13 +332,6 @@ function parsearLotes(rows) {
     delete lote._rVals;
     lote.tiene_pendientes = lote._sinPeso > 0;
     delete lote._sinPeso;
-  }
-
-  // Carry-forward: si un lote no tiene planta, hereda la del lote anterior
-  let ultimaPlanta = null;
-  for (const lote of lotes) {
-    if (lote.planta_destino) ultimaPlanta = lote.planta_destino;
-    else if (ultimaPlanta)   lote.planta_destino = ultimaPlanta;
   }
 
   return lotes.filter(l => l.camionadas.length > 0);
@@ -444,8 +464,9 @@ export default function ImportarFlujoCompletoView({ toast, setVistaActual }) {
       if (wb.SheetNames.includes(HOJA_DB)) {
         const wsDB   = wb.Sheets[HOJA_DB];
         const rowsDB = XLSX.utils.sheet_to_json(wsDB, { header: 1, defval: null, raw: true });
-        const COL_DB = detectarColsDB(rowsDB[DB_FILA_INICIO - 2] ?? []); // header row
-        for (let i = DB_FILA_INICIO - 1; i < rowsDB.length; i++) {
+        const filaHeaderDB = detectarFilaEncabezadoDB(rowsDB);
+        const COL_DB = detectarColsDB(rowsDB[filaHeaderDB] ?? []);
+        for (let i = filaHeaderDB + 1; i < rowsDB.length; i++) {
           const r       = rowsDB[i];
           const numRaw  = r[COL_DB.numero_dumpada];
           if (numRaw == null) continue;

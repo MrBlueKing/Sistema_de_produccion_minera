@@ -18,11 +18,13 @@ class TonelajeMaquina extends Model
         'tonelaje',
         'id_faena',
         'activo',
+        'es_cache',
     ];
 
     protected $casts = [
         'tonelaje' => 'decimal:2',
         'activo' => 'boolean',
+        'es_cache' => 'boolean',
     ];
 
     /**

@@ -37,4 +37,7 @@ return [
 
     'sistema_central_api' => env('SISTEMA_CENTRAL_API'),
 
+    'petroleo_api' => env('SISTEMA_PETROLEO_API'),
+    'petroleo_api_key' => env('PETROLEO_API_KEY'),
+
 ];

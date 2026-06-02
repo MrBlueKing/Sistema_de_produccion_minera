@@ -53,10 +53,10 @@ const ACCESO_HUB = {
   mezclas:         ['admin_dispatch', 'encargado_dispatch'],
   despachos:       ['admin_dispatch', 'encargado_dispatch'],
   reconstruccion:  ['admin_dispatch'],
-  importar:              ['admin_dispatch', 'encargado_dispatch'],
-  importar_mezclas:      ['admin_dispatch', 'encargado_dispatch'],
-  importar_lotes:        ['admin_dispatch', 'encargado_dispatch'],
-  importar_flujo:        ['admin_dispatch', 'encargado_dispatch'],
+  importar:              ['admin_dispatch'],
+  importar_mezclas:      ['admin_dispatch'],
+  importar_lotes:        ['admin_dispatch'],
+  importar_flujo:        ['admin_dispatch'],
   configuracion:         ['admin_dispatch'],
 };
 
@@ -129,6 +129,7 @@ function DispatchContent() {
 
   // Lista de máquinas/dumpers para el selector
   const [maquinas, setMaquinas] = useState([]);
+  const [fuenteMaquinas, setFuenteMaquinas] = useState('petroleo_api');
 
   // Estados para Mezclas
   const [dumpadasDisponibles, setDumpadasDisponibles] = useState([]);
@@ -169,11 +170,12 @@ function DispatchContent() {
   // Ref para evitar cargas concurrentes
   const loadingRef = useRef(false);
 
-  // Cargar máquinas disponibles desde el sistema de petróleo
+  // Cargar máquinas disponibles desde el sistema de petróleo (con fallback BD local)
   const loadMaquinas = useCallback(async () => {
     try {
       const res = await dispatchService.getMaquinas();
       setMaquinas(res.data || []);
+      setFuenteMaquinas(res.fuente || 'petroleo_api');
     } catch (error) {
       console.warn('⚠️ No se pudieron cargar máquinas:', error.message);
     }
@@ -1436,6 +1438,7 @@ function DispatchContent() {
             frentes={frentes}
             jornadas={jornadas}
             maquinas={maquinas}
+            fuenteMaquinas={fuenteMaquinas}
             tonelajeDumpadaDefault={tonelajeDumpadaDefault}
             usarSistemaAcopios={usarSistemaAcopios}
           />
