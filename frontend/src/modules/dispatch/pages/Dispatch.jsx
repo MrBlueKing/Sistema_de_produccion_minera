@@ -23,6 +23,7 @@ import ImportarDumpadasView from '../components/ImportarDumpadasView';
 import ImportarMezclasView from '../components/ImportarMezclasView';
 import ImportarLotesCamionadasView from '../components/ImportarLotesCamionadasView';
 import ImportarFlujoCompletoView from '../components/ImportarFlujoCompletoView';
+import CompararNumerosView from '../components/CompararNumerosView'; // [TEST]
 import IngresoView from '../components/IngresoView';
 import EnvioMuestrasView from '../components/EnvioMuestrasView';
 import { FaenaProvider, useFaena } from '../../../contexts/FaenaContext';
@@ -57,6 +58,7 @@ const ACCESO_HUB = {
   importar_mezclas:      ['admin_dispatch'],
   importar_lotes:        ['admin_dispatch'],
   importar_flujo:        ['admin_dispatch'],
+  comparar_numeros:      ['admin_dispatch'], // [TEST]
   configuracion:         ['admin_dispatch'],
 };
 
@@ -351,7 +353,7 @@ function DispatchContent() {
 
   const loadData = async () => {
     // No cargar datos en estas vistas (tienen sus propios componentes)
-    if (vistaActual === 'menu' || vistaActual === 'ingreso' || vistaActual === 'envio_muestras' || vistaActual === 'reconstruccion' || vistaActual === 'importar' || vistaActual === 'importar_mezclas' || vistaActual === 'importar_lotes' || vistaActual === 'importar_flujo') return;
+    if (vistaActual === 'menu' || vistaActual === 'ingreso' || vistaActual === 'envio_muestras' || vistaActual === 'reconstruccion' || vistaActual === 'importar' || vistaActual === 'importar_mezclas' || vistaActual === 'importar_lotes' || vistaActual === 'importar_flujo' || vistaActual === 'comparar_numeros') return;
     // Evitar cargas concurrentes
     if (loadingRef.current) {
       console.log('⏳ [DISPATCH] Carga en progreso, ignorando llamada duplicada');
@@ -845,6 +847,7 @@ function DispatchContent() {
                         vistaActual === 'importar_mezclas' ? 'Importar Mezclas' :
                         vistaActual === 'importar_lotes' ? 'Importar Lotes' :
                         vistaActual === 'importar_flujo' ? 'Importar Flujo Completo' :
+                        vistaActual === 'comparar_numeros' ? '[TEST] Comparar N° Acopio' :
                         vistaActual === 'configuracion' ? 'Configuración' : ''
                     }
                   ]
@@ -1079,6 +1082,18 @@ function DispatchContent() {
                   </div>
                   <p className="font-bold text-teal-900 text-sm leading-tight">Importar Flujo Completo</p>
                   <p className="text-teal-400 text-xs mt-0.5">Mezclas + Lotes en un paso</p>
+                </button>
+              )}
+
+              {/* [TEST] Comparar N° Acopio */}
+              {puedeVer('comparar_numeros') && (
+                <button onClick={() => setVistaActual('comparar_numeros')}
+                  className="group bg-amber-50 rounded-xl border border-amber-200 shadow-sm p-4 text-left hover:bg-amber-100 hover:border-amber-400 hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 active:scale-[0.97]">
+                  <div className="w-10 h-10 bg-amber-400 rounded-xl flex items-center justify-center mb-3 group-hover:bg-amber-500 transition-colors duration-150 shadow-sm">
+                    <HiBeaker className="w-5 h-5 text-white" />
+                  </div>
+                  <p className="font-bold text-amber-900 text-sm leading-tight">Comparar N° Acopio <span className="text-[10px] font-bold text-amber-600">[TEST]</span></p>
+                  <p className="text-amber-400 text-xs mt-0.5">Corregir numero_dumpada con Excel</p>
                 </button>
               )}
 
@@ -2024,6 +2039,11 @@ function DispatchContent() {
             toast={toast}
             setVistaActual={setVistaActual}
           />
+        )}
+
+        {/* [TEST] Vista Comparar N° Acopio */}
+        {vistaActual === 'comparar_numeros' && puedeVer('comparar_numeros') && (
+          <CompararNumerosView toast={toast} setVistaActual={setVistaActual} />
         )}
 
         {/* Vista de Reconstrucción de Lote - Solo admin */}

@@ -112,6 +112,17 @@ class DispatchService {
     return response.data;
   }
 
+  // [TEST] Comparar N°Acop Excel vs numero_dumpada BD
+  async compararNumeros(faenaId, dumpadas) {
+    const response = await api.post('/dispatch/importar/comparar-numeros', { faena_id: faenaId, dumpadas });
+    return response.data;
+  }
+
+  async actualizarNumeros(actualizaciones) {
+    const response = await api.post('/dispatch/importar/actualizar-numeros', { actualizaciones });
+    return response.data;
+  }
+
   async importarMezclasPreview(faenaId, mezclas) {
     const response = await api.post('/dispatch/importar/mezclas/preview', {
       faena_id: faenaId,

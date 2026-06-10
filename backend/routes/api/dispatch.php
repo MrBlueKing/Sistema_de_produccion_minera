@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\Dispatch\DumpadaController;
 use App\Http\Controllers\Api\Dispatch\ImportarDumpadasController;
+use App\Http\Controllers\Api\Dispatch\CompararNumerosController;
 use App\Http\Controllers\Api\Dispatch\ImportarMezclasController;
 use App\Http\Controllers\Api\Dispatch\ImportarLotesCamionadasController;
 use App\Http\Controllers\Api\Dispatch\MuestraLibreController;
@@ -292,6 +293,9 @@ Route::prefix('importar')->group(function () {
     Route::post('/mezclas/confirmar', [ImportarMezclasController::class, 'confirmar']);
     Route::post('/lotes/preview', [ImportarLotesCamionadasController::class, 'preview']);
     Route::post('/lotes/confirmar', [ImportarLotesCamionadasController::class, 'confirmar']);
+    // [TEST] Comparar y corregir numero_dumpada usando N°Acop del Excel
+    Route::post('/comparar-numeros', [CompararNumerosController::class, 'comparar']);
+    Route::post('/actualizar-numeros', [CompararNumerosController::class, 'actualizarNumeros']);
 });
 
 Route::get('/ordenes', function () {
