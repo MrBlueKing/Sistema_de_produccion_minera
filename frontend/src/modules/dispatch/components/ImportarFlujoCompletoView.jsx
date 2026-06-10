@@ -373,6 +373,13 @@ function getMesBadge(fechaStr) {
   } catch { return null; }
 }
 
+// Extrae un código de mezcla de un string de origen (ej. "Stock B1510" → "B1510")
+function extraerCodigoMezclaOrigen(origen) {
+  if (!origen) return null;
+  const m = String(origen).trim().match(/\b([A-Za-z]{1,3}\d{4,})\b/);
+  return m ? m[1].toUpperCase() : null;
+}
+
 /**
  * Parsea el campo `origen` de una dumpada (col J de la hoja Mezcla) para extraer
  * frente, jornada y fecha. Formato esperado: "{frente} AM/PM {numero} DD-MM-YYYY"
@@ -558,12 +565,23 @@ export default function ImportarFlujoCompletoView({ toast, setVistaActual }) {
     console.log('[FlujoCompleto] empresaOverrides:', empresaOverrides, '| plantaOverrides:', plantaOverrides);
     if (selArr.length === 0) { toast?.error('Selecciona al menos un lote'); return; }
 
-    const codigosNecesarios = new Set(
+    const codigosConCamionada = new Set(
       selArr.flatMap(l => l.camionadas.map(c => c.mezcla_codigo)).filter(Boolean)
     );
-    const mezclasACrear = Object.entries(mezclasExcel)
-      .filter(([cod]) => codigosNecesarios.has(cod) && !(mezclasPreview.find(m => m.codigo === cod)?.existe))
-      .map(([cod, data]) => ({
+    // Mezclas usadas solo como fuente de remanentes (ej. "Stock B1510") — no están en origen de camionadas
+    const codigosFuenteRem = new Set();
+    for (const cod of codigosConCamionada) {
+      for (const rem of (mezclasExcel[cod]?.remanentes ?? [])) {
+        const srcCod = extraerCodigoMezclaOrigen(rem.origen);
+        if (srcCod && mezclasExcel[srcCod] && !codigosConCamionada.has(srcCod))
+          codigosFuenteRem.add(srcCod);
+      }
+    }
+
+    const debeCrear = (cod) => !mezclasPreview.find(m => m.codigo === cod)?.existe;
+    const toMezclaObj = (cod) => {
+      const data = mezclasExcel[cod];
+      return {
         codigo: cod,
         dumpadas: data.dumpadas.map(d => ({
           numero_dumpada: d.numero_dumpada, toneladas: d.toneladas,
@@ -575,7 +593,10 @@ export default function ImportarFlujoCompletoView({ toast, setVistaActual }) {
           numero_paladas: rem.numero_paladas,
           origen: rem.origen || '',
         })),
-      }));
+      };
+    };
+    const fuentesACrear = [...codigosFuenteRem].filter(debeCrear).map(toMezclaObj);
+    const mezclasACrear = [...codigosConCamionada].filter(debeCrear).map(toMezclaObj);
 
     setImportando(true);
     let resDumpadas = { creadas: 0, saltadas: 0, errores: [] };
@@ -645,6 +666,16 @@ export default function ImportarFlujoCompletoView({ toast, setVistaActual }) {
             ];
           }
         }
+      }
+
+      // Paso A: crear fuentes de remanentes primero (deben existir antes que las mezclas que las referencian)
+      if (fuentesACrear.length > 0) {
+        setLoadingMsg(`Importando ${fuentesACrear.length} mezcla${fuentesACrear.length !== 1 ? 's' : ''} base (remanentes)…`);
+        const r = await dispatchService.importarMezclasConfirmar(faenaId, null, fuentesACrear);
+        resMezclas.creadas          += r.creadas  ?? 0;
+        resMezclas.saltadas         += r.saltadas ?? 0;
+        resMezclas.saltadas_detalle  = [...resMezclas.saltadas_detalle, ...(r.saltadas_detalle ?? [])];
+        resMezclas.errores           = [...resMezclas.errores, ...(r.errores ?? [])];
       }
 
       if (mezclasACrear.length > 0) {
@@ -843,6 +874,49 @@ export default function ImportarFlujoCompletoView({ toast, setVistaActual }) {
             ))}
           </div>
 
+          {/* Mezclas fuente de remanentes */}
+          {(() => {
+            const codigosConCam = new Set(
+              lotesParseados.flatMap(l => l.camionadas.map(c => c.mezcla_codigo)).filter(Boolean)
+            );
+            const fuentes = [];
+            for (const cod of codigosConCam) {
+              for (const rem of (mezclasExcel[cod]?.remanentes ?? [])) {
+                const srcCod = extraerCodigoMezclaOrigen(rem.origen);
+                if (srcCod && mezclasExcel[srcCod] && !codigosConCam.has(srcCod) && !fuentes.includes(srcCod))
+                  fuentes.push(srcCod);
+              }
+            }
+            if (fuentes.length === 0) return null;
+            const nuevas = fuentes.filter(cod => !mezclasPreview.find(m => m.codigo === cod)?.existe);
+            return (
+              <div className="bg-violet-50 border border-violet-200 rounded-xl p-4">
+                <p className="text-sm font-bold text-violet-800 mb-1.5 flex items-center gap-2">
+                  <HiBeaker className="w-4 h-4" />
+                  {fuentes.length} mezcla{fuentes.length !== 1 ? 's' : ''} fuente de remanentes
+                  {nuevas.length > 0 && (
+                    <span className="text-xs bg-violet-200 text-violet-800 px-2 py-0.5 rounded-full font-semibold">
+                      {nuevas.length} se crearán
+                    </span>
+                  )}
+                </p>
+                <p className="text-xs text-violet-600 mb-2">
+                  No son origen de ninguna camionada, pero se usan como "Stock" en otras mezclas. Se crean antes que las mezclas que las referencian.
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {fuentes.map(cod => {
+                    const existe = mezclasPreview.find(m => m.codigo === cod)?.existe;
+                    return (
+                      <span key={cod} className={`font-mono text-xs px-2 py-0.5 rounded font-bold ${existe ? 'bg-blue-100 text-blue-700' : 'bg-violet-200 text-violet-800'}`}>
+                        {cod}
+                      </span>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Desglose mensual */}
           {(() => {
             const selectedLotes = lotesParseados.filter(l => seleccionadas[l.numero_lote]);
@@ -1037,6 +1111,14 @@ export default function ImportarFlujoCompletoView({ toast, setVistaActual }) {
                         </span>
                       )}
                       <span className="text-xs text-gray-400">{parsedLote?.camionadas.length ?? 0} cam · {mezCods.length} mezcla{mezCods.length !== 1 ? 's' : ''}</span>
+                      {mezCods.map(cod => {
+                        const prevM = mezclasPreview.find(m => m.codigo === cod);
+                        return (
+                          <span key={cod} className={`font-mono text-xs px-1.5 py-0.5 rounded-md font-bold ${prevM?.existe ? 'bg-blue-100 text-blue-700' : 'bg-violet-100 text-violet-700'}`}>
+                            {cod}
+                          </span>
+                        );
+                      })}
                       <div className="ml-auto flex items-center gap-2">
                         <select value={plantaOverrides[l.numero_lote] ?? ''}
                           onChange={e => setPlantaOverrides(p => ({ ...p, [l.numero_lote]: e.target.value }))}
