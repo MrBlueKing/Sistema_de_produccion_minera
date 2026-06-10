@@ -547,14 +547,16 @@ class DumpadaController extends Controller
         // Determinar el rango automáticamente si cambió la ley
         $rango = $request->ley ? Dumpada::determinarRango($request->ley) : $dumpada->rango;
 
-        // Actualizar estado basado en los datos proporcionados
-        // Solo hay 2 estados: "Ingresado" (sin datos) o "Completado" (con todos los datos)
         $ley = $request->ley ?? $dumpada->ley;
         // Recalcular ley_cup automáticamente si hay ley
         $leyCup = $ley ? Dumpada::calcularCapping($ley, $frente->id_faena) : null;
         $certificado = $request->certificado ?? $dumpada->certificado;
 
-        if ($ley && $leyCup && $certificado) {
+        // Si el lab ya completó el análisis (Completado), preservar ese estado.
+        // Dispatch no debe revertir un análisis completado aunque certificado sea NULL.
+        if ($dumpada->estado === Dumpada::ESTADO_COMPLETADO) {
+            $estado = Dumpada::ESTADO_COMPLETADO;
+        } elseif ($ley && $leyCup && $certificado) {
             $estado = Dumpada::ESTADO_COMPLETADO;
         } else {
             $estado = Dumpada::ESTADO_INGRESADO;

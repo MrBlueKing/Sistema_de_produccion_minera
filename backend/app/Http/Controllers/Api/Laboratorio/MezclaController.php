@@ -391,18 +391,13 @@ class MezclaController extends Controller
      * Obtener mezclas con remanentes disponibles
      * GET /api/mezclas/remanentes-disponibles
      *
-     * Un remanente es una mezcla que:
-     * 1. Ya ha sido despachada parcialmente (toneladas_despachadas > 0)
-     * 2. Aún tiene material disponible (toneladas_disponibles > 0)
-     * 3. Es de un lote que fue cerrado (estado En Despacho o Despachado)
+     * Retorna cualquier mezcla con toneladas_disponibles > 0 (incluyendo recién creadas).
      */
     public function remanentesDisponibles(Request $request)
     {
         try {
             $query = Mezcla::where('toneladas_disponibles', '>', 0.01)
-                ->where('toneladas_despachadas', '>', 0) // Solo si ya se despachó algo
-                ->whereIn('estado', ['En Despacho', 'Despachado']) // Solo mezclas en proceso o completadas
-                ->where('es_descarte', false) // Excluir descartados
+                ->where('es_descarte', false)
                 ->select([
                     'id',
                     'codigo',
