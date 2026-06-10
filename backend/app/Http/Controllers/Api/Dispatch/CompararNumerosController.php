@@ -13,11 +13,13 @@ use Illuminate\Support\Facades\Log;
 
 /**
  * [TEST] Comparar N°Acopio del Excel con numero_dumpada en BD.
- * Matching por: fecha + frente + jornada, luego posición dentro del grupo.
+ * Matching: fecha + frente + jornada → ley (primario) → posicional (fallback).
  */
 class CompararNumerosController extends Controller
 {
     use MultiTenancy;
+
+    private const LEY_TOLERANCIA = 0.01; // ±0.01% para considerar leyes iguales
 
     private function normalizarFrente(string $nombre): string
     {
@@ -31,21 +33,79 @@ class CompararNumerosController extends Controller
     }
 
     /**
+     * Match Excel rows → BD dumpadas dentro de un grupo (mismo fecha+frente+jornada).
+     *
+     * Paso 1 — Por ley: para cada fila Excel con ley conocida, busca la BD
+     *   dumpada cuya ley esté dentro de la tolerancia. Solo asigna si el match
+     *   es único (1 candidato).
+     *
+     * Paso 2 — Posicional: las filas Excel y BD que quedaron sin asignar se
+     *   emparejan por orden (pos 0→0, 1→1, ...).
+     *
+     * @param  array      $excelRows  Filas del Excel para el grupo
+     * @param  \Illuminate\Support\Collection $dbDumpadas  Dumpadas BD ordenadas
+     * @return array  Mapa excel_idx → ['db_idx' => int|null, 'tipo' => 'ley'|'posicional']
+     */
+    private function matchGrupo(array $excelRows, $dbDumpadas): array
+    {
+        $excelToDb  = [];   // excel_idx → ['db_idx', 'tipo']
+        $dbUsados   = [];   // db_idx → true
+
+        // ── Paso 1: match por ley ─────────────────────────────────────────────
+        foreach ($excelRows as $exIdx => $exRow) {
+            $exLey = $exRow['excel_ley'];
+            if ($exLey === null) continue;
+
+            $candidatos = [];
+            foreach ($dbDumpadas as $dbIdx => $dbRow) {
+                if (isset($dbUsados[$dbIdx])) continue;
+                if ($dbRow->ley === null) continue;
+                if (abs((float) $dbRow->ley - $exLey) <= self::LEY_TOLERANCIA) {
+                    $candidatos[] = $dbIdx;
+                }
+            }
+
+            if (count($candidatos) === 1) {
+                $dbIdx = $candidatos[0];
+                $excelToDb[$exIdx] = ['db_idx' => $dbIdx, 'tipo' => 'ley'];
+                $dbUsados[$dbIdx]  = true;
+            }
+            // Si hay 0 o múltiples candidatos: deja sin asignar para el paso 2
+        }
+
+        // ── Paso 2: posicional para los que quedaron sin asignar ──────────────
+        $excelSinAsignar = array_values(
+            array_filter(range(0, count($excelRows) - 1), fn($i) => !isset($excelToDb[$i]))
+        );
+        $dbSinAsignar = array_values(
+            array_filter(range(0, $dbDumpadas->count() - 1), fn($i) => !isset($dbUsados[$i]))
+        );
+
+        foreach ($excelSinAsignar as $pos => $exIdx) {
+            if (isset($dbSinAsignar[$pos])) {
+                $excelToDb[$exIdx] = ['db_idx' => $dbSinAsignar[$pos], 'tipo' => 'posicional'];
+            } else {
+                $excelToDb[$exIdx] = ['db_idx' => null, 'tipo' => 'sin_match'];
+            }
+        }
+
+        return $excelToDb;
+    }
+
+    /**
      * Compara las filas del Excel con las dumpadas existentes en BD.
      * POST /api/dispatch/importar/comparar-numeros
-     * Body: { faena_id, dumpadas: [{punto, jornada, fecha, numero_dumpada, ley, ton, acopios}, ...] }
      */
     public function comparar(Request $request)
     {
         $faenaId       = $request->input('faena_id');
         $dumpadasInput = $request->input('dumpadas', []);
 
-        // Cache frentes BD indexado por nombre normalizado
         $frentesCache = FrenteTrabajo::where('id_faena', $faenaId)
             ->get()
             ->keyBy(fn($f) => $this->normalizarFrente($f->codigo_completo));
 
-        $grupos          = [];
+        $grupos               = [];
         $frentesNoEncontrados = [];
 
         foreach ($dumpadasInput as $d) {
@@ -67,11 +127,10 @@ class CompararNumerosController extends Controller
 
             $grupos[$key][] = [
                 'excel_numero'      => (string) ($d['numero_dumpada'] ?? ''),
-                'excel_acopios'     => $d['acopios']      ?? '',
-                'excel_ley'         => isset($d['ley'])   ? (float) $d['ley']   : null,
-                'excel_ton'         => isset($d['ton'])   ? (float) $d['ton']   : null,
-                'excel_certificado' => $d['certificado']  ?? null,
-                'frente_id'         => $frente->id,
+                'excel_acopios'     => $d['acopios']     ?? '',
+                'excel_ley'         => isset($d['ley'])  ? (float) $d['ley']  : null,
+                'excel_ton'         => isset($d['ton'])  ? (float) $d['ton']  : null,
+                'excel_certificado' => $d['certificado'] ?? null,
                 'frente_codigo'     => $frente->codigo_completo,
                 'fecha'             => $fecha,
                 'jornada'           => $jornada,
@@ -92,8 +151,13 @@ class CompararNumerosController extends Controller
                        'nombre_maquina', 'ton', 'fecha', 'jornada', 'numero_jornada', 'estado'])
                 ->values();
 
-            foreach ($excelRows as $pos => $excelRow) {
-                $dbRow      = $dbDumpadas->get($pos);
+            // Match mejorado: ley primero, posicional como fallback
+            $matchMap = $this->matchGrupo($excelRows, $dbDumpadas);
+
+            foreach ($excelRows as $exIdx => $excelRow) {
+                $match      = $matchMap[$exIdx] ?? ['db_idx' => null, 'tipo' => 'sin_match'];
+                $dbRow      = $match['db_idx'] !== null ? $dbDumpadas->get($match['db_idx']) : null;
+                $matchTipo  = $match['tipo'];
                 $yaCoincide = $dbRow && (string) $dbRow->numero_dumpada === $excelRow['excel_numero'];
 
                 $resultados[] = [
@@ -118,13 +182,13 @@ class CompararNumerosController extends Controller
                     'frente_codigo' => $excelRow['frente_codigo'],
                     'fecha'         => $excelRow['fecha'],
                     'jornada'       => $excelRow['jornada'],
-                    'posicion'      => $pos + 1,
+                    'posicion'      => $exIdx + 1,
+                    'match_tipo'    => $matchTipo,   // 'ley' | 'posicional' | 'sin_match'
                     'ya_coincide'   => $yaCoincide,
                 ];
             }
         }
 
-        // Ordenar: fecha desc → frente → jornada
         usort($resultados, function ($a, $b) {
             $ka = "{$b['fecha']}_{$a['frente_codigo']}_{$a['jornada']}";
             $kb = "{$a['fecha']}_{$b['frente_codigo']}_{$b['jornada']}";
@@ -145,7 +209,6 @@ class CompararNumerosController extends Controller
     /**
      * Aplica la actualización de numero_dumpada y regenera acopios.
      * POST /api/dispatch/importar/actualizar-numeros
-     * Body: { actualizaciones: [{dumpada_id, nuevo_numero_dumpada}, ...] }
      */
     public function actualizarNumeros(Request $request)
     {

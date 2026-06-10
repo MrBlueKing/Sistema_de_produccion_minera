@@ -133,10 +133,10 @@ export default function CompararNumerosView({ toast, setVistaActual }) {
       const res = await dispatchService.compararNumeros(faenaId, parsedDumpadas);
       setResultados(res);
 
-      // Pre-seleccionar los que tienen match en BD y el número no coincide
+      // Pre-seleccionar solo los match por LEY (confianza alta), no los posicionales
       const presel = new Set(
         res.resultados
-          .filter(r => r.db && !r.ya_coincide)
+          .filter(r => r.db && !r.ya_coincide && r.match_tipo === 'ley')
           .map(r => r.db.id)
       );
       setSeleccionados(presel);
@@ -311,7 +311,7 @@ export default function CompararNumerosView({ toast, setVistaActual }) {
                   <th className="py-2 px-3 text-left">Fecha</th>
                   <th className="py-2 px-3 text-left">Frente</th>
                   <th className="py-2 px-3 text-center">Jornada</th>
-                  <th className="py-2 px-3 text-center">Pos.</th>
+                  <th className="py-2 px-3 text-center">Confianza</th>
                   <th className="py-2 px-3 text-right font-semibold text-amber-700">N°Acop Excel</th>
                   <th className="py-2 px-3 text-right font-semibold text-blue-700">N° BD actual</th>
                   <th className="py-2 px-3 text-right">Ley Excel</th>
@@ -352,7 +352,16 @@ export default function CompararNumerosView({ toast, setVistaActual }) {
                         <td className="py-2 px-3 text-center">
                           <span className="px-1.5 py-0.5 bg-gray-100 rounded text-gray-600 font-semibold">{r.jornada}</span>
                         </td>
-                        <td className="py-2 px-3 text-center text-gray-400">{r.posicion}</td>
+                        {/* Confianza del match */}
+                        <td className="py-2 px-3 text-center">
+                          {sinMatch ? (
+                            <span className="text-[10px] font-bold text-red-500">Sin match</span>
+                          ) : r.match_tipo === 'ley' ? (
+                            <span className="text-[10px] font-bold text-green-600 bg-green-50 border border-green-200 px-1.5 py-0.5 rounded-full" title="Match encontrado por ley coincidente">✅ Ley</span>
+                          ) : (
+                            <span className="text-[10px] font-bold text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full" title="Match por posición — verificar manualmente">⚠️ Posic.</span>
+                          )}
+                        </td>
 
                         {/* N° Excel */}
                         <td className="py-2 px-3 text-right font-mono font-bold text-amber-700">
