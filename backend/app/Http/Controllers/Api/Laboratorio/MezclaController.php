@@ -133,6 +133,17 @@ class MezclaController extends Controller
     }
 
     /**
+     * Preview del próximo código de mezcla para una planta dada.
+     * GET /api/mezclas/preview-codigo?planta_id=X
+     */
+    public function previewCodigo(Request $request)
+    {
+        $plantaId = $request->input('planta_id');
+        $codigo   = Mezcla::generarCodigo($plantaId ? (int) $plantaId : null);
+        return response()->json(['codigo' => $codigo]);
+    }
+
+    /**
      * Obtener una mezcla específica
      * GET /api/mezclas/{id}
      */
@@ -421,7 +432,7 @@ class MezclaController extends Controller
                 Log::info('🔒 [MEZCLAS REMANENTES] Filtrando por faena de usuario', ['id_faena' => $request->auth_faena]);
             }
 
-            $mezclas = $query->orderBy('fecha', 'desc')->get();
+            $mezclas = $query->orderByRaw('fecha DESC, CAST(REGEXP_REPLACE(codigo, "[^0-9]", "") AS UNSIGNED) DESC')->get();
 
             return response()->json($mezclas);
 

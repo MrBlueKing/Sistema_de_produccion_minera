@@ -53,7 +53,7 @@ class DumpadaController extends Controller
         $idFaena = $request->get('id_faena');
 
         $query = Dumpada::with(['frenteTrabajo.tipoFrente'])
-            ->orderBy('id', 'desc'); // Ordenar por ID descendente (los más recientes primero)
+            ->orderByRaw('DATE(fecha) DESC, CAST(numero_dumpada AS UNSIGNED) DESC');
 
         // ✅ MULTI-FAENA: Respeta roles de usuario
         Log::info('🔍 [DUMPADAS] Filtro de faena', [

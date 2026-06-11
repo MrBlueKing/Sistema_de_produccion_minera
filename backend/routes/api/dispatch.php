@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\Dispatch\DumpadaController;
 use App\Http\Controllers\Api\Dispatch\ImportarDumpadasController;
 use App\Http\Controllers\Api\Dispatch\CompararNumerosController;
+use App\Http\Controllers\Api\Dispatch\CompararMezclasController;
 use App\Http\Controllers\Api\Dispatch\ImportarMezclasController;
 use App\Http\Controllers\Api\Dispatch\ImportarLotesCamionadasController;
 use App\Http\Controllers\Api\Dispatch\MuestraLibreController;
@@ -132,6 +133,9 @@ Route::prefix('tronaduras')->group(function () {
 Route::prefix('mezclas')->group(function () {
     // Listar mezclas
     Route::get('/', [MezclaController::class, 'index']);
+
+    // Preview del próximo código para una planta
+    Route::get('/preview-codigo', [MezclaController::class, 'previewCodigo']);
 
     // Obtener dumpadas disponibles
     Route::get('/dumpadas-disponibles', [MezclaController::class, 'dumpadasDisponibles']);
@@ -296,6 +300,9 @@ Route::prefix('importar')->group(function () {
     // [TEST] Comparar y corregir numero_dumpada usando N°Acop del Excel
     Route::post('/comparar-numeros', [CompararNumerosController::class, 'comparar']);
     Route::post('/actualizar-numeros', [CompararNumerosController::class, 'actualizarNumeros']);
+    // [TEST] Comparar y corregir código de mezcla usando Excel
+    Route::post('/comparar-mezclas', [CompararMezclasController::class, 'comparar']);
+    Route::post('/actualizar-mezclas', [CompararMezclasController::class, 'actualizarCodigos']);
 });
 
 Route::get('/ordenes', function () {

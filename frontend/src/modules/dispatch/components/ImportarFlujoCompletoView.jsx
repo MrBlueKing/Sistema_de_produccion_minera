@@ -373,6 +373,38 @@ function getMesBadge(fechaStr) {
   } catch { return null; }
 }
 
+// Resuelve recursivamente todas las mezclas "fuente de remanentes" del Excel.
+// Parte desde TODOS los lotes (no solo los seleccionados) para no perder cadenas
+// como B1504(mayo) → B1497(abril) → B1486(abril).
+// Solo incluye mezclas que NO son origen de ninguna camionada (verdaderas "B" stock).
+function resolverFuentesRemanentes(todosLosLotes, mezclasExcel) {
+  const allConCamionada = new Set(
+    todosLosLotes.flatMap(l => l.camionadas.map(c => c.mezcla_codigo)).filter(Boolean)
+  );
+  const visitados = new Set(allConCamionada);
+  const cola = [...allConCamionada];
+  const fuentes = new Set();
+  while (cola.length > 0) {
+    const cod = cola.shift();
+    for (const rem of (mezclasExcel[cod]?.remanentes ?? [])) {
+      const srcCod = extraerCodigoMezclaOrigen(rem.origen);
+      if (srcCod && mezclasExcel[srcCod] && !visitados.has(srcCod)) {
+        visitados.add(srcCod);
+        fuentes.add(srcCod);
+        cola.push(srcCod);
+      }
+    }
+  }
+  // También incluir mezclas del Excel que no son origen de ninguna camionada
+  // pero tampoco fueron alcanzadas por el BFS (mezclas "huérfanas" sin referenciador)
+  for (const cod of Object.keys(mezclasExcel)) {
+    if (!allConCamionada.has(cod) && !visitados.has(cod) && (mezclasExcel[cod]?.dumpadas?.length ?? 0) > 0) {
+      fuentes.add(cod);
+    }
+  }
+  return new Set([...fuentes].filter(cod => !allConCamionada.has(cod)));
+}
+
 // Extrae un código de mezcla de un string de origen (ej. "Stock B1510" → "B1510")
 function extraerCodigoMezclaOrigen(origen) {
   if (!origen) return null;
@@ -421,8 +453,10 @@ export default function ImportarFlujoCompletoView({ toast, setVistaActual }) {
   const [seleccionadas, setSeleccionadas]       = useState({});
   const [empresaOverrides, setEmpresaOverrides] = useState({});
   const [plantaOverrides, setPlantaOverrides]   = useState({});
+  const [fuentesSeleccionadas, setFuentesSeleccionadas] = useState(new Set());
   const [expandidosLote, setExpandidosLote]     = useState({});
   const [expandidosMezcla, setExpandidosMezcla] = useState({});
+  const [fechaLimite, setFechaLimite]           = useState('');
   const [resultado, setResultado] = useState(null);
   const [dumpadasDBSheet, setDumpadasDBSheet] = useState(new Map());
 
@@ -552,6 +586,8 @@ export default function ImportarFlujoCompletoView({ toast, setVistaActual }) {
       setSeleccionadas(sel);
       setEmpresaOverrides(empOvr);
       setPlantaOverrides(pltOvr);
+      // Inicializar fuentes de remanentes: todas seleccionadas por defecto
+      setFuentesSeleccionadas(resolverFuentesRemanentes(lotesParseados, mezclasExcel));
       setStep(1);
     } catch (err) {
       toast?.error('Error al validar: ' + (err.response?.data?.message || err.message));
@@ -568,15 +604,8 @@ export default function ImportarFlujoCompletoView({ toast, setVistaActual }) {
     const codigosConCamionada = new Set(
       selArr.flatMap(l => l.camionadas.map(c => c.mezcla_codigo)).filter(Boolean)
     );
-    // Mezclas usadas solo como fuente de remanentes (ej. "Stock B1510") — no están en origen de camionadas
-    const codigosFuenteRem = new Set();
-    for (const cod of codigosConCamionada) {
-      for (const rem of (mezclasExcel[cod]?.remanentes ?? [])) {
-        const srcCod = extraerCodigoMezclaOrigen(rem.origen);
-        if (srcCod && mezclasExcel[srcCod] && !codigosConCamionada.has(srcCod))
-          codigosFuenteRem.add(srcCod);
-      }
-    }
+    // Fuentes de remanentes: BFS desde TODOS los lotes para capturar cadenas transitivas
+    const codigosFuenteRem = resolverFuentesRemanentes(lotesParseados, mezclasExcel);
 
     const debeCrear = (cod) => !mezclasPreview.find(m => m.codigo === cod)?.existe;
     const toMezclaObj = (cod) => {
@@ -595,8 +624,12 @@ export default function ImportarFlujoCompletoView({ toast, setVistaActual }) {
         })),
       };
     };
-    const fuentesACrear = [...codigosFuenteRem].filter(debeCrear).map(toMezclaObj);
+    const fuentesACrear = [...codigosFuenteRem].filter(cod => fuentesSeleccionadas.has(cod) && debeCrear(cod)).map(toMezclaObj);
     const mezclasACrear = [...codigosConCamionada].filter(debeCrear).map(toMezclaObj);
+    console.log('[FlujoCompleto] fuentesSeleccionadas:', [...fuentesSeleccionadas]);
+    console.log('[FlujoCompleto] codigosFuenteRem:', [...codigosFuenteRem]);
+    console.log('[FlujoCompleto] fuentesACrear:', fuentesACrear.map(m => m.codigo));
+    console.log('[FlujoCompleto] mezclasACrear:', mezclasACrear.map(m => m.codigo));
 
     setImportando(true);
     let resDumpadas = { creadas: 0, saltadas: 0, errores: [] };
@@ -876,19 +909,9 @@ export default function ImportarFlujoCompletoView({ toast, setVistaActual }) {
 
           {/* Mezclas fuente de remanentes */}
           {(() => {
-            const codigosConCam = new Set(
-              lotesParseados.flatMap(l => l.camionadas.map(c => c.mezcla_codigo)).filter(Boolean)
-            );
-            const fuentes = [];
-            for (const cod of codigosConCam) {
-              for (const rem of (mezclasExcel[cod]?.remanentes ?? [])) {
-                const srcCod = extraerCodigoMezclaOrigen(rem.origen);
-                if (srcCod && mezclasExcel[srcCod] && !codigosConCam.has(srcCod) && !fuentes.includes(srcCod))
-                  fuentes.push(srcCod);
-              }
-            }
+            const fuentes = [...resolverFuentesRemanentes(lotesParseados, mezclasExcel)];
             if (fuentes.length === 0) return null;
-            const nuevas = fuentes.filter(cod => !mezclasPreview.find(m => m.codigo === cod)?.existe);
+            const nuevas = fuentes.filter(cod => !mezclasPreview.find(m => m.codigo === cod)?.existe && fuentesSeleccionadas.has(cod));
             return (
               <div className="bg-violet-50 border border-violet-200 rounded-xl p-4">
                 <p className="text-sm font-bold text-violet-800 mb-1.5 flex items-center gap-2">
@@ -902,14 +925,41 @@ export default function ImportarFlujoCompletoView({ toast, setVistaActual }) {
                 </p>
                 <p className="text-xs text-violet-600 mb-2">
                   No son origen de ninguna camionada, pero se usan como "Stock" en otras mezclas. Se crean antes que las mezclas que las referencian.
+                  <span className="ml-1 text-violet-500">· Desmarca las que no quieres crear ahora.</span>
                 </p>
                 <div className="flex flex-wrap gap-1.5">
-                  {fuentes.map(cod => {
+                  {[...fuentes].sort((a, b) => {
+                    const fa = parsearOrigenDumpada(mezclasExcel[a]?.dumpadas?.[0]?.origen)?.fecha ?? '';
+                    const fb = parsearOrigenDumpada(mezclasExcel[b]?.dumpadas?.[0]?.origen)?.fecha ?? '';
+                    return fa.localeCompare(fb);
+                  }).map(cod => {
                     const existe = mezclasPreview.find(m => m.codigo === cod)?.existe;
+                    const marcada = fuentesSeleccionadas.has(cod);
+                    const primerOrigen = mezclasExcel[cod]?.dumpadas?.[0]?.origen;
+                    const fechaData = parsearOrigenDumpada(primerOrigen);
+                    const MESES = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic'];
+                    const mesLabel = fechaData?.fecha
+                      ? (() => { const [y,m] = fechaData.fecha.split('-'); return `${MESES[parseInt(m,10)-1]} ${y}`; })()
+                      : null;
                     return (
-                      <span key={cod} className={`font-mono text-xs px-2 py-0.5 rounded font-bold ${existe ? 'bg-blue-100 text-blue-700' : 'bg-violet-200 text-violet-800'}`}>
+                      <label key={cod} className={`flex items-center gap-1 font-mono text-xs px-2 py-1 rounded font-bold cursor-pointer select-none border ${
+                        existe
+                          ? 'bg-blue-100 text-blue-700 border-blue-200'
+                          : marcada
+                            ? 'bg-violet-200 text-violet-800 border-violet-300'
+                            : 'bg-gray-100 text-gray-400 border-gray-200 line-through'
+                      }`}>
+                        <input type="checkbox" checked={marcada} onChange={e => {
+                          setFuentesSeleccionadas(prev => {
+                            const next = new Set(prev);
+                            e.target.checked ? next.add(cod) : next.delete(cod);
+                            return next;
+                          });
+                        }} className="accent-violet-600 w-3 h-3" />
                         {cod}
-                      </span>
+                        {mesLabel && <span className="text-[10px] font-normal ml-0.5 text-gray-400">{mesLabel}</span>}
+                        {existe && <span className="text-[10px] font-normal ml-0.5 text-blue-500">BD</span>}
+                      </label>
                     );
                   })}
                 </div>
@@ -1071,7 +1121,7 @@ export default function ImportarFlujoCompletoView({ toast, setVistaActual }) {
                 <HiSparkles className="w-4 h-4 text-teal-500" />
                 Flujo completo — Lote → Mezcla → Dumpadas / Camionadas
               </p>
-              <div className="flex gap-2 text-xs">
+              <div className="flex flex-wrap items-center gap-2 text-xs">
                 <button onClick={() => { const s = {}; lotesPreview.forEach(l => { s[l.numero_lote] = !l.existe; }); setSeleccionadas(s); }}
                   className="text-teal-600 hover:underline font-semibold">Solo nuevos</button>
                 <span className="text-gray-300">|</span>
@@ -1080,6 +1130,36 @@ export default function ImportarFlujoCompletoView({ toast, setVistaActual }) {
                 <span className="text-gray-300">|</span>
                 <button onClick={() => { const s = {}; lotesPreview.forEach(l => { s[l.numero_lote] = false; }); setSeleccionadas(s); }}
                   className="text-gray-400 hover:underline">Ninguno</button>
+                <span className="text-gray-300">|</span>
+                {/* Filtro por fecha */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-gray-500">Hasta:</span>
+                  <input
+                    type="date"
+                    value={fechaLimite}
+                    onChange={e => setFechaLimite(e.target.value)}
+                    className="border border-gray-300 rounded px-1.5 py-0.5 text-xs text-gray-700"
+                  />
+                  {fechaLimite && (
+                    <button
+                      onClick={() => {
+                        const s = {};
+                        lotesParseados.forEach(lote => {
+                          const fechas = (lote.camionadas ?? []).map(c => c.fecha_despacho).filter(Boolean).sort();
+                          const primera = fechas[0];
+                          s[lote.numero_lote] = primera ? primera <= fechaLimite : false;
+                        });
+                        setSeleccionadas(s);
+                      }}
+                      className="bg-teal-600 text-white px-2 py-0.5 rounded font-semibold hover:bg-teal-700"
+                    >
+                      Aplicar
+                    </button>
+                  )}
+                  {fechaLimite && (
+                    <button onClick={() => setFechaLimite('')} className="text-gray-400 hover:text-gray-600">×</button>
+                  )}
+                </div>
               </div>
             </div>
 

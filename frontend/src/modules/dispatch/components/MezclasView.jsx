@@ -63,6 +63,8 @@ export default function MezclasView({
     observaciones: '',
   });
   const [plantas, setPlantas] = useState([]);
+  const [codigoPreview, setCodigoPreview] = useState('');
+  const [codigoEditado, setCodigoEditado] = useState(false);
   const [mezclaSeleccionada, setMezclaSeleccionada] = useState(null);
   const [loteRemanenteSeleccionado, setLoteRemanenteSeleccionado] = useState('');
 
@@ -82,6 +84,11 @@ export default function MezclasView({
   const [remanentesDisponibles, setRemanentesDisponibles] = useState([]);
   const [remanentesSeleccionados, setRemanentesSeleccionados] = useState([]); // Array de {mezcla_id, toneladas, numero_paladas?}
   const [remanenteModos, setRemanenteModos] = useState({}); // {[mezcla_id]: 'ton' | 'paladas'}
+  const [remSearch, setRemSearch]           = useState('');
+  const [remFechaDesde, setRemFechaDesde]   = useState('');
+  const [remFechaHasta, setRemFechaHasta]   = useState('');
+  const [remPagina, setRemPagina]           = useState(1);
+  const REM_PER_PAGE = 10;
 
   // Estados para edición de mezcla (agregar/quitar dumpadas)
   const [modoAgregarDumpadas, setModoAgregarDumpadas] = useState(false);
@@ -649,7 +656,7 @@ export default function MezclasView({
 
     try {
       const data = {
-        codigo: formDataMezcla.codigo || null,
+        codigo: codigoEditado ? (formDataMezcla.codigo || null) : (codigoPreview || null),
         fecha: new Date().toISOString().split('T')[0], // Siempre usar fecha actual
         planta_id: parseInt(formDataMezcla.planta_id),
         id_faena: faenaUsuario ?? null,
@@ -699,6 +706,8 @@ export default function MezclasView({
       setLoteRemanenteSeleccionado('');
       setRemanentesSeleccionados([]);
       setRemanenteModos({});
+      setCodigoPreview('');
+      setCodigoEditado(false);
 
       // Recargar datos
       await loadData();
@@ -1468,7 +1477,7 @@ export default function MezclasView({
         {/* Selección de Remanentes (Mezclas con toneladas disponibles) */}
         {remanentesDisponibles.length > 0 && (
           <Card className="mb-6 border-l-4 border-orange-400">
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-3">
               <div>
                 <h3 className="text-xl font-bold text-gray-900">
                   🔄 Remanentes Disponibles ({remanentesSeleccionados.length} seleccionados)
@@ -1478,6 +1487,46 @@ export default function MezclasView({
                 </p>
               </div>
             </div>
+
+            {/* Filtros */}
+            <div className="flex flex-wrap gap-2 mb-3 p-3 bg-orange-50 rounded-lg border border-orange-100">
+              <input
+                type="text"
+                placeholder="Buscar por código..."
+                value={remSearch}
+                onChange={e => { setRemSearch(e.target.value); setRemPagina(1); }}
+                className="flex-1 min-w-[140px] px-3 py-1.5 text-sm border border-orange-200 rounded-lg focus:outline-none focus:border-orange-400"
+              />
+              <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                <span>Desde:</span>
+                <input type="date" value={remFechaDesde} onChange={e => { setRemFechaDesde(e.target.value); setRemPagina(1); }}
+                  className="px-2 py-1.5 text-xs border border-orange-200 rounded-lg focus:outline-none focus:border-orange-400" />
+              </div>
+              <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                <span>Hasta:</span>
+                <input type="date" value={remFechaHasta} onChange={e => { setRemFechaHasta(e.target.value); setRemPagina(1); }}
+                  className="px-2 py-1.5 text-xs border border-orange-200 rounded-lg focus:outline-none focus:border-orange-400" />
+              </div>
+              {(remSearch || remFechaDesde || remFechaHasta) && (
+                <button onClick={() => { setRemSearch(''); setRemFechaDesde(''); setRemFechaHasta(''); setRemPagina(1); }}
+                  className="text-xs text-orange-600 hover:underline font-semibold">
+                  Limpiar
+                </button>
+              )}
+              <span className="text-xs text-gray-400 self-center ml-auto">
+                {(() => {
+                  const visible = remanentesDisponibles.filter(m => {
+                    if (remSearch && !m.codigo.toLowerCase().includes(remSearch.toLowerCase())) return false;
+                    if (remFechaDesde && m.fecha < remFechaDesde) return false;
+                    if (remFechaHasta && m.fecha > remFechaHasta) return false;
+                    return true;
+                  }).length;
+                  return `${visible} de ${remanentesDisponibles.length}`;
+                })()}
+              </span>
+            </div>
+            {/* reset página al cambiar filtros */}
+            {null /* side-effect via key prop on table */}
 
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -1494,7 +1543,18 @@ export default function MezclasView({
                   </tr>
                 </thead>
                 <tbody>
-                  {remanentesDisponibles.map((mezcla, index) => {
+                  {(() => {
+                    const remFiltrados = remanentesDisponibles.filter(m => {
+                      if (remSearch && !m.codigo.toLowerCase().includes(remSearch.toLowerCase())) return false;
+                      if (remFechaDesde && m.fecha < remFechaDesde) return false;
+                      if (remFechaHasta && m.fecha > remFechaHasta) return false;
+                      return true;
+                    });
+                    const remLastPage = Math.max(1, Math.ceil(remFiltrados.length / REM_PER_PAGE));
+                    const remPaginaReal = Math.min(remPagina, remLastPage);
+                    const remPaginados = remFiltrados.slice((remPaginaReal - 1) * REM_PER_PAGE, remPaginaReal * REM_PER_PAGE);
+                    return remPaginados;
+                  })().map((mezcla, index) => {
                     const remanenteSeleccionado = remanentesSeleccionados.find(r => r.mezcla_id === mezcla.id);
                     const modoActual = remanenteModos[mezcla.id] || 'ton';
                     const toneladasUsadas = remanenteSeleccionado ? parseFloat(remanenteSeleccionado.toneladas) : 0;
@@ -1686,6 +1746,44 @@ export default function MezclasView({
               </table>
             </div>
 
+            {/* Paginación remanentes */}
+            {(() => {
+              const total = remanentesDisponibles.filter(m => {
+                if (remSearch && !m.codigo.toLowerCase().includes(remSearch.toLowerCase())) return false;
+                if (remFechaDesde && m.fecha < remFechaDesde) return false;
+                if (remFechaHasta && m.fecha > remFechaHasta) return false;
+                return true;
+              }).length;
+              const lastPage = Math.max(1, Math.ceil(total / REM_PER_PAGE));
+              if (lastPage <= 1) return null;
+              const desde = (remPagina - 1) * REM_PER_PAGE + 1;
+              const hasta = Math.min(remPagina * REM_PER_PAGE, total);
+              return (
+                <div className="flex items-center justify-between mt-3 px-1 text-xs text-gray-500">
+                  <span>{desde}–{hasta} de {total}</span>
+                  <div className="flex gap-1">
+                    <button disabled={remPagina === 1} onClick={() => setRemPagina(1)}
+                      className="px-2 py-1 rounded border border-gray-200 disabled:opacity-30 hover:bg-gray-100">«</button>
+                    <button disabled={remPagina === 1} onClick={() => setRemPagina(p => p - 1)}
+                      className="px-2 py-1 rounded border border-gray-200 disabled:opacity-30 hover:bg-gray-100">‹</button>
+                    {Array.from({ length: Math.min(5, lastPage) }, (_, i) => {
+                      const p = Math.max(1, Math.min(lastPage - 4, remPagina - 2)) + i;
+                      return (
+                        <button key={p} onClick={() => setRemPagina(p)}
+                          className={`px-2 py-1 rounded border font-semibold ${p === remPagina ? 'bg-orange-500 text-white border-orange-500' : 'border-gray-200 hover:bg-gray-100'}`}>
+                          {p}
+                        </button>
+                      );
+                    })}
+                    <button disabled={remPagina === lastPage} onClick={() => setRemPagina(p => p + 1)}
+                      className="px-2 py-1 rounded border border-gray-200 disabled:opacity-30 hover:bg-gray-100">›</button>
+                    <button disabled={remPagina === lastPage} onClick={() => setRemPagina(lastPage)}
+                      className="px-2 py-1 rounded border border-gray-200 disabled:opacity-30 hover:bg-gray-100">»</button>
+                  </div>
+                </div>
+              );
+            })()}
+
             {remanentesSeleccionados.length > 0 && (
               <div className="mt-3 bg-orange-50 border border-orange-200 rounded-lg p-3">
                 <p className="text-sm font-semibold text-orange-800">
@@ -1735,7 +1833,9 @@ export default function MezclasView({
                     setDumpadasSeleccionadas([]);
                     setRemanentesSeleccionados([]);
                     setLoteRemanenteSeleccionado('');
-                    setFormDataMezcla({ ...formDataMezcla, planta_id: '', observaciones: '' });
+                    setFormDataMezcla({ ...formDataMezcla, planta_id: '', codigo: '', observaciones: '' });
+                    setCodigoPreview('');
+                    setCodigoEditado(false);
                   }}
                 >
                   Limpiar
@@ -1751,7 +1851,19 @@ export default function MezclasView({
                 </label>
                 <select
                   value={formDataMezcla.planta_id}
-                  onChange={(e) => setFormDataMezcla({ ...formDataMezcla, planta_id: e.target.value })}
+                  onChange={async (e) => {
+                    const pid = e.target.value;
+                    setFormDataMezcla({ ...formDataMezcla, planta_id: pid, codigo: '' });
+                    setCodigoEditado(false);
+                    if (pid) {
+                      try {
+                        const next = await mezclasService.previewCodigo(pid);
+                        setCodigoPreview(next);
+                      } catch { setCodigoPreview(''); }
+                    } else {
+                      setCodigoPreview('');
+                    }
+                  }}
                   className={`w-full px-4 py-3 border-2 rounded-lg text-sm font-medium transition-colors ${
                     formDataMezcla.planta_id
                       ? 'border-green-400 bg-green-50 text-green-800'
@@ -1769,6 +1881,42 @@ export default function MezclasView({
                   <p className="text-xs text-orange-600 mt-1 font-medium">
                     Debes seleccionar una planta para crear la mezcla
                   </p>
+                )}
+                {/* Preview / edición del código */}
+                {formDataMezcla.planta_id && codigoPreview && (
+                  <div className="mt-2">
+                    <p className="text-xs text-gray-500 mb-1">Código asignado:</p>
+                    <div className="flex items-center gap-1">
+                      <input
+                        type="text"
+                        value={codigoEditado ? formDataMezcla.codigo : codigoPreview}
+                        onChange={(e) => {
+                          setCodigoEditado(true);
+                          setFormDataMezcla({ ...formDataMezcla, codigo: e.target.value });
+                        }}
+                        placeholder={codigoPreview}
+                        className={`flex-1 px-2 py-1 text-sm font-mono font-bold rounded border ${
+                          codigoEditado
+                            ? 'border-amber-400 bg-amber-50 text-amber-800'
+                            : 'border-green-300 bg-green-50 text-green-800'
+                        }`}
+                      />
+                      {codigoEditado && (
+                        <button
+                          type="button"
+                          onClick={() => { setCodigoEditado(false); setFormDataMezcla({ ...formDataMezcla, codigo: '' }); }}
+                          className="text-xs text-gray-400 hover:text-gray-600 px-1"
+                          title="Restaurar automático"
+                        >↩</button>
+                      )}
+                    </div>
+                    {!codigoEditado && (
+                      <p className="text-xs text-green-600 mt-0.5">Auto-generado · haz clic para editar</p>
+                    )}
+                    {codigoEditado && (
+                      <p className="text-xs text-amber-600 mt-0.5">Código personalizado</p>
+                    )}
+                  </div>
                 )}
               </div>
 

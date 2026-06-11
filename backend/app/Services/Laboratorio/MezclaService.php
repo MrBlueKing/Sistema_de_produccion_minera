@@ -635,7 +635,7 @@ class MezclaService
 
         $dumpadas = $query->with(['frenteTrabajo:id,codigo_completo'])
             ->select(['id', 'numero_dumpada', 'acopios', 'fecha', 'ton', 'ley', 'ley_visual', 'cu_soluble', 'cu_insoluble', 'jornada', 'id_frente_trabajo', 'estado', 'id_faena'])
-            ->orderBy('id', 'desc')
+            ->orderByRaw('DATE(fecha) DESC, CAST(numero_dumpada AS UNSIGNED) DESC')
             ->get();
 
         // Obtener suma de paladas usadas para todas las dumpadas en un solo query

@@ -9,6 +9,11 @@ class MezclasService {
    * Obtener todas las mezclas con filtros opcionales
    * @param {Object} params - Parámetros de filtrado (fecha_desde, fecha_hasta, estado, codigo)
    */
+  async previewCodigo(plantaId) {
+    const response = await api.get('/dispatch/mezclas/preview-codigo', { params: { planta_id: plantaId } });
+    return response.data.codigo;
+  }
+
   async getMezclas(params = {}) {
     const response = await api.get('/dispatch/mezclas', { params });
     return response.data;

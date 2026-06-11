@@ -123,6 +123,22 @@ class DispatchService {
     return response.data;
   }
 
+  // [TEST] Comparar y corregir códigos de mezcla usando Excel
+  async compararMezclas(faenaId, mezclas) {
+    const response = await api.post('/dispatch/importar/comparar-mezclas', { faena_id: faenaId, mezclas });
+    return response.data;
+  }
+
+  async actualizarMezclas(actualizaciones) {
+    const response = await api.post('/dispatch/importar/actualizar-mezclas', { actualizaciones });
+    return response.data;
+  }
+
+  async previewCodigoMezcla(plantaId) {
+    const response = await api.get('/dispatch/mezclas/preview-codigo', { params: { planta_id: plantaId } });
+    return response.data.codigo;
+  }
+
   async importarMezclasPreview(faenaId, mezclas) {
     const response = await api.post('/dispatch/importar/mezclas/preview', {
       faena_id: faenaId,
