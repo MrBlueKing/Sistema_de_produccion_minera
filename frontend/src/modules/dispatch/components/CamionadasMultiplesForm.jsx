@@ -1,10 +1,112 @@
-import React, { useState, useEffect } from 'react';
-import { HiPlus, HiX, HiTruck, HiSave, HiTrash, HiLightningBolt } from 'react-icons/hi';
+import React, { useState, useEffect, useRef } from 'react';
+import ReactDOM from 'react-dom';
+import { HiPlus, HiX, HiTruck, HiSave, HiTrash, HiLightningBolt, HiSearch } from 'react-icons/hi';
 import useToast from '../../../hooks/useToast';
 import laboratorioService from '../../../services/laboratorio';
-import mezclasService from '../services/mezclas';
 import configuracionService from '../../../services/configuracion';
 import Button from '../../../shared/components/atoms/Button';
+
+const MezclaCombobox = ({ mezclas, value, onChange, toneladasAsignadas, disabled }) => {
+  const [search, setSearch] = useState('');
+  const [open, setOpen] = useState(false);
+  const [dropdownStyle, setDropdownStyle] = useState({});
+  const inputRef = useRef(null);
+  const wrapRef = useRef(null);
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    const m = mezclas.find(m => String(m.id) === String(value));
+    setSearch(m ? m.codigo : '');
+  }, [value, mezclas]);
+
+  useEffect(() => {
+    const handler = (e) => {
+      const dentroWrap = wrapRef.current?.contains(e.target);
+      const dentroDropdown = dropdownRef.current?.contains(e.target);
+      if (!dentroWrap && !dentroDropdown) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const calcularPosicion = () => {
+    if (!inputRef.current) return;
+    const rect = inputRef.current.getBoundingClientRect();
+    setDropdownStyle({
+      position: 'fixed',
+      top: rect.bottom + 4,
+      left: rect.left,
+      width: Math.max(rect.width, 300),
+      zIndex: 9999,
+    });
+  };
+
+  const handleOpen = () => {
+    calcularPosicion();
+    setOpen(true);
+  };
+
+  const filtered = mezclas.filter(m =>
+    !search || m.codigo.toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <div ref={wrapRef}>
+      <div className="relative">
+        <HiSearch className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 w-3.5 h-3.5 pointer-events-none" />
+        <input
+          ref={inputRef}
+          type="text"
+          value={search}
+          onChange={e => { setSearch(e.target.value); handleOpen(); if (!e.target.value) onChange(''); }}
+          onFocus={handleOpen}
+          disabled={disabled}
+          placeholder={disabled ? 'Cargando...' : `Buscar (${mezclas.length})`}
+          className={`w-full pl-7 pr-2 py-2 border-2 rounded-lg text-sm font-semibold focus:ring-2 focus:ring-blue-400 ${
+            value ? 'border-green-300 text-green-800 bg-green-50' : 'border-gray-200'
+          } disabled:bg-gray-100`}
+        />
+      </div>
+      {open && !disabled && ReactDOM.createPortal(
+        <div
+          ref={dropdownRef}
+          style={dropdownStyle}
+          className="bg-white border border-gray-200 rounded-lg shadow-2xl max-h-64 overflow-y-auto"
+        >
+          {filtered.length === 0 ? (
+            <div className="px-3 py-2 text-xs text-gray-400">Sin resultados para "{search}"</div>
+          ) : filtered.map(mx => {
+            const disp = parseFloat(mx.toneladas_disponibles ?? mx.total_ton ?? 0);
+            const asig = toneladasAsignadas[String(mx.id)] || 0;
+            const libre = disp - asig;
+            return (
+              <button
+                key={mx.id}
+                type="button"
+                onClick={() => { onChange(String(mx.id)); setOpen(false); }}
+                className={`w-full text-left px-3 py-2 hover:bg-blue-50 transition-colors border-b border-gray-100 last:border-0 ${
+                  String(mx.id) === String(value) ? 'bg-blue-50 font-semibold' : ''
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-mono font-bold text-blue-700 text-sm">{mx.codigo}</span>
+                  <span className="text-xs text-gray-400">{mx.fecha}</span>
+                </div>
+                <div className="flex gap-2 mt-0.5 text-xs">
+                  <span className={`font-semibold ${libre < 0 ? 'text-red-500' : 'text-green-700'}`}>
+                    {libre.toFixed(1)} t libres
+                  </span>
+                  {mx.es_remanente && <span className="text-orange-500 font-semibold">REM</span>}
+                </div>
+              </button>
+            );
+          })}
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+};
 
 const mezclaVacia = () => ({ id: Date.now() + Math.random(), mezcla_id: '', toneladas: '' });
 
@@ -33,14 +135,13 @@ const CamionadasMultiplesForm = ({ onSuccess, onCancel, loteIdPreseleccionado = 
     try {
       setCargandoMaquinas(true);
       const [mezclasRes, configRes, camionesRes, lotesRes] = await Promise.all([
-        mezclasService.getMezclas(),
+        laboratorioService.getMezclasDisponibles(),
         configuracionService.getAll(),
         laboratorioService.getCamiones({ activos: true }),
         laboratorioService.getLotesAbiertos()
       ]);
 
-      const mezclasData = mezclasRes.data?.data || mezclasRes.data || mezclasRes || [];
-      setMezclas(mezclasData.filter(m => parseFloat(m.toneladas_disponibles ?? m.total_ton ?? 0) > 0));
+      setMezclas(mezclasRes || []);
       setCargandoMezclas(false);
       setMaquinas(camionesRes || []);
       setLotesAbiertos(lotesRes || []);
@@ -386,31 +487,21 @@ const CamionadasMultiplesForm = ({ onSuccess, onCancel, loteIdPreseleccionado = 
                     </div>
 
                     {camionada.mezclas.map((mezclaRow) => {
+                      const mezclaInfo = mezclaRow.mezcla_id ? getMezclaInfo(mezclaRow.mezcla_id) : null;
+                      const dispTotal = mezclaInfo ? parseFloat(mezclaInfo.toneladas_disponibles ?? mezclaInfo.total_ton ?? 0) : 0;
                       const dispReal = mezclaRow.mezcla_id ? getDisponibleReal(mezclaRow.mezcla_id) : null;
                       const excede = dispReal !== null && dispReal < 0;
 
                       return (
                         <div key={mezclaRow.id} className="grid grid-cols-[1fr_10rem_2rem] gap-2 items-start">
-                          {/* Select mezcla */}
-                          <select
+                          {/* Combobox mezcla */}
+                          <MezclaCombobox
+                            mezclas={mezclas}
                             value={mezclaRow.mezcla_id}
-                            onChange={(e) => actualizarMezclaDeCamionada(camionada.id, mezclaRow.id, 'mezcla_id', e.target.value)}
-                            className={`w-full px-3 py-2 border-2 rounded-lg text-sm font-semibold focus:ring-2 focus:ring-blue-400 ${
-                              mezclaRow.mezcla_id ? 'border-green-300 text-green-800 bg-green-50' : 'border-gray-200'
-                            }`}
-                          >
-                            <option value="">{cargandoMezclas ? 'Cargando...' : '— Seleccionar —'}</option>
-                            {mezclas.map(mx => {
-                              const disp = parseFloat(mx.toneladas_disponibles ?? mx.total_ton ?? 0);
-                              const asig = toneladasAsignadas[mx.id] || 0;
-                              const libre = disp - asig;
-                              return (
-                                <option key={mx.id} value={mx.id}>
-                                  {mx.codigo} · {libre.toFixed(1)} t libres
-                                </option>
-                              );
-                            })}
-                          </select>
+                            onChange={(val) => actualizarMezclaDeCamionada(camionada.id, mezclaRow.id, 'mezcla_id', val)}
+                            toneladasAsignadas={toneladasAsignadas}
+                            disabled={cargandoMezclas}
+                          />
 
                           {/* Toneladas de esta mezcla */}
                           <div>
@@ -425,8 +516,15 @@ const CamionadasMultiplesForm = ({ onSuccess, onCancel, loteIdPreseleccionado = 
                                 excede ? 'border-red-400 bg-red-50' : 'border-gray-200'
                               }`}
                             />
+                            {mezclaInfo && !excede && (
+                              <p className="text-green-700 text-[10px] font-semibold mt-0.5">
+                                Disp: {dispTotal.toFixed(2)} t
+                              </p>
+                            )}
                             {excede && (
-                              <p className="text-red-500 text-[10px] font-bold mt-0.5">⚠ excede {Math.abs(dispReal).toFixed(2)} t</p>
+                              <p className="text-red-500 text-[10px] font-bold mt-0.5">
+                                ⚠ Disp: {dispTotal.toFixed(2)} t — excede {Math.abs(dispReal).toFixed(2)} t
+                              </p>
                             )}
                           </div>
 

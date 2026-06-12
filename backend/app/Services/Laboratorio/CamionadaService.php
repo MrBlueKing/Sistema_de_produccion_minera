@@ -334,7 +334,7 @@ class CamionadaService
     /**
      * Obtener mezclas con remanente disponible para despacho
      */
-    public function obtenerMezclasConRemanente()
+    public function obtenerMezclasConRemanente($faenaId = null)
     {
         $mezclas = Mezcla::select([
                 'id', 'codigo', 'fecha', 'total_ton',
@@ -344,6 +344,7 @@ class CamionadaService
             ])
             ->withCount('camionadas')
             ->where('toneladas_disponibles', '>', 0.01)
+            ->when($faenaId, fn($q, $id) => $q->where('id_faena', $id))
             ->orderBy('fecha', 'desc')
             ->get();
 

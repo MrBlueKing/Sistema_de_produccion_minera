@@ -365,10 +365,11 @@ class CamionadaController extends Controller
      * Obtener mezclas con remanente disponible
      * GET /api/dispatch/camionadas/mezclas-disponibles
      */
-    public function mezclasDisponibles()
+    public function mezclasDisponibles(Request $request)
     {
         try {
-            $mezclas = $this->camionadaService->obtenerMezclasConRemanente();
+            $faenaId = $this->getFaenaParaFiltrar($request);
+            $mezclas = $this->camionadaService->obtenerMezclasConRemanente($faenaId);
 
             return response()->json($mezclas);
 

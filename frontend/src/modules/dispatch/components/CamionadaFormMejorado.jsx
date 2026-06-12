@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { HiSave, HiX, HiTruck, HiOfficeBuilding, HiBriefcase } from 'react-icons/hi';
+import React, { useState, useEffect, useRef } from 'react';
+import { HiSave, HiX, HiTruck, HiOfficeBuilding, HiSearch } from 'react-icons/hi';
 import { BiCar } from 'react-icons/bi';
 import useToast from '../../../hooks/useToast';
 import laboratorioService from '../../../services/laboratorio';
@@ -16,6 +16,9 @@ const CamionadaFormMejorado = ({ onSuccess, onCancel, camionadaEditar = null, lo
   const [cargandoMaquinas, setCargandoMaquinas] = useState(false);
   const [mezclaSeleccionada, setMezclaSeleccionada] = useState(null);
   const [pesoCamionDefault, setPesoCamionDefault] = useState(29);
+  const [mezclaSearch, setMezclaSearch] = useState('');
+  const [mezclaDropdownOpen, setMezclaDropdownOpen] = useState(false);
+  const mezclaDropdownRef = useRef(null);
 
   const [formData, setFormData] = useState({
     mezcla_id: '',
@@ -50,6 +53,9 @@ const CamionadaFormMejorado = ({ onSuccess, onCancel, camionadaEditar = null, lo
         ley_mezcla: camionadaEditar.ley_mezcla || '',
         observaciones: camionadaEditar.observaciones || ''
       });
+      if (camionadaEditar.mezcla?.codigo) {
+        setMezclaSearch(camionadaEditar.mezcla.codigo);
+      }
     }
   }, [camionadaEditar]);
 
@@ -80,6 +86,31 @@ const CamionadaFormMejorado = ({ onSuccess, onCancel, camionadaEditar = null, lo
       setMezclaSeleccionada(null);
     }
   }, [formData.mezcla_id, mezclas, camionadaEditar]);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (mezclaDropdownRef.current && !mezclaDropdownRef.current.contains(e.target)) {
+        setMezclaDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const mezclasFiltradas = mezclas.filter(m => {
+    const q = mezclaSearch.toLowerCase();
+    return (
+      m.codigo.toLowerCase().includes(q) ||
+      String(m.toneladas_disponibles).includes(q) ||
+      (m.fecha || '').includes(q)
+    );
+  });
+
+  const seleccionarMezcla = (mezcla) => {
+    setFormData(prev => ({ ...prev, mezcla_id: String(mezcla.id) }));
+    setMezclaSearch(mezcla.codigo);
+    setMezclaDropdownOpen(false);
+  };
 
   const cargarDatos = async () => {
     try {
@@ -296,26 +327,64 @@ const CamionadaFormMejorado = ({ onSuccess, onCancel, camionadaEditar = null, lo
             })()}
           </div>
 
-          {/* Mezcla */}
-          <div>
+          {/* Mezcla — combobox buscable */}
+          <div ref={mezclaDropdownRef} className="relative">
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Mezcla (Origen) *
             </label>
-            <select
-              name="mezcla_id"
-              value={formData.mezcla_id}
-              onChange={handleChange}
-              disabled={!!camionadaEditar}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
-              required
-            >
-              <option value="">Seleccione una mezcla...</option>
-              {mezclas.map(mezcla => (
-                <option key={mezcla.id} value={mezcla.id}>
-                  {mezcla.codigo} - {(mezcla.toneladas_disponibles ?? mezcla.peso_remanente ?? 0).toFixed(2)} t disponibles
-                </option>
-              ))}
-            </select>
+            <div className="relative">
+              <HiSearch className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+              <input
+                type="text"
+                value={mezclaSearch}
+                onChange={e => {
+                  setMezclaSearch(e.target.value);
+                  setMezclaDropdownOpen(true);
+                  if (!e.target.value) setFormData(prev => ({ ...prev, mezcla_id: '' }));
+                }}
+                onFocus={() => setMezclaDropdownOpen(true)}
+                disabled={!!camionadaEditar}
+                placeholder={`Buscar entre ${mezclas.length} mezclas...`}
+                className="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+              />
+            </div>
+
+            {/* Hidden input para mantener mezcla_id en formData */}
+            <input type="hidden" name="mezcla_id" value={formData.mezcla_id} />
+
+            {/* Dropdown */}
+            {mezclaDropdownOpen && !camionadaEditar && (
+              <div className="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-64 overflow-y-auto">
+                {mezclasFiltradas.length === 0 ? (
+                  <div className="px-4 py-3 text-sm text-gray-500">Sin resultados para "{mezclaSearch}"</div>
+                ) : (
+                  mezclasFiltradas.map(mezcla => (
+                    <button
+                      key={mezcla.id}
+                      type="button"
+                      onClick={() => seleccionarMezcla(mezcla)}
+                      className={`w-full text-left px-4 py-2 hover:bg-blue-50 transition-colors border-b border-gray-100 last:border-0 ${
+                        String(mezcla.id) === formData.mezcla_id ? 'bg-blue-50 font-semibold' : ''
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-mono font-bold text-blue-700">{mezcla.codigo}</span>
+                        <span className="text-xs text-gray-500">{mezcla.fecha}</span>
+                      </div>
+                      <div className="flex gap-3 mt-0.5 text-xs text-gray-600">
+                        <span className="text-green-700 font-semibold">
+                          {parseFloat(mezcla.toneladas_disponibles ?? 0).toFixed(2)} t disp.
+                        </span>
+                        <span>Total: {parseFloat(mezcla.total_ton ?? 0).toFixed(2)} t</span>
+                        {mezcla.ley_lote > 0 && <span>Ley: {parseFloat(mezcla.ley_lote).toFixed(2)}%</span>}
+                        {mezcla.es_remanente && <span className="text-orange-600 font-semibold">REM</span>}
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+
             {mezclaSeleccionada && (
               <div className="mt-2 p-2 bg-white rounded border border-blue-200">
                 <p className="text-xs text-gray-600">
