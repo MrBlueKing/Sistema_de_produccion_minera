@@ -369,7 +369,8 @@ class CamionadaController extends Controller
     {
         try {
             $faenaId = $this->getFaenaParaFiltrar($request);
-            $mezclas = $this->camionadaService->obtenerMezclasConRemanente($faenaId);
+            $todas = $request->boolean('todas', false);
+            $mezclas = $this->camionadaService->obtenerMezclasConRemanente($faenaId, $todas);
 
             return response()->json($mezclas);
 

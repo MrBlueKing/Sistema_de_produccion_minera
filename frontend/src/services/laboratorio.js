@@ -162,8 +162,8 @@ class LaboratorioService {
     return response.data;
   }
 
-  async getMezclasDisponibles() {
-    const response = await api.get('/dispatch/camionadas/mezclas-disponibles');
+  async getMezclasDisponibles({ todas = false } = {}) {
+    const response = await api.get('/dispatch/camionadas/mezclas-disponibles', { params: { todas } });
     return response.data;
   }
 

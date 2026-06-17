@@ -135,7 +135,7 @@ const CamionadasMultiplesForm = ({ onSuccess, onCancel, loteIdPreseleccionado = 
     try {
       setCargandoMaquinas(true);
       const [mezclasRes, configRes, camionesRes, lotesRes] = await Promise.all([
-        laboratorioService.getMezclasDisponibles(),
+        laboratorioService.getMezclasDisponibles({ todas: true }),
         configuracionService.getAll(),
         laboratorioService.getCamiones({ activos: true }),
         laboratorioService.getLotesAbiertos()
