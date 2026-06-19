@@ -108,6 +108,9 @@ const DespachosView = () => {
   const [mostrarModalEliminarLote, setMostrarModalEliminarLote] = useState(false);
   const [loteAEliminar, setLoteAEliminar] = useState(null);
 
+  // Modal editar fecha
+  const [modalEditarFecha, setModalEditarFecha] = useState({ show: false, lote: null, fecha: '' });
+
   // Estados para crear lote manual
   const [mostrarFormLote, setMostrarFormLote] = useState(false);
   const [formLote, setFormLote] = useState({ planta_id: '', empresa_id: '' });
@@ -132,6 +135,9 @@ const DespachosView = () => {
   // Edición inline nombre lote
   const [editandoLoteId, setEditandoLoteId] = useState(null);
   const [editandoLoteNombre, setEditandoLoteNombre] = useState('');
+
+  // Edición fecha lote en modal
+  const [fechaEditadaLote, setFechaEditadaLote] = useState('');
   const [camionadaParaRecepcion, setCamionadaParaRecepcion] = useState(null);
   const [formRecepcionModal, setFormRecepcionModal] = useState({
     fecha_recepcion: '',
@@ -529,9 +535,11 @@ const DespachosView = () => {
   const handleVerDetalleLote = async (loteId) => {
     setLoadingDetalleLote(true);
     setMostrarModalDetalleLote(true);
+    setFechaEditadaLote('');
     try {
       const lote = await laboratorioService.getLote(loteId);
       setLoteSeleccionado(lote);
+      setFechaEditadaLote(lote.fecha_creacion?.split('T')[0] ?? lote.fecha_creacion ?? '');
     } catch (error) {
       console.error('Error cargando detalle:', error);
       toast.error('Error al cargar el detalle del lote');
@@ -689,7 +697,35 @@ const DespachosView = () => {
       setLotesAbiertosCards(lotesAbRes || []);
       await cargarLotes();
     } catch (error) {
-      toast.error('Error al actualizar', error.response?.data?.mensaje || error.message);
+      const detalles = error.response?.data?.detalles;
+      const primerError = detalles ? Object.values(detalles).flat()[0] : null;
+      toast.error(primerError || error.response?.data?.error || 'Error al actualizar');
+    }
+  };
+
+  const handleGuardarFechaLote = async () => {
+    if (!fechaEditadaLote) { toast.warning('La fecha no puede estar vacía'); return; }
+    try {
+      await laboratorioService.updateLote(loteSeleccionado.id, { fecha_creacion: fechaEditadaLote });
+      toast.success('Fecha actualizada');
+      const loteActualizado = await laboratorioService.getLote(loteSeleccionado.id);
+      setLoteSeleccionado(loteActualizado);
+      await cargarLotes();
+    } catch (error) {
+      toast.error(error.response?.data?.mensaje || 'Error al actualizar la fecha');
+    }
+  };
+
+  const handleGuardarFechaModal = async () => {
+    const { lote, fecha } = modalEditarFecha;
+    if (!fecha) { toast.warning('Selecciona una fecha'); return; }
+    try {
+      await laboratorioService.updateLote(lote.id, { fecha_creacion: fecha });
+      toast.success('Fecha actualizada');
+      setModalEditarFecha({ show: false, lote: null, fecha: '' });
+      await cargarLotes();
+    } catch (error) {
+      toast.error(error.response?.data?.mensaje || 'Error al actualizar la fecha');
     }
   };
 
@@ -2086,11 +2122,15 @@ const DespachosView = () => {
             plantas.forEach((p, i) => { plantaStyleMap[p.id] = PLANTA_STYLES[i % PLANTA_STYLES.length]; });
             const getPS = (plantaId) => plantaStyleMap[plantaId] || PLANTA_STYLES[0];
 
-            const totalPesoPag    = lotes.reduce((s, l) => s + parseFloat(l.peso_total || 0), 0);
+            const pesoEfectivo = (l) => (l.camionadas || []).reduce((s, c) => {
+              const p = c.peso_real != null ? c.peso_real : c.peso;
+              return s + parseFloat(p || 0);
+            }, 0);
+            const totalPesoPag    = lotes.reduce((s, l) => s + pesoEfectivo(l), 0);
             const totalCamPag     = lotes.reduce((s, l) => s + (l.numero_camionadas || l.camionadas?.length || 0), 0);
-            const leyItems        = lotes.filter(l => l.ley_lote_promedio != null && parseFloat(l.peso_total || 0) > 0);
+            const leyItems        = lotes.filter(l => l.ley_lote_promedio != null && pesoEfectivo(l) > 0);
             const leyPromPag      = leyItems.length
-              ? leyItems.reduce((s, l) => s + l.ley_lote_promedio * parseFloat(l.peso_total || 0), 0) / leyItems.reduce((s, l) => s + parseFloat(l.peso_total || 0), 0)
+              ? leyItems.reduce((s, l) => s + l.ley_lote_promedio * pesoEfectivo(l), 0) / leyItems.reduce((s, l) => s + pesoEfectivo(l), 0)
               : null;
 
             const desde = ((paginacionLotes.page - 1) * paginacionLotes.per_page) + 1;
@@ -2149,7 +2189,7 @@ const DespachosView = () => {
                         {lotes.map((lote) => {
                           const ps   = getPS(lote.planta_id);
                           const nCam = lote.numero_camionadas || lote.camionadas?.length || 0;
-                          const peso = parseFloat(lote.peso_total || 0);
+                          const peso = pesoEfectivo(lote);
                           return (
                             <tr
                               key={lote.id}
@@ -2190,12 +2230,25 @@ const DespachosView = () => {
                                 {lote.fecha_creacion ? new Date(lote.fecha_creacion).toLocaleDateString('es-CL') : '—'}
                               </td>
                               <td className="py-2.5 px-4 text-center" onClick={e => e.stopPropagation()}>
-                                <button
-                                  onClick={() => handleVerDetalleLote(lote.id)}
-                                  className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors"
-                                >
-                                  <HiEye className="w-3.5 h-3.5" /> Ver
-                                </button>
+                                <div className="inline-flex items-center gap-1">
+                                  <button
+                                    onClick={() => handleVerDetalleLote(lote.id)}
+                                    className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors"
+                                  >
+                                    <HiEye className="w-3.5 h-3.5" /> Ver
+                                  </button>
+                                  <button
+                                    onClick={() => setModalEditarFecha({
+                                      show: true,
+                                      lote,
+                                      fecha: lote.fecha_creacion?.split('T')[0] ?? lote.fecha_creacion ?? ''
+                                    })}
+                                    className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                                    title="Editar fecha"
+                                  >
+                                    <HiPencil className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
                               </td>
                             </tr>
                           );
@@ -2537,7 +2590,7 @@ const DespachosView = () => {
                     </div>
                   )}
 
-                  {/* Botones de acción */}
+                  {/* Acciones */}
                   {loteSeleccionado.estado === 'Abierto' && (
                     <div className="mt-6 pt-4 border-t border-gray-200">
                       <Button
@@ -2548,23 +2601,55 @@ const DespachosView = () => {
                       >
                         {loteSeleccionado.todas_recepcionadas
                           ? 'Cerrar Lote y Generar Remanentes'
-                          : 'No se puede cerrar (hay camionadas sin recepcionar)'}
+                          : 'No se puede cerrar (camionadas pendientes)'}
                       </Button>
                       {!loteSeleccionado.todas_recepcionadas && (
-                        <p className="text-xs text-yellow-600 mt-2">
-                          ⚠️ Debes recepcionar todas las camionadas antes de cerrar el lote.
+                        <p className="text-xs text-yellow-600 mt-1">
+                          ⚠️ Recepciona todas las camionadas antes de cerrar.
                         </p>
                       )}
                     </div>
                   )}
-
-                  {/* Metadatos */}
-                  <div className="mt-4 pt-4 border-t border-gray-200 text-xs text-gray-500">
-                    Creado: {new Date(loteSeleccionado.fecha_creacion).toLocaleDateString('es-CL')} •
-                    Actualizado: {new Date(loteSeleccionado.updated_at).toLocaleDateString('es-CL')}
-                  </div>
                 </>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: editar fecha de lote */}
+      {modalEditarFecha.show && (
+        <div
+          className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
+          onClick={() => setModalEditarFecha({ show: false, lote: null, fecha: '' })}
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm"
+            onClick={e => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-bold text-gray-900 mb-1">Editar fecha de creación del lote</h3>
+            <p className="text-sm text-gray-500 mb-4">{modalEditarFecha.lote?.numero_lote}</p>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Fecha</label>
+            <input
+              type="date"
+              value={modalEditarFecha.fecha}
+              onChange={e => setModalEditarFecha(prev => ({ ...prev, fecha: e.target.value }))}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 mb-5"
+              autoFocus
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setModalEditarFecha({ show: false, lote: null, fecha: '' })}
+                className="px-4 py-2 rounded-lg text-sm font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleGuardarFechaModal}
+                className="px-4 py-2 rounded-lg text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white transition-colors"
+              >
+                Guardar
+              </button>
             </div>
           </div>
         </div>

@@ -536,6 +536,10 @@ class LoteController extends Controller
         $query = Lote::with(['planta', 'empresa', 'camionadas.mezclas'])
             ->where('estado', Lote::ESTADO_ABIERTO);
 
+        if (!$this->esUsuarioGlobal($request)) {
+            $query->where('id_faena', $request->auth_faena);
+        }
+
         if ($request->has('planta_id') && !empty($request->planta_id)) {
             $query->where('planta_id', $request->planta_id);
         }
