@@ -79,6 +79,7 @@ export default function MezclasView({
   const [histEstado, setHistEstado] = useState('');
   const [histFechaDesde, setHistFechaDesde] = useState('');
   const [histFechaHasta, setHistFechaHasta] = useState('');
+  const [histNumeroDumpada, setHistNumeroDumpada] = useState('');
 
   // Estados para remanentes de mezclas
   const [remanentesDisponibles, setRemanentesDisponibles] = useState([]);
@@ -172,14 +173,16 @@ export default function MezclasView({
     estado = histEstado,
     fechaDesde = histFechaDesde,
     fechaHasta = histFechaHasta,
+    numeroDumpada = histNumeroDumpada,
   ) => {
     setHistLoading(true);
     try {
       const params = { page, per_page: perPage };
-      if (search.trim())   params.codigo       = search.trim();
-      if (estado)          params.estado       = estado;
-      if (fechaDesde)      params.fecha_desde  = fechaDesde;
-      if (fechaHasta)      params.fecha_hasta  = fechaHasta;
+      if (search.trim())         params.codigo          = search.trim();
+      if (estado)                params.estado          = estado;
+      if (fechaDesde)            params.fecha_desde     = fechaDesde;
+      if (fechaHasta)            params.fecha_hasta     = fechaHasta;
+      if (numeroDumpada.trim())  params.numero_dumpada  = numeroDumpada.trim();
       const res = await mezclasService.getMezclas(params);
       setHistorial(res?.data || []);
       setHistPagina(res?.current_page || 1);
@@ -2222,14 +2225,15 @@ export default function MezclasView({
 
         {/* Filtros */}
         {(() => {
-          const hayFiltros = histSearch || histEstado || histFechaDesde || histFechaHasta;
-          const aplicar = () => cargarHistorial(1, histSearch, histPerPage, histEstado, histFechaDesde, histFechaHasta);
+          const hayFiltros = histSearch || histEstado || histFechaDesde || histFechaHasta || histNumeroDumpada;
+          const aplicar = () => cargarHistorial(1, histSearch, histPerPage, histEstado, histFechaDesde, histFechaHasta, histNumeroDumpada);
           const limpiar = () => {
             setHistSearch('');
             setHistEstado('');
             setHistFechaDesde('');
             setHistFechaHasta('');
-            cargarHistorial(1, '', histPerPage, '', '', '');
+            setHistNumeroDumpada('');
+            cargarHistorial(1, '', histPerPage, '', '', '', '');
           };
           const inputCls = "w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-300 focus:border-orange-400 transition-shadow placeholder-gray-400";
           const labelCls = "block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1";
@@ -2245,6 +2249,19 @@ export default function MezclasView({
                     onChange={e => setHistSearch(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && aplicar()}
                     placeholder="Ej: MZ-001…"
+                    className={inputCls}
+                  />
+                </div>
+
+                {/* N° Dumpada */}
+                <div className="flex-1 min-w-[130px]">
+                  <label className={labelCls}>N° Dumpada</label>
+                  <input
+                    type="number"
+                    value={histNumeroDumpada}
+                    onChange={e => setHistNumeroDumpada(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && aplicar()}
+                    placeholder="Ej: 9730…"
                     className={inputCls}
                   />
                 </div>
@@ -2313,7 +2330,13 @@ export default function MezclasView({
                   {histFechaHasta && (
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-orange-100 text-orange-700 text-xs font-semibold rounded-full">
                       Hasta: {histFechaHasta}
-                      <button onClick={() => { setHistFechaHasta(''); cargarHistorial(1, histSearch, histPerPage, histEstado, histFechaDesde, ''); }} className="hover:text-orange-900 ml-0.5">×</button>
+                      <button onClick={() => { setHistFechaHasta(''); cargarHistorial(1, histSearch, histPerPage, histEstado, histFechaDesde, '', histNumeroDumpada); }} className="hover:text-orange-900 ml-0.5">×</button>
+                    </span>
+                  )}
+                  {histNumeroDumpada && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-orange-100 text-orange-700 text-xs font-semibold rounded-full">
+                      Dumpada: #{histNumeroDumpada}
+                      <button onClick={() => { setHistNumeroDumpada(''); cargarHistorial(1, histSearch, histPerPage, histEstado, histFechaDesde, histFechaHasta, ''); }} className="hover:text-orange-900 ml-0.5">×</button>
                     </span>
                   )}
                 </div>

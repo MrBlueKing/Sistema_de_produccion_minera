@@ -76,6 +76,12 @@ class MezclaController extends Controller
             $query->where('codigo', 'like', '%' . $request->codigo . '%');
         }
 
+        if ($request->filled('numero_dumpada')) {
+            $query->whereHas('dumpadas', function ($q) use ($request) {
+                $q->where('numero_dumpada', (int) $request->numero_dumpada);
+            });
+        }
+
         $perPage = min((int) $request->get('per_page', 20), 200);
         $mezclas = $query->orderBy('fecha', 'desc')->paginate($perPage);
 
