@@ -80,6 +80,7 @@ export default function MezclasView({
   const [histFechaDesde, setHistFechaDesde] = useState('');
   const [histFechaHasta, setHistFechaHasta] = useState('');
   const [histNumeroDumpada, setHistNumeroDumpada] = useState('');
+  const [editandoFecha, setEditandoFecha] = useState(null); // { id, fecha }
 
   // Estados para remanentes de mezclas
   const [remanentesDisponibles, setRemanentesDisponibles] = useState([]);
@@ -201,6 +202,18 @@ export default function MezclasView({
   // Recargar historial cuando el padre actualiza mezclas (nueva creada/eliminada)
   useEffect(() => { cargarHistorial(1, '', histPerPage); }, [mezclas]);
   // ─────────────────────────────────────────────────────────────────────────
+
+  const handleGuardarFecha = async () => {
+    if (!editandoFecha) return;
+    try {
+      await mezclasService.updateMezcla(editandoFecha.id, { fecha: editandoFecha.fecha });
+      toast?.success('Fecha actualizada');
+      setEditandoFecha(null);
+      await cargarHistorial(histPagina);
+    } catch (err) {
+      toast?.error('Error al actualizar fecha: ' + (err.response?.data?.message || err.message));
+    }
+  };
 
   // ── Mezclas disponibles (panel inferior) ─────────────────────────────────
   const cargarMezclasDisponibles = async () => {
@@ -2392,7 +2405,27 @@ export default function MezclasView({
                     return (
                       <tr key={mezcla.id} className="hover:bg-orange-50/50 transition-colors">
                         <td className="py-2 px-3 font-mono font-bold text-orange-800">{mezcla.codigo}</td>
-                        <td className="py-2 px-3 text-xs text-gray-500 tabular-nums">{formatearFecha(mezcla.fecha)}</td>
+                        <td className="py-2 px-3 text-xs text-gray-500 tabular-nums">
+                          {editandoFecha?.id === mezcla.id ? (
+                            <div className="flex items-center gap-1">
+                              <input
+                                type="date"
+                                value={editandoFecha.fecha}
+                                onChange={e => setEditandoFecha(p => ({ ...p, fecha: e.target.value }))}
+                                className="border border-orange-300 rounded px-1 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-orange-400"
+                                autoFocus
+                              />
+                              <button onClick={handleGuardarFecha} className="text-green-600 hover:text-green-700" title="Guardar">
+                                <HiCheck className="w-4 h-4" />
+                              </button>
+                              <button onClick={() => setEditandoFecha(null)} className="text-gray-400 hover:text-gray-600" title="Cancelar">
+                                <HiXMark className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ) : (
+                            formatearFecha(mezcla.fecha)
+                          )}
+                        </td>
                         <td className="py-2 px-3 text-right font-semibold tabular-nums text-gray-800">
                           {parseFloat(mezcla.total_ton).toFixed(2)} <span className="text-gray-400 font-normal">t</span>
                         </td>
@@ -2420,6 +2453,13 @@ export default function MezclasView({
                               title="Ver Detalle"
                             >
                               <HiEye className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => setEditandoFecha({ id: mezcla.id, fecha: mezcla.fecha ?? '' })}
+                              className="px-2 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded text-xs transition-colors"
+                              title="Editar Fecha"
+                            >
+                              <HiCalendar className="w-3.5 h-3.5" />
                             </button>
                             <button
                               onClick={() => handleEliminarMezcla(mezcla.id, mezcla.codigo)}

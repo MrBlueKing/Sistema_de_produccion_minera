@@ -49,6 +49,8 @@ function parsearMezclasDesdeExcel(rows) {
   return resultado.filter(m => m.dumpadas.length > 0);
 }
 
+const fmtFecha = d => d ? String(d).split('T')[0].split('-').reverse().join('-') : '—';
+
 // ── Colores según tipo de match ───────────────────────────────────────────────
 function badgeMatch(tipo) {
   if (tipo === 'exacto')   return { bg: 'bg-green-100 text-green-800',  label: '✅ Exacto' };
@@ -133,13 +135,36 @@ export default function CompararMezclasView({ toast, setVistaActual }) {
       if (res.success) {
         toast?.success(`${res.actualizadas} código${res.actualizadas !== 1 ? 's' : ''} actualizado${res.actualizadas !== 1 ? 's' : ''}`);
         if (res.errores?.length) toast?.error('Errores: ' + res.errores.join(', '));
-        // Refrescar comparación
         await handleComparar();
       } else {
         toast?.error('Error: ' + res.error);
       }
     } catch (err) {
       toast?.error('Error al actualizar: ' + (err.response?.data?.message || err.message));
+    }
+    setActualizando(false);
+  };
+
+  const handleActualizarFechas = async () => {
+    // Incluye todas las mezclas matcheadas (incluso ya_coincide) donde la fecha difiere
+    const act = (resultados?.resultados ?? [])
+      .filter(r => r.db && r.fecha_primera_dumpada && r.fecha_primera_dumpada !== r.db.fecha)
+      .map(r => ({ mezcla_id: r.db.id, nuevo_codigo: r.db.codigo }));
+
+    if (act.length === 0) { toast?.error('No hay fechas que corregir'); return; }
+
+    setActualizando(true);
+    try {
+      const res = await dispatchService.actualizarMezclas(act);
+      if (res.success) {
+        toast?.success(`${res.actualizadas} fecha${res.actualizadas !== 1 ? 's' : ''} actualizada${res.actualizadas !== 1 ? 's' : ''}`);
+        if (res.errores?.length) toast?.error('Errores: ' + res.errores.join(', '));
+        await handleComparar();
+      } else {
+        toast?.error('Error: ' + res.error);
+      }
+    } catch (err) {
+      toast?.error('Error al actualizar fechas: ' + (err.response?.data?.message || err.message));
     }
     setActualizando(false);
   };
@@ -235,9 +260,19 @@ export default function CompararMezclasView({ toast, setVistaActual }) {
                 {comparando ? 'Actualizando…' : 'Refrescar'}
               </button>
             </div>
-            <Button onClick={handleActualizar} disabled={actualizando || selCount === 0} variant="primary">
-              {actualizando ? 'Actualizando…' : `Actualizar ${selCount} código${selCount !== 1 ? 's' : ''}`}
-            </Button>
+            <div className="flex gap-2">
+              {(() => {
+                const conFechaDistinta = (resultados?.resultados ?? []).filter(r => r.db && r.fecha_primera_dumpada && r.fecha_primera_dumpada !== r.db.fecha).length;
+                return conFechaDistinta > 0 ? (
+                  <Button onClick={handleActualizarFechas} disabled={actualizando} variant="secondary">
+                    {actualizando ? 'Actualizando…' : `Corregir ${conFechaDistinta} fecha${conFechaDistinta !== 1 ? 's' : ''}`}
+                  </Button>
+                ) : null;
+              })()}
+              <Button onClick={handleActualizar} disabled={actualizando || selCount === 0} variant="primary">
+                {actualizando ? 'Actualizando…' : `Actualizar ${selCount} código${selCount !== 1 ? 's' : ''}`}
+              </Button>
+            </div>
           </div>
 
           {/* Tabla */}
@@ -250,6 +285,7 @@ export default function CompararMezclasView({ toast, setVistaActual }) {
                   <th className="px-3 py-3 text-left">Código en BD</th>
                   <th className="px-3 py-3 text-center">Match</th>
                   <th className="px-3 py-3 text-center">Dump. coincidentes</th>
+                  <th className="px-3 py-3 text-center">Fecha BD → 1ª Dumpada</th>
                   <th className="px-3 py-3 text-right">Ton BD</th>
                   <th className="px-3 py-3 text-center">Estado BD</th>
                 </tr>
@@ -283,6 +319,21 @@ export default function CompararMezclasView({ toast, setVistaActual }) {
                       </td>
                       <td className="px-3 py-2.5 text-center text-xs text-gray-500">
                         {r.db ? `${r.n_coincidentes}/${r.excel.n_dumpadas}` : '—'}
+                      </td>
+                      <td className="px-3 py-2.5 text-center text-xs tabular-nums">
+                        {r.db ? (
+                          <span className="inline-flex items-center gap-1">
+                            <span className="text-gray-500">{fmtFecha(r.db.fecha)}</span>
+                            {r.fecha_primera_dumpada && r.fecha_primera_dumpada !== r.db.fecha ? (
+                              <>
+                                <span className="text-gray-300">→</span>
+                                <span className="text-amber-600 font-semibold">{fmtFecha(r.fecha_primera_dumpada)}</span>
+                              </>
+                            ) : r.fecha_primera_dumpada ? (
+                              <span className="text-green-600">✓</span>
+                            ) : null}
+                          </span>
+                        ) : '—'}
                       </td>
                       <td className="px-3 py-2.5 text-right text-xs text-gray-600 tabular-nums">
                         {r.db?.total_ton != null ? `${Number(r.db.total_ton).toFixed(1)} t` : '—'}

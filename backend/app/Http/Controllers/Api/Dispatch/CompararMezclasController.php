@@ -88,20 +88,31 @@ class CompararMezclasController extends Controller
 
             $mezcla = Mezcla::find($mejorCandidato->mezcla_id);
 
+            $primeraFecha = $mezcla
+                ? DB::table('dumpadas')
+                    ->join('mezcla_dumpada', 'dumpadas.id', '=', 'mezcla_dumpada.dumpada_id')
+                    ->where('mezcla_dumpada.mezcla_id', $mezcla->id)
+                    ->where('mezcla_dumpada.tipo', MezclaDumpada::TIPO_DUMPADA)
+                    ->orderBy('dumpadas.fecha', 'asc')
+                    ->value('dumpadas.fecha')
+                : null;
+
             $resultados[] = [
                 'excel' => ['codigo' => $codigoExcel, 'n_dumpadas' => $total],
                 'db'    => $mezcla ? [
                     'id'        => $mezcla->id,
                     'codigo'    => $mezcla->codigo,
+                    'fecha'     => $mezcla->fecha,
                     'total_ton' => $mezcla->total_ton,
                     'estado'    => $mezcla->estado,
                 ] : null,
-                'match_tipo'     => $matchTipo,
-                'ya_coincide'    => $mezcla && $mezcla->codigo === $codigoExcel,
-                'n_coincidentes' => $coincidencias,
-                'n_dumpadas_bd'  => $mezcla
+                'match_tipo'          => $matchTipo,
+                'ya_coincide'         => $mezcla && $mezcla->codigo === $codigoExcel,
+                'n_coincidentes'      => $coincidencias,
+                'n_dumpadas_bd'       => $mezcla
                     ? MezclaDumpada::where('mezcla_id', $mezcla->id)->where('tipo', MezclaDumpada::TIPO_DUMPADA)->count()
                     : 0,
+                'fecha_primera_dumpada' => $primeraFecha,
             ];
         }
 
@@ -141,8 +152,20 @@ class CompararMezclasController extends Controller
                 $codigoViejo  = $mezcla->codigo;
                 $codigoNuevo  = trim((string) $act['nuevo_codigo']);
 
-                // Actualizar código en mezclas
-                $mezcla->update(['codigo' => $codigoNuevo]);
+                // Obtener fecha de la primera dumpada de esta mezcla
+                $primeraFecha = DB::table('dumpadas')
+                    ->join('mezcla_dumpada', 'dumpadas.id', '=', 'mezcla_dumpada.dumpada_id')
+                    ->where('mezcla_dumpada.mezcla_id', $mezcla->id)
+                    ->where('mezcla_dumpada.tipo', MezclaDumpada::TIPO_DUMPADA)
+                    ->orderBy('dumpadas.fecha', 'asc')
+                    ->value('dumpadas.fecha');
+
+                $updates = ['codigo' => $codigoNuevo];
+                if ($primeraFecha) {
+                    $updates['fecha'] = $primeraFecha;
+                }
+
+                $mezcla->update($updates);
 
                 // Actualizar referencias en mezcla_dumpada.origen (remanentes que citan esta mezcla)
                 MezclaDumpada::where('tipo', MezclaDumpada::TIPO_REMANENTE)
