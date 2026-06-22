@@ -29,7 +29,7 @@ class TipoFrenteController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'nombre' => 'required|string|max:100|unique:tipos_frente,nombre',
-            'abreviatura' => 'required|string|max:10',
+            'abreviatura' => 'nullable|string|max:10',
         ]);
 
         if ($validator->fails()) {
@@ -84,7 +84,7 @@ class TipoFrenteController extends Controller
 
         $validator = Validator::make($request->all(), [
             'nombre' => 'required|string|max:100|unique:tipos_frente,nombre,' . $id,
-            'abreviatura' => 'required|string|max:10',
+            'abreviatura' => 'nullable|string|max:10',
         ]);
 
         if ($validator->fails()) {

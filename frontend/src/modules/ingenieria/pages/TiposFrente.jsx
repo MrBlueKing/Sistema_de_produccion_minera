@@ -267,12 +267,11 @@ export default function TiposFrente() {
                 />
 
                 <Input
-                  label="Abreviatura *"
+                  label="Abreviatura (opcional)"
                   type="text"
                   value={formData.abreviatura}
                   onChange={(e) => setFormData({ ...formData, abreviatura: e.target.value.toUpperCase() })}
                   placeholder="Ej: F, L, REC, DQ"
-                  required
                   maxLength={10}
                   style={{ textTransform: 'uppercase' }}
                 />
