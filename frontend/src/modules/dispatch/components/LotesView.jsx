@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { HiEye, HiOfficeBuilding, HiBriefcase, HiTruck, HiChartBar } from 'react-icons/hi';
+import { HiEye, HiOfficeBuilding, HiBriefcase, HiTruck, HiChartBar, HiTrash } from 'react-icons/hi';
 import { HiClipboardDocumentList, HiCalendar } from 'react-icons/hi2';
 
 const MESES = ['Enero','Febrero','Marzo','Abril','Mayo','Junio',
@@ -16,6 +16,7 @@ import Button from '../../../shared/components/atoms/Button';
 import Loader from '../../../shared/components/atoms/Loader';
 import LotesDashboard from './LotesDashboard';
 import LoteDetalleView from './LoteDetalleView';
+import EliminarLoteModal from '../../../shared/components/molecules/EliminarLoteModal';
 import laboratorioService from '../../../services/laboratorio';
 import useToast from '../../../hooks/useToast';
 
@@ -34,6 +35,7 @@ const LotesView = () => {
   const [loteSeleccionado, setLoteSeleccionado] = useState(null);
   const [loadingDetalle, setLoadingDetalle] = useState(false);
   const [vistaDetalle, setVistaDetalle] = useState(false);
+  const [modalEliminar, setModalEliminar] = useState({ show: false, lote: null });
 
   useEffect(() => {
     cargarDatos();
@@ -92,6 +94,17 @@ const LotesView = () => {
       toast.error('Error al cargar el detalle del lote');
     } finally {
       setLoadingDetalle(false);
+    }
+  };
+
+  const handleEliminarLote = async (opcion) => {
+    try {
+      const response = await laboratorioService.deleteLote(modalEliminar.lote.id, opcion);
+      toast.success('Lote eliminado', response.mensaje || 'Lote eliminado exitosamente');
+      setModalEliminar({ show: false, lote: null });
+      await cargarLotes();
+    } catch (error) {
+      toast.error('Error al eliminar', error.response?.data?.mensaje || error.message);
     }
   };
 
@@ -320,15 +333,25 @@ const LotesView = () => {
                     )}
                   </div>
                 </div>
-                <Button
-                  size="sm"
-                  variant="primary"
-                  icon={HiEye}
-                  onClick={() => handleVerDetalle(lote.id)}
-                  disabled={loadingDetalle}
-                >
-                  {loadingDetalle ? 'Cargando...' : 'Ver Detalle'}
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="primary"
+                    icon={HiEye}
+                    onClick={() => handleVerDetalle(lote.id)}
+                    disabled={loadingDetalle}
+                  >
+                    {loadingDetalle ? 'Cargando...' : 'Ver Detalle'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    icon={HiTrash}
+                    onClick={() => setModalEliminar({ show: true, lote })}
+                  >
+                    Eliminar
+                  </Button>
+                </div>
               </div>
 
               {/* Estadísticas */}
@@ -378,6 +401,12 @@ const LotesView = () => {
         </div>
       ))}
 
+      <EliminarLoteModal
+        show={modalEliminar.show}
+        lote={modalEliminar.lote}
+        onConfirm={handleEliminarLote}
+        onCancel={() => setModalEliminar({ show: false, lote: null })}
+      />
     </div>
   );
 };

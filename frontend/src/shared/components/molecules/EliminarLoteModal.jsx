@@ -13,7 +13,8 @@ import Button from '../atoms/Button';
  * @param {function} onCancel - Función al cancelar
  */
 export default function EliminarLoteModal({ show, lote, onConfirm, onCancel }) {
-  const [opcionSeleccionada, setOpcionSeleccionada] = useState('reasignar');
+  const esCerrado = lote?.estado === 'Cerrado' || lote?.estado === 'CERRADO';
+  const [opcionSeleccionada, setOpcionSeleccionada] = useState(esCerrado ? 'eliminar_camionadas' : 'reasignar');
   const [loading, setLoading] = useState(false);
 
   if (!show || !lote) return null;
@@ -27,21 +28,21 @@ export default function EliminarLoteModal({ show, lote, onConfirm, onCancel }) {
   };
 
   const opciones = [
-    {
+    ...(!esCerrado ? [{
       value: 'reasignar',
       label: 'Reasignar a otro lote',
       icon: HiArrowPath,
       color: 'blue',
       description: `Las ${cantidadCamionadas} camionada(s) se reasignarán a otro lote ABIERTO de la misma planta y empresa. Si no existe, se creará uno nuevo.`,
       recommended: true
-    },
+    }] : []),
     {
       value: 'eliminar_camionadas',
       label: 'Eliminar camionadas y restaurar mezclas',
       icon: HiTrash,
       color: 'red',
       description: `Las ${cantidadCamionadas} camionada(s) se eliminarán y sus toneladas se restaurarán a las mezclas de origen. ⚠️ Esta acción no se puede deshacer.`,
-      recommended: false
+      recommended: esCerrado
     },
     {
       value: 'dejar_huerfanas',
@@ -90,6 +91,14 @@ export default function EliminarLoteModal({ show, lote, onConfirm, onCancel }) {
 
           {/* Body */}
           <div className="p-6 space-y-4">
+            {/* Aviso lote cerrado */}
+            {esCerrado && (
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <p className="text-sm text-blue-800">
+                  <span className="font-bold">ℹ️ Lote cerrado:</span> Al eliminar, la opción recomendada restaura las toneladas a sus mezclas de origen.
+                </p>
+              </div>
+            )}
             {/* Advertencia */}
             {cantidadCamionadas > 0 ? (
               <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">

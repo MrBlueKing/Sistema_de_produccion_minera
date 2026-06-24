@@ -74,6 +74,11 @@ class LaboratorioService {
     return response.data;
   }
 
+  async updateCamionada(id, data) {
+    const response = await api.put(`/dispatch/camionadas/${id}`, data);
+    return response.data;
+  }
+
   async deleteLote(id, opcion = 'dejar_huerfanas') {
     const response = await api.delete(`/dispatch/lotes/${id}`, {
       params: { opcion }

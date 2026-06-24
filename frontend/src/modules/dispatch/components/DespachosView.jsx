@@ -17,7 +17,8 @@ import {
   HiXCircle,
   HiChevronUp,
   HiChevronDown,
-  HiInformationCircle
+  HiInformationCircle,
+  HiCalendar
 } from 'react-icons/hi';
 import { HiScale } from 'react-icons/hi2';
 import useToast from '../../../hooks/useToast';
@@ -108,8 +109,12 @@ const DespachosView = () => {
   const [mostrarModalEliminarLote, setMostrarModalEliminarLote] = useState(false);
   const [loteAEliminar, setLoteAEliminar] = useState(null);
 
-  // Modal editar fecha
-  const [modalEditarFecha, setModalEditarFecha] = useState({ show: false, lote: null, fecha: '' });
+  // Modal editar lote
+  const [modalEditarFecha, setModalEditarFecha] = useState({ show: false, lote: null, numero_lote: '', fecha_creacion: '', observaciones: '', confirmando: false });
+
+  // Edición inline de camionadas en el modal de detalle
+  const [camionadaEditando, setCamionadaEditando] = useState(null); // { id, peso_real, fecha_recepcion }
+  const [savingCamionada, setSavingCamionada] = useState(false);
 
   // Estados para crear lote manual
   const [mostrarFormLote, setMostrarFormLote] = useState(false);
@@ -549,6 +554,25 @@ const DespachosView = () => {
     }
   };
 
+  const handleGuardarCamionada = async () => {
+    if (!camionadaEditando) return;
+    setSavingCamionada(true);
+    try {
+      await laboratorioService.updateCamionada(camionadaEditando.id, {
+        peso_real:       camionadaEditando.peso_real       || null,
+        fecha_recepcion: camionadaEditando.fecha_recepcion || null,
+      });
+      // Refrescar el detalle del lote
+      const loteActualizado = await laboratorioService.getLote(loteSeleccionado.id);
+      setLoteSeleccionado(loteActualizado);
+      setCamionadaEditando(null);
+      toast.success('Camionada actualizada');
+    } catch (err) {
+      toast.error('Error al guardar', err.response?.data?.mensaje || err.message);
+    }
+    setSavingCamionada(false);
+  };
+
   const handleFiltroLoteChange = (e) => {
     const { name, value } = e.target;
     setFiltrosLotes(prev => ({
@@ -717,15 +741,15 @@ const DespachosView = () => {
   };
 
   const handleGuardarFechaModal = async () => {
-    const { lote, fecha } = modalEditarFecha;
-    if (!fecha) { toast.warning('Selecciona una fecha'); return; }
+    const { lote, numero_lote, fecha_creacion, observaciones } = modalEditarFecha;
+    if (!fecha_creacion) { toast.warning('La fecha de creación no puede estar vacía'); return; }
     try {
-      await laboratorioService.updateLote(lote.id, { fecha_creacion: fecha });
-      toast.success('Fecha actualizada');
-      setModalEditarFecha({ show: false, lote: null, fecha: '' });
+      await laboratorioService.updateLote(lote.id, { numero_lote, fecha_creacion, observaciones });
+      toast.success('Lote actualizado');
+      setModalEditarFecha({ show: false, lote: null, numero_lote: '', fecha_creacion: '', observaciones: '', confirmando: false });
       await cargarLotes();
     } catch (error) {
-      toast.error(error.response?.data?.mensaje || 'Error al actualizar la fecha');
+      toast.error(error.response?.data?.mensaje || 'Error al actualizar el lote');
     }
   };
 
@@ -2241,12 +2265,25 @@ const DespachosView = () => {
                                     onClick={() => setModalEditarFecha({
                                       show: true,
                                       lote,
-                                      fecha: lote.fecha_creacion?.split('T')[0] ?? lote.fecha_creacion ?? ''
+                                      numero_lote: lote.numero_lote ?? '',
+                                      fecha_creacion: lote.fecha_creacion?.split('T')[0] ?? lote.fecha_creacion ?? '',
+                                      observaciones: lote.observaciones ?? '',
+                                      confirmando: false,
                                     })}
-                                    className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
-                                    title="Editar fecha"
+                                    className="p-1.5 rounded-lg text-blue-400 hover:text-blue-700 hover:bg-blue-50 transition-colors"
+                                    title="Editar fecha del lote"
                                   >
-                                    <HiPencil className="w-3.5 h-3.5" />
+                                    <HiCalendar className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setLoteAEliminar(lote);
+                                      setMostrarModalEliminarLote(true);
+                                    }}
+                                    className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
+                                    title="Eliminar lote"
+                                  >
+                                    <HiTrash className="w-3.5 h-3.5" />
                                   </button>
                                 </div>
                               </td>
@@ -2436,11 +2473,12 @@ const DespachosView = () => {
                               <th className="px-3 py-2 text-left font-semibold text-gray-700">#</th>
                               <th className="px-3 py-2 text-left font-semibold text-gray-700">Mezcla</th>
                               <th className="px-3 py-2 text-left font-semibold text-gray-700">Patente</th>
-                              <th className="px-3 py-2 text-left font-semibold text-gray-700">Fecha</th>
-                              <th className="px-3 py-2 text-right font-semibold text-gray-700">Peso</th>
+                              <th className="px-3 py-2 text-left font-semibold text-gray-700">Fecha Rec.</th>
+                              <th className="px-3 py-2 text-right font-semibold text-gray-700">Peso Real</th>
                               <th className="px-3 py-2 text-center font-semibold text-gray-700">Ley Lote</th>
                               <th className="px-3 py-2 text-center font-semibold text-gray-700">Ley Visual</th>
                               <th className="px-3 py-2 text-center font-semibold text-gray-700">Estado</th>
+                              <th className="px-3 py-2 text-center font-semibold text-gray-700 w-16">Acción</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-gray-200">
@@ -2470,15 +2508,41 @@ const DespachosView = () => {
                                         : <span className="text-gray-400">-</span>}
                                     </td>
                                     <td className="px-3 py-2 font-mono">{camionada.patente}</td>
+                                    {/* Fecha recepción — editable */}
                                     <td className="px-3 py-2">
-                                      {new Date(camionada.fecha_despacho).toLocaleDateString('es-CL')}
+                                      {camionadaEditando?.id === camionada.id ? (
+                                        <input
+                                          type="date"
+                                          value={camionadaEditando.fecha_recepcion ?? ''}
+                                          onChange={e => setCamionadaEditando(p => ({ ...p, fecha_recepcion: e.target.value }))}
+                                          className="border border-blue-300 rounded px-1 py-0.5 text-xs w-32 focus:outline-none focus:border-blue-500"
+                                        />
+                                      ) : (
+                                        camionada.fecha_recepcion
+                                          ? new Date(camionada.fecha_recepcion).toLocaleDateString('es-CL')
+                                          : <span className="text-gray-400 text-xs">—</span>
+                                      )}
                                     </td>
+                                    {/* Peso real — editable */}
                                     <td className="px-3 py-2 text-right font-semibold">
-                                      {(() => {
-                                        const peso = camionada.peso_real != null ? camionada.peso_real : camionada.peso;
-                                        return parseFloat(peso).toFixed(2);
-                                      })()} t
-                                      {camionada.peso_real != null && <span className="text-xs text-green-600 ml-1">✓</span>}
+                                      {camionadaEditando?.id === camionada.id ? (
+                                        <input
+                                          type="number"
+                                          step="0.01"
+                                          min="0"
+                                          value={camionadaEditando.peso_real ?? ''}
+                                          onChange={e => setCamionadaEditando(p => ({ ...p, peso_real: e.target.value }))}
+                                          className="border border-blue-300 rounded px-1 py-0.5 text-xs w-20 text-right focus:outline-none focus:border-blue-500"
+                                        />
+                                      ) : (
+                                        <>
+                                          {(() => {
+                                            const peso = camionada.peso_real != null ? camionada.peso_real : camionada.peso;
+                                            return parseFloat(peso).toFixed(2);
+                                          })()} t
+                                          {camionada.peso_real != null && <span className="text-xs text-green-600 ml-1">✓</span>}
+                                        </>
+                                      )}
                                     </td>
                                     <td className="px-3 py-2 text-center">
                                       {camionada.mezclas?.[0]?.ley_prom_lote != null
@@ -2495,12 +2559,46 @@ const DespachosView = () => {
                                         {camionada.estado}
                                       </Badge>
                                     </td>
+                                    {/* Botones editar / guardar / cancelar */}
+                                    <td className="px-2 py-2 text-center">
+                                      {camionadaEditando?.id === camionada.id ? (
+                                        <div className="flex items-center gap-1">
+                                          <button
+                                            onClick={handleGuardarCamionada}
+                                            disabled={savingCamionada}
+                                            className="p-1 rounded text-green-600 hover:bg-green-50 disabled:opacity-50"
+                                            title="Guardar"
+                                          >
+                                            {savingCamionada ? <div className="w-3.5 h-3.5 border-2 border-green-500 border-t-transparent rounded-full animate-spin" /> : <HiCheckCircle className="w-4 h-4" />}
+                                          </button>
+                                          <button
+                                            onClick={() => setCamionadaEditando(null)}
+                                            className="p-1 rounded text-gray-400 hover:bg-gray-100"
+                                            title="Cancelar"
+                                          >
+                                            <HiXCircle className="w-4 h-4" />
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <button
+                                          onClick={() => setCamionadaEditando({
+                                            id: camionada.id,
+                                            peso_real: camionada.peso_real ?? camionada.peso ?? '',
+                                            fecha_recepcion: camionada.fecha_recepcion?.split('T')[0] ?? camionada.fecha_recepcion ?? '',
+                                          })}
+                                          className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold text-orange-600 bg-orange-50 hover:bg-orange-100 transition-colors border border-orange-200"
+                                          title="Editar peso real y fecha recepción"
+                                        >
+                                          <HiPencil className="w-3 h-3" /> Editar
+                                        </button>
+                                      )}
+                                    </td>
                                   </tr>
 
                                   {/* Fila expandida: dumpadas de la mezcla */}
                                   {isExp && tieneMezclas && (
                                     <tr className="bg-indigo-50">
-                                      <td colSpan="9" className="px-4 py-3">
+                                      <td colSpan="10" className="px-4 py-3">
                                         {camionada.mezclas.map(mezcla => {
                                           const detalles = mezcla.detalles ?? [];
                                           return (
@@ -2553,7 +2651,7 @@ const DespachosView = () => {
                           </tbody>
                           <tfoot className="bg-gradient-to-r from-gray-100 to-gray-50 border-t-2 border-gray-400">
                             <tr>
-                              <td colSpan="5" className="px-3 py-3 text-gray-900 font-bold text-sm">TOTALES</td>
+                              <td colSpan="6" className="px-3 py-3 text-gray-900 font-bold text-sm">TOTALES</td>
                               <td className="px-3 py-3 text-right text-gray-900 font-bold">
                                 {loteSeleccionado.camionadas.reduce((sum, c) => {
                                   const peso = c.peso_real != null ? c.peso_real : c.peso;
@@ -2617,40 +2715,116 @@ const DespachosView = () => {
         </div>
       )}
 
-      {/* Modal: editar fecha de lote */}
+      {/* Modal: editar lote */}
       {modalEditarFecha.show && (
         <div
           className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
-          onClick={() => setModalEditarFecha({ show: false, lote: null, fecha: '' })}
+          onClick={() => !modalEditarFecha.confirmando && setModalEditarFecha({ show: false, lote: null, numero_lote: '', fecha_creacion: '', observaciones: '', confirmando: false })}
         >
           <div
-            className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm"
+            className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md"
             onClick={e => e.stopPropagation()}
           >
-            <h3 className="text-lg font-bold text-gray-900 mb-1">Editar fecha de creación del lote</h3>
-            <p className="text-sm text-gray-500 mb-4">{modalEditarFecha.lote?.numero_lote}</p>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Fecha</label>
-            <input
-              type="date"
-              value={modalEditarFecha.fecha}
-              onChange={e => setModalEditarFecha(prev => ({ ...prev, fecha: e.target.value }))}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 mb-5"
-              autoFocus
-            />
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setModalEditarFecha({ show: false, lote: null, fecha: '' })}
-                className="px-4 py-2 rounded-lg text-sm font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors"
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={handleGuardarFechaModal}
-                className="px-4 py-2 rounded-lg text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white transition-colors"
-              >
-                Guardar
-              </button>
-            </div>
+            {!modalEditarFecha.confirmando ? (
+              <>
+                <h3 className="text-lg font-bold text-gray-900 mb-1">Editar lote</h3>
+                <p className="text-sm text-gray-500 mb-4">Modifica los datos del lote</p>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Número de lote</label>
+                    <input
+                      type="text"
+                      value={modalEditarFecha.numero_lote}
+                      onChange={e => setModalEditarFecha(prev => ({ ...prev, numero_lote: e.target.value }))}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="Ej: L-001"
+                      autoFocus
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Fecha de creación</label>
+                    <input
+                      type="date"
+                      value={modalEditarFecha.fecha_creacion}
+                      onChange={e => setModalEditarFecha(prev => ({ ...prev, fecha_creacion: e.target.value }))}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Observaciones <span className="text-gray-400 font-normal">(opcional)</span></label>
+                    <textarea
+                      value={modalEditarFecha.observaciones}
+                      onChange={e => setModalEditarFecha(prev => ({ ...prev, observaciones: e.target.value }))}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      rows={3}
+                      placeholder="Observaciones opcionales..."
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 mt-5">
+                  <button
+                    onClick={() => setModalEditarFecha({ show: false, lote: null, numero_lote: '', fecha_creacion: '', observaciones: '', confirmando: false })}
+                    className="px-4 py-2 rounded-lg text-sm font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={() => {
+                      if (!modalEditarFecha.fecha_creacion) { toast.warning('La fecha de creación no puede estar vacía'); return; }
+                      setModalEditarFecha(prev => ({ ...prev, confirmando: true }));
+                    }}
+                    className="px-4 py-2 rounded-lg text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white transition-colors"
+                  >
+                    Guardar
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h3 className="text-lg font-bold text-gray-900 mb-1">Confirmar cambios</h3>
+                <p className="text-sm text-gray-500 mb-4">Revisa los cambios antes de guardar</p>
+
+                <div className="space-y-2 mb-5">
+                  {[
+                    { label: 'Número de lote', original: modalEditarFecha.lote?.numero_lote ?? '—', nuevo: modalEditarFecha.numero_lote || '—' },
+                    { label: 'Fecha de creación', original: modalEditarFecha.lote?.fecha_creacion?.split('T')[0] ?? modalEditarFecha.lote?.fecha_creacion ?? '—', nuevo: modalEditarFecha.fecha_creacion || '—' },
+                    { label: 'Observaciones', original: modalEditarFecha.lote?.observaciones || '—', nuevo: modalEditarFecha.observaciones || '—' },
+                  ].map(({ label, original, nuevo }) => {
+                    const cambio = original !== nuevo;
+                    return (
+                      <div key={label} className={`rounded-lg px-3 py-2 text-sm ${cambio ? 'bg-amber-50 border border-amber-200' : 'bg-gray-50 border border-gray-200'}`}>
+                        <span className="font-medium text-gray-600">{label}: </span>
+                        {cambio ? (
+                          <span>
+                            <span className="line-through text-gray-400 mr-2">{original}</span>
+                            <span className="text-amber-700 font-semibold">{nuevo}</span>
+                          </span>
+                        ) : (
+                          <span className="text-gray-500">{original}</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={() => setModalEditarFecha(prev => ({ ...prev, confirmando: false }))}
+                    className="px-4 py-2 rounded-lg text-sm font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors"
+                  >
+                    Volver
+                  </button>
+                  <button
+                    onClick={handleGuardarFechaModal}
+                    className="px-4 py-2 rounded-lg text-sm font-semibold bg-green-600 hover:bg-green-700 text-white transition-colors"
+                  >
+                    Confirmar
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

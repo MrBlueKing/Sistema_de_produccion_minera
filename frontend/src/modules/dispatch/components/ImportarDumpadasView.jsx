@@ -667,10 +667,14 @@ export default function ImportarDumpadasView({ toast, setVistaActual }) {
             </h2>
           </div>
 
-          <div className="grid grid-cols-3 gap-4 max-w-xl mx-auto">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 max-w-2xl mx-auto">
             <div className="bg-green-50 border border-green-100 rounded-xl p-5 text-center">
               <p className="text-4xl font-bold text-green-600 tabular-nums">{resultado.creadas}</p>
               <p className="text-xs text-gray-500 mt-1 uppercase tracking-wide">Creadas</p>
+            </div>
+            <div className="bg-purple-50 border border-purple-100 rounded-xl p-5 text-center">
+              <p className="text-4xl font-bold text-purple-600 tabular-nums">{resultado.actualizadas ?? 0}</p>
+              <p className="text-xs text-gray-500 mt-1 uppercase tracking-wide">Actualizadas</p>
             </div>
             <div className="bg-blue-50 border border-blue-100 rounded-xl p-5 text-center">
               <p className="text-4xl font-bold text-blue-500 tabular-nums">{resultado.saltadas}</p>

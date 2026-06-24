@@ -177,9 +177,10 @@ class ImportarDumpadasController extends Controller
         // Obtener nombre de faena una sola vez para toda la importación
         $nombreFaena = $this->obtenerNombreFaena($faenaId, $request->bearerToken());
 
-        $creadas  = 0;
-        $saltadas = 0;
-        $errores  = [];
+        $creadas      = 0;
+        $saltadas     = 0;
+        $actualizadas = 0;
+        $errores      = [];
 
         // Cache frentes BD indexado por nombre normalizado (sin espacios, lowercase)
         $frentesCache = FrenteTrabajo::where('id_faena', $faenaId)
@@ -188,11 +189,10 @@ class ImportarDumpadasController extends Controller
         // Cache tipos de frente (clave = nombre en MAYÚSCULAS)
         $tiposCache = TipoFrente::all()->keyBy(fn($t) => strtoupper(trim($t->nombre)));
 
-        // Números de dumpada ya existentes para esta faena (lookup O(1))
-        $numerosExistentes = Dumpada::where('id_faena', $faenaId)
-            ->pluck('numero_dumpada')
-            ->map(fn($n) => (string) $n)
-            ->flip();
+        // Dumpadas existentes indexadas por numero_dumpada (incluye ley para saber si actualizar)
+        $dumpadasExistentes = Dumpada::where('id_faena', $faenaId)
+            ->get(['id', 'numero_dumpada', 'ley'])
+            ->keyBy(fn($d) => (string) $d->numero_dumpada);
 
         // Contador de numero_jornada en memoria para evitar N queries
         // Precarga el máximo actual por frente+jornada+fecha
@@ -202,7 +202,8 @@ class ImportarDumpadasController extends Controller
             try {
                 $numeroDumpada = (string) ($d['numero_dumpada'] ?? '');
 
-                if (isset($numerosExistentes[$numeroDumpada])) {
+                $dumpadaExistente = $dumpadasExistentes->get($numeroDumpada);
+                if ($dumpadaExistente !== null && $dumpadaExistente->ley !== null) {
                     $saltadas++;
                     continue;
                 }
@@ -282,6 +283,22 @@ class ImportarDumpadasController extends Controller
                     ? Dumpada::ESTADO_COMPLETADO
                     : Dumpada::ESTADO_INGRESADO;
 
+                // Existe pero sin ley → actualizar solo campos de análisis
+                if ($dumpadaExistente !== null) {
+                    $dumpadaExistente->update([
+                        'ley'          => $ley,
+                        'ley_cup'      => $leyCup,
+                        'cu_soluble'   => $cuSoluble,
+                        'cu_insoluble' => $cuInsoluble,
+                        'certificado'  => $certificado,
+                        'ley_visual'   => $leyVisual,
+                        'rango'        => $d['rango'] ?? null,
+                        'estado'       => $estado,
+                    ]);
+                    $actualizadas++;
+                    continue;
+                }
+
                 Dumpada::create([
                     'id_frente_trabajo' => $frente->id,
                     'id_faena'          => $faenaId,
@@ -303,7 +320,6 @@ class ImportarDumpadasController extends Controller
                     'user_id'           => $request->auth_user_id,
                 ]);
 
-                $numerosExistentes[$numeroDumpada] = 1;
                 $creadas++;
 
             } catch (\Exception $e) {
@@ -322,10 +338,11 @@ class ImportarDumpadasController extends Controller
         }
 
         return response()->json([
-            'success'  => true,
-            'creadas'  => $creadas,
-            'saltadas' => $saltadas,
-            'errores'  => $errores,
+            'success'      => true,
+            'creadas'      => $creadas,
+            'actualizadas' => $actualizadas,
+            'saltadas'     => $saltadas,
+            'errores'      => $errores,
         ]);
     }
 }

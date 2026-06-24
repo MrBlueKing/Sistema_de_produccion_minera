@@ -145,17 +145,19 @@ class CamionadaController extends Controller
     public function update(Request $request, $id)
     {
         $validator = Validator::make($request->all(), [
-            'patente' => 'sometimes|string|max:20',
-            'cliente' => 'nullable|string|max:150',
-            'planta' => 'nullable|string|max:100',
-            'fecha_despacho' => 'sometimes|date',
-            'hora_despacho' => 'nullable|date_format:H:i',
-            'peso' => 'sometimes|numeric|min:0.01',
-            'ticket' => 'nullable|string|max:100',
-            'numero_guia' => 'nullable|string|max:50',
-            'ley_visual' => 'nullable|numeric|min:0',
-            'ley_mezcla' => 'nullable|numeric|min:0',
-            'observaciones' => 'nullable|string',
+            'patente'         => 'sometimes|string|max:20',
+            'cliente'         => 'nullable|string|max:150',
+            'planta'          => 'nullable|string|max:100',
+            'fecha_despacho'  => 'sometimes|date',
+            'fecha_recepcion' => 'nullable|date',
+            'hora_despacho'   => 'nullable|date_format:H:i',
+            'peso'            => 'sometimes|numeric|min:0.01',
+            'peso_real'       => 'nullable|numeric|min:0.01',
+            'ticket'          => 'nullable|string|max:100',
+            'numero_guia'     => 'nullable|string|max:50',
+            'ley_visual'      => 'nullable|numeric|min:0',
+            'ley_mezcla'      => 'nullable|numeric|min:0',
+            'observaciones'   => 'nullable|string',
         ]);
 
         if ($validator->fails()) {
@@ -166,16 +168,6 @@ class CamionadaController extends Controller
         }
 
         try {
-            // Validar que el lote esté ABIERTO
-            $camionada = Camionada::with('lote')->findOrFail($id);
-
-            if ($camionada->lote && $camionada->lote->estado !== \App\Models\Laboratorio\Lote::ESTADO_ABIERTO) {
-                return response()->json([
-                    'error' => 'No se puede editar',
-                    'mensaje' => 'No se puede editar una camionada de un lote COMPLETADO. Estado del lote: ' . $camionada->lote->estado
-                ], 400);
-            }
-
             $camionada = $this->camionadaService->actualizarCamionada($id, $request->all());
 
             return response()->json([

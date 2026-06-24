@@ -259,14 +259,6 @@ class LoteController extends Controller
         try {
             $lote = Lote::with(['camionadas.mezclas', 'planta', 'empresa'])->findOrFail($id);
 
-            // Validar que solo se puedan eliminar lotes ABIERTOS
-            if ($lote->estado !== Lote::ESTADO_ABIERTO) {
-                return response()->json([
-                    'error' => 'No se puede eliminar',
-                    'mensaje' => 'Solo se pueden eliminar lotes en estado ABIERTO. Este lote está en estado: ' . $lote->estado
-                ], 400);
-            }
-
             $cantidadCamionadas = $lote->camionadas()->count();
             $opcion = $request->input('opcion', 'dejar_huerfanas'); // Default: dejar huérfanas
 
