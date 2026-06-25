@@ -7,6 +7,7 @@ use App\Services\Laboratorio\CamionadaService;
 use App\Models\Laboratorio\Camionada;
 use App\Traits\MultiTenancy;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 
 class CamionadaController extends Controller
@@ -451,8 +452,10 @@ class CamionadaController extends Controller
             $camionada->numero_camionada = $vecina->numero_camionada;
             $vecina->numero_camionada = $numTemp;
 
-            $camionada->save();
-            $vecina->save();
+            DB::transaction(function () use ($camionada, $vecina) {
+                $camionada->save();
+                $vecina->save();
+            });
 
             return response()->json([
                 'mensaje' => 'Orden actualizado',
