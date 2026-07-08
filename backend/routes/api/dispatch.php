@@ -300,6 +300,15 @@ Route::prefix('importar')->group(function () {
     // [TEST] Comparar y corregir numero_dumpada usando N°Acop del Excel
     Route::post('/comparar-numeros', [CompararNumerosController::class, 'comparar']);
     Route::post('/actualizar-numeros', [CompararNumerosController::class, 'actualizarNumeros']);
+    // [TEST] Comparar y corregir frente/tipo usando Excel corregido
+    Route::post('/comparar-frentes', [CompararNumerosController::class, 'compararFrentes']);
+    Route::post('/corregir-frentes', [CompararNumerosController::class, 'corregirFrentes']);
+    // [TEST] Comparar y corregir fecha usando Excel corregido
+    Route::post('/comparar-fechas', [CompararNumerosController::class, 'compararFechas']);
+    Route::post('/corregir-fechas', [CompararNumerosController::class, 'corregirFechas']);
+    // [TEST] Revisar y reparar estructura (tunel/manto/calle/hebra/numero) de frentes ya existentes
+    Route::post('/comparar-estructura', [CompararNumerosController::class, 'compararEstructura']);
+    Route::post('/corregir-estructura', [CompararNumerosController::class, 'corregirEstructura']);
     // [TEST] Comparar y corregir código de mezcla usando Excel
     Route::post('/comparar-mezclas', [CompararMezclasController::class, 'comparar']);
     Route::post('/actualizar-mezclas', [CompararMezclasController::class, 'actualizarCodigos']);

@@ -62,6 +62,7 @@ function FrentesTrabajoContent() {
   const debouncedSearchTerm = useDebounce(searchTerm, 500);
 
   const [formData, setFormData] = useState({
+    tunel: '',
     manto: '',
     calle: '',
     hebra: '',
@@ -202,7 +203,7 @@ function FrentesTrabajoContent() {
         );
       }
 
-      setFormData({ manto: '', calle: '', hebra: '', numero_frente: '', id_tipo_frente: '', id_faena: '', estado: 'activo' });
+      setFormData({ tunel: '', manto: '', calle: '', hebra: '', numero_frente: '', id_tipo_frente: '', id_faena: '', estado: 'activo' });
       setShowForm(false);
       setEditingId(null);
       setCurrentPage(1); // Volver a la primera página
@@ -223,6 +224,7 @@ function FrentesTrabajoContent() {
 
   const handleEdit = (frente) => {
     setFormData({
+      tunel: frente.tunel || '',
       manto: frente.manto || '',
       calle: frente.calle || '',
       hebra: frente.hebra || '',
@@ -274,7 +276,7 @@ function FrentesTrabajoContent() {
   };
 
   const handleCancelEdit = () => {
-    setFormData({ manto: '', calle: '', hebra: '', numero_frente: '', id_tipo_frente: '', id_faena: '', estado: 'activo' });
+    setFormData({ tunel: '', manto: '', calle: '', hebra: '', numero_frente: '', id_tipo_frente: '', id_faena: '', estado: 'activo' });
     setEditingId(null);
     setShowForm(false);
   };
@@ -476,6 +478,17 @@ function FrentesTrabajoContent() {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <Input
+                  label="Túnel (opcional)"
+                  type="text"
+                  value={formData.tunel}
+                  onChange={(e) => setFormData({ ...formData, tunel: e.target.value.toUpperCase() })}
+                  placeholder="Ej: NIVEL974"
+                  style={{ textTransform: 'uppercase' }}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Input
                   label="Manto *"
                   type="text"
                   value={formData.manto}
@@ -589,6 +602,7 @@ function FrentesTrabajoContent() {
                         : '';
 
                       return [
+                        formData.tunel,
                         formData.manto,
                         formData.calle,
                         formData.hebra,
@@ -698,6 +712,7 @@ function FrentesTrabajoContent() {
                 <thead>
                   <tr className="border-b-2 border-orange-200 bg-gradient-to-r from-orange-50 to-orange-100">
                     <th className="text-left py-4 px-4 font-bold text-orange-900">Código Completo</th>
+                    <th className="text-left py-4 px-4 font-bold text-orange-900">Túnel</th>
                     <th className="text-left py-4 px-4 font-bold text-orange-900">Manto</th>
                     <th className="text-left py-4 px-4 font-bold text-orange-900">Calle</th>
                     <th className="text-left py-4 px-4 font-bold text-orange-900">Hebra</th>
@@ -724,6 +739,7 @@ function FrentesTrabajoContent() {
                           {frente.codigo_completo || '-'}
                         </span>
                       </td>
+                      <td className="py-4 px-4 text-gray-700">{frente.tunel || '-'}</td>
                       <td className="py-4 px-4 font-semibold text-gray-800">{frente.manto || '-'}</td>
                       <td className="py-4 px-4 text-gray-700">{frente.calle || '-'}</td>
                       <td className="py-4 px-4 text-gray-700">{frente.hebra || '-'}</td>

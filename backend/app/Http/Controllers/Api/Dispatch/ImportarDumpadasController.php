@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Dispatch\Dumpada;
 use App\Models\Ingenieria\FrenteTrabajo;
 use App\Models\Ingenieria\TipoFrente;
+use App\Traits\DescomponeFrenteTrabajo;
 use App\Traits\MultiTenancy;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -15,6 +16,7 @@ use Illuminate\Support\Facades\Log;
 class ImportarDumpadasController extends Controller
 {
     use MultiTenancy;
+    use DescomponeFrenteTrabajo;
 
     private function normalizarJornada(string $jornada): string
     {
@@ -35,69 +37,6 @@ class ImportarDumpadasController extends Controller
     private function normalizarFrente(string $nombre): string
     {
         return strtolower(preg_replace('/\s+/', '', $nombre));
-    }
-
-    /**
-     * Genera el codigo_completo sin espacios a partir del nombre del Excel.
-     * Equivale a lo que haría el formulario manual al concatenar componentes.
-     * "M5 -4SH2 REC" → "M5-4SH2REC"
-     */
-    private function codigoSinEspacios(string $nombre): string
-    {
-        return preg_replace('/\s+/', '', $nombre);
-    }
-
-    /**
-     * Descompone el nombre del frente (Excel) en sus campos estructurales.
-     *
-     * Patrones reconocidos:
-     *   M5 -1SH2 REC  → manto=M5, calle=-1, hebra=SH, numero=2REC
-     *   M3 -11S REC   → manto=M3, calle=-11S, numero=REC
-     *   M3 -11S       → manto=M3, calle=-11S
-     *   DRIFT 468     → manto=DRIFT, calle=468
-     *
-     * @return array{manto:string, calle:string|null, hebra:string|null, numero_frente:string|null}
-     */
-    private function descomponerNombreFrente(string $nombre): array
-    {
-        $partes  = preg_split('/\s+/', trim($nombre));
-        $manto   = $partes[0] ?? $nombre;
-        $calle   = null;
-        $hebra   = null;
-        $numero  = null;
-
-        if (count($partes) < 2) {
-            return compact('manto', 'calle', 'hebra', 'numero');
-        }
-
-        $seg   = $partes[1];
-        $resto = array_slice($partes, 2);
-
-        // Patrón M5: "-1SH2", "1NH2", "-4SH2" → calle + hebra (NH/SH) + número
-        if (preg_match('/^(-?\d+)(NH|SH)(\d*.*)$/i', $seg, $m)) {
-            $calle  = $m[1];
-            $hebra  = strtoupper($m[2]);
-            $numero = $m[3] . implode('', $resto) ?: null;
-            return compact('manto', 'calle', 'hebra', 'numero');
-        }
-
-        // Patrón M3: "-11S", "-10N", "11S", "10N" → calle incluye letra de dirección
-        if (preg_match('/^(-?\d+[NS])$/i', $seg, $m)) {
-            $calle  = strtoupper($m[1]);
-            $numero = $resto ? implode('', $resto) : null;
-            return compact('manto', 'calle', 'hebra', 'numero');
-        }
-
-        // Número puro: "468", "1", "-2" → calle sin letra
-        if (preg_match('/^(-?\d+)$/', $seg, $m)) {
-            $calle  = $m[1];
-            $numero = $resto ? implode('', $resto) : null;
-            return compact('manto', 'calle', 'hebra', 'numero');
-        }
-
-        // No reconoce patrón → todo el resto en numero_frente
-        $numero = implode(' ', array_slice($partes, 1));
-        return compact('manto', 'calle', 'hebra', 'numero');
     }
 
     /**
@@ -127,6 +66,7 @@ class ImportarDumpadasController extends Controller
                 'nombre'           => $nombre,
                 'codigo_a_crear'   => $this->codigoSinEspacios($nombre), // código que se guardará si se crea
                 'manto_a_crear'    => $this->descomponerNombreFrente($nombre)['manto'],
+                'tunel_a_crear'    => $this->descomponerNombreFrente($nombre)['tunel'],
                 'tipo'             => $tipo,
                 'existe'           => $frenteDB !== null,
                 'id'               => $frenteDB?->id,
@@ -210,7 +150,7 @@ class ImportarDumpadasController extends Controller
 
                 $puntoNombre  = trim($d['punto'] ?? '');
                 $puntoNorm    = $this->normalizarFrente($puntoNombre);
-                $tipoNombre   = strtoupper(trim($d['tipo'] ?? 'FRENTE'));
+                $tipoNombre   = $this->resolverAliasTipo($d['tipo'] ?? 'FRENTE');
 
                 // Obtener o crear frente (lookup por nombre normalizado)
                 if (!$frentesCache->has($puntoNorm)) {
@@ -227,6 +167,7 @@ class ImportarDumpadasController extends Controller
                     $descomp = $this->descomponerNombreFrente($puntoNombre);
                     $nuevoFrente = FrenteTrabajo::create([
                         'codigo_completo' => $this->codigoSinEspacios($puntoNombre),
+                        'tunel'           => $descomp['tunel'],
                         'manto'           => $descomp['manto'],
                         'calle'           => $descomp['calle'],
                         'hebra'           => $descomp['hebra'],

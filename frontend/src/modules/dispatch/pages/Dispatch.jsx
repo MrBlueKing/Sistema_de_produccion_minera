@@ -124,6 +124,7 @@ function DispatchContent() {
     fecha_fin: '',
     id_frente_trabajo: '',
     id_faena: '',
+    numero_dumpada: '',
   });
 
   // Debounce para la búsqueda
@@ -411,6 +412,7 @@ function DispatchContent() {
             fecha_fin: filters.fecha_fin || undefined,
             id_frente_trabajo: filters.id_frente_trabajo || undefined,
             id_faena: idFaenaParam || filters.id_faena || undefined,
+            numero_dumpada: filters.numero_dumpada || undefined,
           };
 
           // Limpiar parámetros undefined
@@ -537,6 +539,7 @@ function DispatchContent() {
       fecha_fin: '',
       id_frente_trabajo: '',
       id_faena: '',
+      numero_dumpada: '',
     });
     setCurrentPage(1);
   };
@@ -1710,10 +1713,16 @@ function DispatchContent() {
             {/* Componente de Filtros - Siempre expandido */}
             <TableFilters
               searchValue={searchTerm}
-              searchPlaceholder="Buscar por código de acopios, certificado, frente..."
+              searchPlaceholder="Buscar por código de acopios, certificado, N° dumpada o frente..."
               onSearchChange={handleSearchChange}
               alwaysExpanded={true}
               filters={[
+                {
+                  name: 'numero_dumpada',
+                  label: 'N° Dumpada (exacto)',
+                  type: 'text',
+                  placeholder: 'Ej: 1, 2834...'
+                },
                 {
                   name: 'estado',
                   label: 'Estado',

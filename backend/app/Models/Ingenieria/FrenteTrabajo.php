@@ -19,6 +19,7 @@ class FrenteTrabajo extends Model
      * Atributos asignables en masa
      */
     protected $fillable = [
+        'tunel',
         'manto',
         'calle',
         'hebra',

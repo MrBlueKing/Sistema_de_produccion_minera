@@ -108,6 +108,7 @@ export default function HistorialCambios({ show, onClose, frenteId, loadHistoria
 
   const formatearCampo = (campo) => {
     const nombres = {
+      tunel: 'Túnel',
       manto: 'Manto',
       calle: 'Calle',
       hebra: 'Hebra',

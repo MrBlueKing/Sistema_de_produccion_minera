@@ -123,6 +123,39 @@ class DispatchService {
     return response.data;
   }
 
+  // [TEST] Comparar y corregir frente/tipo usando Excel corregido
+  async compararFrentes(faenaId, dumpadas) {
+    const response = await api.post('/dispatch/importar/comparar-frentes', { faena_id: faenaId, dumpadas });
+    return response.data;
+  }
+
+  async corregirFrentes(faenaId, correcciones) {
+    const response = await api.post('/dispatch/importar/corregir-frentes', { faena_id: faenaId, correcciones });
+    return response.data;
+  }
+
+  // [TEST] Comparar y corregir fecha usando Excel corregido
+  async compararFechas(faenaId, dumpadas) {
+    const response = await api.post('/dispatch/importar/comparar-fechas', { faena_id: faenaId, dumpadas });
+    return response.data;
+  }
+
+  async corregirFechas(faenaId, correcciones) {
+    const response = await api.post('/dispatch/importar/corregir-fechas', { faena_id: faenaId, correcciones });
+    return response.data;
+  }
+
+  // [TEST] Revisar y reparar estructura (tunel/manto/calle/hebra/numero) de frentes existentes
+  async compararEstructura(faenaId, dumpadas) {
+    const response = await api.post('/dispatch/importar/comparar-estructura', { faena_id: faenaId, dumpadas });
+    return response.data;
+  }
+
+  async corregirEstructura(faenaId, correcciones) {
+    const response = await api.post('/dispatch/importar/corregir-estructura', { faena_id: faenaId, correcciones });
+    return response.data;
+  }
+
   // [TEST] Comparar y corregir códigos de mezcla usando Excel
   async compararMezclas(faenaId, mezclas) {
     const response = await api.post('/dispatch/importar/comparar-mezclas', { faena_id: faenaId, mezclas });

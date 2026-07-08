@@ -51,6 +51,7 @@ class DumpadaController extends Controller
         $fechaFin = $request->get('fecha_fin');
         $idFrenteTrabajo = $request->get('id_frente_trabajo');
         $idFaena = $request->get('id_faena');
+        $numeroDumpada = $request->get('numero_dumpada');
 
         $query = Dumpada::with(['frenteTrabajo.tipoFrente'])
             ->orderByRaw('DATE(fecha) DESC, CAST(numero_dumpada AS UNSIGNED) DESC');
@@ -120,6 +121,11 @@ class DumpadaController extends Controller
         // Filtro por frente de trabajo
         if ($idFrenteTrabajo) {
             $query->where('id_frente_trabajo', $idFrenteTrabajo);
+        }
+
+        // Filtro por número de dumpada exacto (a diferencia de "search", que hace LIKE)
+        if ($numeroDumpada) {
+            $query->where('numero_dumpada', $numeroDumpada);
         }
 
         $dumpadas = $query->paginate($perPage, ['*'], 'page', $page);

@@ -117,6 +117,7 @@ class FrenteTrabajoController extends Controller
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
+            'tunel' => 'nullable|string|max:20',
             'manto' => 'required|string|max:20',
             'calle' => 'nullable|string|max:20',
             'hebra' => 'nullable|string|max:10',
@@ -139,6 +140,7 @@ class FrenteTrabajoController extends Controller
 
         // Generar código completo automáticamente
         $codigo = $this->generarCodigoCompleto(
+            $request->tunel,
             $request->manto,
             $request->calle,
             $request->hebra,
@@ -156,6 +158,7 @@ class FrenteTrabajoController extends Controller
         }
 
         $frente = FrenteTrabajo::create([
+            'tunel' => $request->tunel,
             'manto' => $request->manto,
             'calle' => $request->calle,
             'hebra' => $request->hebra,
@@ -226,6 +229,7 @@ class FrenteTrabajoController extends Controller
         // }
 
         $validator = Validator::make($request->all(), [
+            'tunel' => 'nullable|string|max:20',
             'manto' => 'required|string|max:20',
             'calle' => 'nullable|string|max:20',
             'hebra' => 'nullable|string|max:10',
@@ -258,6 +262,7 @@ class FrenteTrabajoController extends Controller
 
         // Generar código completo automáticamente
         $codigo = $this->generarCodigoCompleto(
+            $request->tunel,
             $request->manto,
             $request->calle,
             $request->hebra,
@@ -277,6 +282,7 @@ class FrenteTrabajoController extends Controller
         }
 
         $frente->update([
+            'tunel' => $request->tunel,
             'manto' => $request->manto,
             'calle' => $request->calle,
             'hebra' => $request->hebra,
@@ -477,6 +483,7 @@ class FrenteTrabajoController extends Controller
         // Regenerar código si es necesario
         if (isset($datosAnteriores['manto']) && isset($datosAnteriores['id_tipo_frente'])) {
             $codigo = $this->generarCodigoCompleto(
+                $datosAnteriores['tunel'] ?? null,
                 $datosAnteriores['manto'],
                 $datosAnteriores['calle'] ?? null,
                 $datosAnteriores['hebra'] ?? null,
@@ -488,6 +495,7 @@ class FrenteTrabajoController extends Controller
 
         // Actualizar frente
         $frente->update([
+            'tunel' => $datosAnteriores['tunel'] ?? $frente->tunel,
             'manto' => $datosAnteriores['manto'] ?? $frente->manto,
             'calle' => $datosAnteriores['calle'] ?? $frente->calle,
             'hebra' => $datosAnteriores['hebra'] ?? $frente->hebra,
@@ -593,9 +601,14 @@ class FrenteTrabajoController extends Controller
      * Formato: M5-1SH1AL7 (sin espacios)
      * Donde L7 es el tipo de frente (L) + número (7)
      */
-    private function generarCodigoCompleto($manto, $calle, $hebra, $numeroFrente, $idTipoFrente)
+    private function generarCodigoCompleto($tunel, $manto, $calle, $hebra, $numeroFrente, $idTipoFrente)
     {
         $partes = [];
+
+        // Túnel (opcional, solo aplica a faenas que se rigen por niveles, ej. Catemu)
+        if (!empty($tunel)) {
+            $partes[] = $tunel;
+        }
 
         // Manto (obligatorio)
         $partes[] = $manto;

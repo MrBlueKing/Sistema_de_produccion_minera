@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api\Dispatch;
 use App\Http\Controllers\Controller;
 use App\Models\Dispatch\Dumpada;
 use App\Models\Ingenieria\FrenteTrabajo;
+use App\Models\Ingenieria\TipoFrente;
+use App\Traits\DescomponeFrenteTrabajo;
 use App\Traits\MultiTenancy;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -18,6 +20,7 @@ use Illuminate\Support\Facades\Log;
 class CompararNumerosController extends Controller
 {
     use MultiTenancy;
+    use DescomponeFrenteTrabajo;
 
     private const LEY_TOLERANCIA = 0.01; // ±0.01% para considerar leyes iguales
 
@@ -30,6 +33,42 @@ class CompararNumerosController extends Controller
     {
         $map = ['AM' => 'AM', 'PM' => 'PM', 'MADRUGADA' => 'Madrugada', 'NOCHE' => 'Noche'];
         return $map[strtoupper(trim($jornada))] ?? 'AM';
+    }
+
+    /**
+     * Limpia del resultado de descomponerNombreFrente() la información que solo
+     * repite el tipo ya asignado (nombre o abreviatura), en dos casos:
+     *   - numero_frente: se anula si coincide exacto con el tipo (ej. "DQ" cuando
+     *     el tipo ya es "Dq"/abrev "DQ") — admite null, se puede dejar vacío.
+     *   - manto: SOLO se anula cuando es la única palabra que quedó tras sacar el
+     *     túnel (sin calle/hebra/numero) Y coincide con el tipo — ej. "NIVEL 1018 REC"
+     *     con tipo "Rec" no aporta nada que "manto=REC" no repita ya. Si manto trae
+     *     información real que no está en el tipo (ej. "ACOPIO" con tipo genérico
+     *     "Frente"), se conserva intacto.
+     */
+    private function limpiarRedundanciaConTipo(array $descomp, ?string $tipoNombre, ?string $tipoAbreviatura): array
+    {
+        $nombreNorm = strtoupper(trim((string) $tipoNombre));
+        $abrevNorm  = strtoupper(trim((string) $tipoAbreviatura));
+
+        $coincideConTipo = function ($valor) use ($nombreNorm, $abrevNorm) {
+            if ($valor === null || $valor === '') return false;
+            // Se resuelve por alias también (ej. manto="DESQ" debe reconocerse
+            // como el mismo tipo "Desquinche", no solo comparar el texto crudo).
+            $valorNorm = $this->resolverAliasTipo((string) $valor);
+            return ($abrevNorm !== '' && $valorNorm === $abrevNorm) || ($nombreNorm !== '' && $valorNorm === $nombreNorm);
+        };
+
+        if ($coincideConTipo($descomp['numero'])) {
+            $descomp['numero'] = null;
+        }
+
+        $esUnicaPalabra = $descomp['calle'] === null && $descomp['hebra'] === null && $descomp['numero'] === null;
+        if ($esUnicaPalabra && $coincideConTipo($descomp['manto'])) {
+            $descomp['manto'] = null;
+        }
+
+        return $descomp;
     }
 
     /**
@@ -254,6 +293,477 @@ class CompararNumerosController extends Controller
         } catch (\Exception $e) {
             DB::rollBack();
             Log::error('[CompararNumeros] Error actualizando', ['error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * [TEST] Compara el frente/tipo correcto (según Excel corregido) contra el
+     * frente que tiene asignado hoy cada dumpada en BD. Matching directo por
+     * numero_dumpada (dato confiable, no se vio afectado por el problema de columnas).
+     * POST /api/dispatch/importar/comparar-frentes
+     */
+    public function compararFrentes(Request $request)
+    {
+        $faenaId       = $request->input('faena_id');
+        $dumpadasInput = $request->input('dumpadas', []);
+
+        $frentesCache = FrenteTrabajo::where('id_faena', $faenaId)
+            ->get()
+            ->keyBy(fn($f) => $this->normalizarFrente($f->codigo_completo));
+
+        $tiposCache = TipoFrente::all()->keyBy(fn($t) => strtoupper(trim($t->nombre)));
+
+        $dumpadasCache = Dumpada::where('id_faena', $faenaId)
+            ->with('frenteTrabajo.tipoFrente')
+            ->get(['id', 'numero_dumpada', 'id_frente_trabajo'])
+            ->keyBy(fn($d) => (string) $d->numero_dumpada);
+
+        $resultados        = [];
+        $frentesNuevosSet   = []; // puntoNorm => detalle (para deduplicar)
+        $tiposNuevosSet     = []; // tipoExcel => detalle (para deduplicar)
+
+        foreach ($dumpadasInput as $d) {
+            $numeroDumpada = (string) ($d['numero_dumpada'] ?? '');
+            $puntoExcel    = trim($d['punto'] ?? '');
+            $tipoExcel     = $this->resolverAliasTipo($d['tipo'] ?? '');
+            $puntoNorm     = $this->normalizarFrente($puntoExcel);
+
+            $dumpada = $dumpadasCache->get($numeroDumpada);
+            if (!$dumpada) {
+                $resultados[] = [
+                    'numero_dumpada' => $numeroDumpada,
+                    'punto_excel'    => $puntoExcel,
+                    'tipo_excel'     => $tipoExcel,
+                    'sin_match'      => true,
+                    'ya_correcto'    => false,
+                ];
+                continue;
+            }
+
+            $frenteActual      = $dumpada->frenteTrabajo;
+            $frenteCorrectoDB  = $frentesCache->get($puntoNorm);
+            $tipoActualNombre  = strtoupper(trim($frenteActual?->tipoFrente?->nombre ?? ''));
+            $tipoExisteDB      = $tiposCache->has($tipoExcel);
+
+            $yaCorrecto = $frenteActual
+                && $this->normalizarFrente($frenteActual->codigo_completo) === $puntoNorm
+                && $tipoActualNombre === $tipoExcel;
+
+            // El tipo solo se crea como parte de crear un frente nuevo (ver corregirFrentes):
+            // si el frente ya existe, la corrección solo reasigna la dumpada sin tocar su tipo.
+            if (!$yaCorrecto && !$frenteCorrectoDB) {
+                if (!isset($frentesNuevosSet[$puntoNorm])) {
+                    $frentesNuevosSet[$puntoNorm] = $this->previsualizarFrenteNuevo($puntoExcel, $tipoExcel, $tiposCache);
+                }
+                if (!$tipoExisteDB && !isset($tiposNuevosSet[$tipoExcel])) {
+                    $tiposNuevosSet[$tipoExcel] = [
+                        'nombre'      => ucfirst(strtolower($tipoExcel)),
+                        'abreviatura' => substr($tipoExcel, 0, 3),
+                    ];
+                }
+            }
+
+            $resultados[] = [
+                'dumpada_id'      => $dumpada->id,
+                'numero_dumpada'  => $numeroDumpada,
+                'punto_excel'     => $puntoExcel,
+                'tipo_excel'      => $tipoExcel,
+                'sin_match'       => false,
+                'ya_correcto'     => $yaCorrecto,
+                'frente_actual'   => $frenteActual ? [
+                    'id'     => $frenteActual->id,
+                    'codigo' => $frenteActual->codigo_completo,
+                    'tipo'   => $frenteActual->tipoFrente->nombre ?? '—',
+                ] : null,
+                'frente_correcto' => [
+                    'codigo'      => $frenteCorrectoDB->codigo_completo ?? $this->codigoSinEspacios($puntoExcel),
+                    'existe'      => $frenteCorrectoDB !== null,
+                    'tipo'        => $tipoExcel,
+                    'tipo_existe' => $tipoExisteDB,
+                ],
+            ];
+        }
+
+        $paraCorregir = array_filter($resultados, fn($r) => !$r['sin_match'] && !$r['ya_correcto']);
+
+        return response()->json([
+            'success'            => true,
+            'resultados'         => $resultados,
+            'total'              => count($resultados),
+            'ya_correctos'       => count(array_filter($resultados, fn($r) => $r['ya_correcto'])),
+            'para_corregir'      => count($paraCorregir),
+            'sin_match_bd'       => count(array_filter($resultados, fn($r) => $r['sin_match'])),
+            'frentes_nuevos'     => count($frentesNuevosSet),
+            'frentes_nuevos_lista' => array_values($frentesNuevosSet),
+            'tipos_nuevos'       => count($tiposNuevosSet),
+            'tipos_nuevos_lista' => array_values($tiposNuevosSet),
+        ]);
+    }
+
+    /**
+     * Calcula, sin guardar nada, cómo quedaría un frente si se crea a partir del
+     * texto crudo del Excel — mismo resultado exacto que producirá corregirFrentes()
+     * al aplicarse, incluyendo la deduplicación de numero_frente contra la
+     * abreviatura del tipo (ej. "DQ" no se repite si el tipo ya es "Dq"/abrev "DQ").
+     */
+    private function previsualizarFrenteNuevo(string $puntoExcel, string $tipoExcel, $tiposCache): array
+    {
+        $descomp     = $this->descomponerNombreFrente($puntoExcel);
+        $tipoActual  = $tiposCache->get($tipoExcel);
+        $tipoEsNuevo = $tipoActual === null;
+
+        // Si el tipo ya existe, se usa su abreviatura real (puede ser null/vacía,
+        // en cuyo caso simplemente no hay nada contra qué deduplicar). Solo se
+        // "inventa" una abreviatura (primeras 3 letras) cuando el tipo es nuevo,
+        // igual que hace corregirFrentes() al crearlo con TipoFrente::firstOrCreate().
+        $tipoNombre      = $tipoEsNuevo ? ucfirst(strtolower($tipoExcel)) : $tipoActual->nombre;
+        $tipoAbreviatura = $tipoEsNuevo ? substr($tipoExcel, 0, 3) : $tipoActual->abreviatura;
+
+        $descomp = $this->limpiarRedundanciaConTipo($descomp, $tipoNombre, $tipoAbreviatura);
+
+        return [
+            'codigo'           => $this->codigoSinEspacios($puntoExcel),
+            'tunel'            => $descomp['tunel'],
+            'manto'            => $descomp['manto'],
+            'calle'            => $descomp['calle'],
+            'hebra'            => $descomp['hebra'],
+            'numero_frente'    => $descomp['numero'],
+            'tipo'             => $tipoNombre,
+            'tipo_abreviatura' => $tipoAbreviatura,
+            'tipo_nuevo'       => $tipoEsNuevo,
+        ];
+    }
+
+    /**
+     * [TEST] Aplica la corrección de frente/tipo a las dumpadas seleccionadas.
+     * Crea el frente correcto si todavía no existe (misma lógica que el importador).
+     * No elimina los frentes viejos que queden sin dumpadas asociadas.
+     * POST /api/dispatch/importar/corregir-frentes
+     */
+    public function corregirFrentes(Request $request)
+    {
+        $faenaId         = $request->input('faena_id');
+        $correcciones    = $request->input('correcciones', []); // [{dumpada_id, punto, tipo}]
+
+        DB::beginTransaction();
+        try {
+            $frentesCache = FrenteTrabajo::where('id_faena', $faenaId)
+                ->get()->keyBy(fn($f) => $this->normalizarFrente($f->codigo_completo));
+
+            $tiposCache = TipoFrente::all()->keyBy(fn($t) => strtoupper(trim($t->nombre)));
+
+            $corregidas    = 0;
+            $frentesCreados = 0;
+            $errores       = [];
+
+            foreach ($correcciones as $c) {
+                try {
+                    $dumpada = Dumpada::find($c['dumpada_id']);
+                    if (!$dumpada) {
+                        $errores[] = "Dumpada ID {$c['dumpada_id']} no encontrada";
+                        continue;
+                    }
+
+                    $puntoExcel = trim($c['punto'] ?? '');
+                    $tipoNombre = $this->resolverAliasTipo($c['tipo'] ?? 'FRENTE');
+                    $puntoNorm  = $this->normalizarFrente($puntoExcel);
+
+                    if (!$frentesCache->has($puntoNorm)) {
+                        $tipoFrente = $tiposCache->get($tipoNombre);
+                        if (!$tipoFrente) {
+                            $nombreTipo = ucfirst(strtolower($tipoNombre));
+                            $tipoFrente = TipoFrente::firstOrCreate(
+                                ['nombre' => $nombreTipo],
+                                ['abreviatura' => substr($tipoNombre, 0, 3)]
+                            );
+                            $tiposCache->put(strtoupper($tipoFrente->nombre), $tipoFrente);
+                        }
+
+                        $descomp = $this->descomponerNombreFrente($puntoExcel);
+                        $descomp = $this->limpiarRedundanciaConTipo($descomp, $tipoFrente->nombre, $tipoFrente->abreviatura);
+
+                        $nuevoFrente = FrenteTrabajo::create([
+                            'codigo_completo' => $this->codigoSinEspacios($puntoExcel),
+                            'tunel'           => $descomp['tunel'],
+                            'manto'           => $descomp['manto'],
+                            'calle'           => $descomp['calle'],
+                            'hebra'           => $descomp['hebra'],
+                            'numero_frente'   => $descomp['numero'],
+                            'id_tipo_frente'  => $tipoFrente->id,
+                            'id_faena'        => $faenaId,
+                            'estado'          => 'activo',
+                        ]);
+                        $frentesCache->put($puntoNorm, $nuevoFrente);
+                        $frentesCreados++;
+                    }
+
+                    $dumpada->update(['id_frente_trabajo' => $frentesCache->get($puntoNorm)->id]);
+                    $corregidas++;
+
+                } catch (\Exception $e) {
+                    $errores[] = "Dumpada ID {$c['dumpada_id']}: {$e->getMessage()}";
+                }
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'success'         => true,
+                'corregidas'      => $corregidas,
+                'frentes_creados' => $frentesCreados,
+                'errores'         => $errores,
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('[CompararNumeros] Error corrigiendo frentes', ['error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * [TEST] Compara la fecha correcta (según Excel corregido) contra la fecha
+     * que tiene asignada hoy cada dumpada en BD. Matching directo por
+     * numero_dumpada (dato confiable, no se vio afectado por el problema de columnas).
+     * POST /api/dispatch/importar/comparar-fechas
+     */
+    public function compararFechas(Request $request)
+    {
+        $faenaId       = $request->input('faena_id');
+        $dumpadasInput = $request->input('dumpadas', []);
+
+        $dumpadasCache = Dumpada::where('id_faena', $faenaId)
+            ->get(['id', 'numero_dumpada', 'fecha'])
+            ->keyBy(fn($d) => (string) $d->numero_dumpada);
+
+        $resultados = [];
+
+        foreach ($dumpadasInput as $d) {
+            $numeroDumpada = (string) ($d['numero_dumpada'] ?? '');
+            $fechaExcel    = $d['fecha'] ?? null; // formato Y-m-d, ya parseado en el frontend
+
+            $dumpada = $dumpadasCache->get($numeroDumpada);
+            if (!$dumpada) {
+                $resultados[] = [
+                    'numero_dumpada' => $numeroDumpada,
+                    'fecha_excel'    => $fechaExcel,
+                    'sin_match'      => true,
+                    'ya_correcto'    => false,
+                ];
+                continue;
+            }
+
+            $fechaActual = $dumpada->fecha ? Carbon::parse($dumpada->fecha)->format('Y-m-d') : null;
+            $yaCorrecto  = $fechaExcel !== null && $fechaActual === $fechaExcel;
+
+            $resultados[] = [
+                'dumpada_id'      => $dumpada->id,
+                'numero_dumpada'  => $numeroDumpada,
+                'fecha_actual'    => $fechaActual,
+                'fecha_excel'     => $fechaExcel,
+                'sin_match'       => false,
+                'ya_correcto'     => $yaCorrecto,
+            ];
+        }
+
+        $paraCorregir = array_filter($resultados, fn($r) => !$r['sin_match'] && !$r['ya_correcto']);
+
+        return response()->json([
+            'success'       => true,
+            'resultados'    => $resultados,
+            'total'         => count($resultados),
+            'ya_correctos'  => count(array_filter($resultados, fn($r) => $r['ya_correcto'])),
+            'para_corregir' => count($paraCorregir),
+            'sin_match_bd'  => count(array_filter($resultados, fn($r) => $r['sin_match'])),
+        ]);
+    }
+
+    /**
+     * [TEST] Aplica la corrección de fecha a las dumpadas seleccionadas.
+     * POST /api/dispatch/importar/corregir-fechas
+     */
+    public function corregirFechas(Request $request)
+    {
+        $correcciones = $request->input('correcciones', []); // [{dumpada_id, fecha}]
+
+        DB::beginTransaction();
+        try {
+            $corregidas = 0;
+            $errores    = [];
+
+            foreach ($correcciones as $c) {
+                try {
+                    $dumpada = Dumpada::find($c['dumpada_id']);
+                    if (!$dumpada) {
+                        $errores[] = "Dumpada ID {$c['dumpada_id']} no encontrada";
+                        continue;
+                    }
+
+                    $dumpada->update(['fecha' => $c['fecha']]);
+                    $corregidas++;
+
+                } catch (\Exception $e) {
+                    $errores[] = "Dumpada ID {$c['dumpada_id']}: {$e->getMessage()}";
+                }
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'success'    => true,
+                'corregidas' => $corregidas,
+                'errores'    => $errores,
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('[CompararNumeros] Error corrigiendo fechas', ['error' => $e->getMessage()]);
+            return response()->json(['success' => false, 'error' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * [TEST] Revisa, frente por frente (no dumpada por dumpada), si la estructura
+     * guardada (tunel/manto/calle/hebra/numero_frente) coincide con la que el trait
+     * de descomposición calcularía hoy a partir del texto real del Excel (con espacios).
+     * Útil para frentes creados antes de reconocer el prefijo "NIVEL" como túnel:
+     * su codigo_completo ya es correcto (el matching de dumpadas sigue funcionando),
+     * pero sus columnas estructuradas quedaron mal descompuestas.
+     * No depende de si la dumpada individual está "ya correcta" o no.
+     * POST /api/dispatch/importar/comparar-estructura
+     */
+    public function compararEstructura(Request $request)
+    {
+        $faenaId       = $request->input('faena_id');
+        $dumpadasInput = $request->input('dumpadas', []);
+
+        $frentesPorCodigo = FrenteTrabajo::where('id_faena', $faenaId)
+            ->with('tipoFrente')
+            ->get()
+            ->keyBy(fn($f) => $this->normalizarFrente($f->codigo_completo));
+
+        $dumpadasPorFrente = Dumpada::where('id_faena', $faenaId)
+            ->selectRaw('id_frente_trabajo, COUNT(*) as total')
+            ->groupBy('id_frente_trabajo')
+            ->pluck('total', 'id_frente_trabajo');
+
+        $normalizar = fn($v) => $v === null ? '' : trim((string) $v);
+        $vistos     = [];
+        $resultados = [];
+
+        foreach ($dumpadasInput as $d) {
+            $puntoExcel = trim($d['punto'] ?? '');
+            $puntoNorm  = $this->normalizarFrente($puntoExcel);
+            if ($puntoNorm === '' || isset($vistos[$puntoNorm])) {
+                continue;
+            }
+            $vistos[$puntoNorm] = true;
+
+            $frente = $frentesPorCodigo->get($puntoNorm);
+            if (!$frente) {
+                continue; // no existe aún: eso lo resuelve el modo "Frente/Tipo", no este
+            }
+
+            $descomp = $this->descomponerNombreFrente($puntoExcel);
+            $descomp = $this->limpiarRedundanciaConTipo(
+                $descomp,
+                $frente->tipoFrente->nombre ?? null,
+                $frente->tipoFrente->abreviatura ?? null
+            );
+
+            $actual = [
+                'tunel'         => $frente->tunel,
+                'manto'         => $frente->manto,
+                'calle'         => $frente->calle,
+                'hebra'         => $frente->hebra,
+                'numero_frente' => $frente->numero_frente,
+            ];
+            $propuesto = [
+                'tunel'         => $descomp['tunel'],
+                'manto'         => $descomp['manto'],
+                'calle'         => $descomp['calle'],
+                'hebra'         => $descomp['hebra'],
+                'numero_frente' => $descomp['numero'],
+            ];
+
+            $difiere = false;
+            foreach ($actual as $campo => $valorActual) {
+                if ($normalizar($valorActual) !== $normalizar($propuesto[$campo])) {
+                    $difiere = true;
+                    break;
+                }
+            }
+
+            if ($difiere) {
+                $resultados[] = [
+                    'frente_id'          => $frente->id,
+                    'codigo'             => $frente->codigo_completo,
+                    'dumpadas_asociadas' => (int) ($dumpadasPorFrente[$frente->id] ?? 0),
+                    'actual'             => $actual,
+                    'propuesto'          => $propuesto,
+                ];
+            }
+        }
+
+        usort($resultados, fn($a, $b) => $b['dumpadas_asociadas'] <=> $a['dumpadas_asociadas']);
+
+        return response()->json([
+            'success'    => true,
+            'resultados' => $resultados,
+            'total'      => count($resultados),
+        ]);
+    }
+
+    /**
+     * [TEST] Aplica la reparación de estructura a los frentes seleccionados.
+     * Solo toca tunel/manto/calle/hebra/numero_frente — nunca codigo_completo
+     * ni id_tipo_frente, por lo que ninguna dumpada existente se ve afectada
+     * (siguen matcheando por codigo_completo, que no cambia).
+     * POST /api/dispatch/importar/corregir-estructura
+     */
+    public function corregirEstructura(Request $request)
+    {
+        $correcciones = $request->input('correcciones', []); // [{frente_id, tunel, manto, calle, hebra, numero_frente}]
+
+        DB::beginTransaction();
+        try {
+            $corregidos = 0;
+            $errores    = [];
+
+            foreach ($correcciones as $c) {
+                try {
+                    $frente = FrenteTrabajo::find($c['frente_id']);
+                    if (!$frente) {
+                        $errores[] = "Frente ID {$c['frente_id']} no encontrado";
+                        continue;
+                    }
+
+                    $frente->update([
+                        'tunel'         => $c['tunel'] ?: null,
+                        'manto'         => $c['manto'],
+                        'calle'         => $c['calle'] ?: null,
+                        'hebra'         => $c['hebra'] ?: null,
+                        'numero_frente' => $c['numero_frente'] ?: null,
+                    ]);
+                    $corregidos++;
+
+                } catch (\Exception $e) {
+                    $errores[] = "Frente ID {$c['frente_id']}: {$e->getMessage()}";
+                }
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'success'    => true,
+                'corregidos' => $corregidos,
+                'errores'    => $errores,
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            Log::error('[CompararNumeros] Error corrigiendo estructura de frentes', ['error' => $e->getMessage()]);
             return response()->json(['success' => false, 'error' => $e->getMessage()], 500);
         }
     }
