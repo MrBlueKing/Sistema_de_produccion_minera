@@ -100,14 +100,28 @@ class LaboratorioService {
   }
 
   // Previsualizar certificado PDF (abre en nueva pestaña)
-  async previsualizarCertificadoPdf(dumpadaIds, numeroCertificado = null) {
-    const response = await api.post('/laboratorio/certificados/previsualizar', {
-      dumpada_ids: dumpadaIds,
-      numero_certificado: numeroCertificado
-    }, {
+  async previsualizarCertificadoPdf(dumpadaIds = [], numeroCertificado = null, muestraLibreIds = []) {
+    const body = {};
+    if (dumpadaIds.length > 0) body.dumpada_ids = dumpadaIds;
+    if (muestraLibreIds.length > 0) body.muestra_libre_ids = muestraLibreIds;
+    if (numeroCertificado) body.numero_certificado = numeroCertificado;
+
+    const response = await api.post('/laboratorio/certificados/previsualizar', body, {
       responseType: 'blob'
     });
     return response;
+  }
+
+  // Listar certificados PDF ya generados (agrupados por número)
+  async getCertificadosGenerados(params = {}) {
+    const response = await api.get('/laboratorio/certificados/generados', { params });
+    return response.data;
+  }
+
+  // Obtener las dumpadas/muestras de un certificado específico
+  async getDumpadasPorCertificado(numeroCertificado) {
+    const response = await api.get(`/laboratorio/certificados/${numeroCertificado}/dumpadas`);
+    return response.data;
   }
 
   // Regenerar certificado existente (descarga PDF de un certificado ya generado)

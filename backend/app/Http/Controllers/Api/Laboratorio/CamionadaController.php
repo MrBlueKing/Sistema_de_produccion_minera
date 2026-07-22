@@ -447,14 +447,22 @@ class CamionadaController extends Controller
                 return response()->json(['mensaje' => 'Ya está en el límite, no se puede mover más']);
             }
 
-            // Intercambiar numero_camionada
-            $numTemp = $camionada->numero_camionada;
-            $camionada->numero_camionada = $vecina->numero_camionada;
-            $vecina->numero_camionada = $numTemp;
+            // Intercambiar numero_camionada en 3 pasos (usando 0 como valor
+            // transitorio) para no chocar con el índice único
+            // (lote_id, numero_camionada): un swap directo en 2 pasos deja,
+            // a mitad de camino, dos filas con el mismo número.
+            $numA = $camionada->numero_camionada;
+            $numB = $vecina->numero_camionada;
 
-            DB::transaction(function () use ($camionada, $vecina) {
+            DB::transaction(function () use ($camionada, $vecina, $numA, $numB) {
+                $camionada->numero_camionada = 0;
                 $camionada->save();
+
+                $vecina->numero_camionada = $numA;
                 $vecina->save();
+
+                $camionada->numero_camionada = $numB;
+                $camionada->save();
             });
 
             return response()->json([
@@ -464,6 +472,56 @@ class CamionadaController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'error' => 'Error al reordenar',
+                'mensaje' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Mover una o varias camionadas a otro lote
+     * POST /api/dispatch/camionadas/mover
+     *
+     * Body: { camionada_ids: int[], lote_destino_id: int }
+     */
+    public function mover(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'camionada_ids' => 'required|array|min:1',
+            'camionada_ids.*' => 'integer|exists:camionadas,id',
+            'lote_destino_id' => 'required|integer|exists:lotes,id',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'error' => 'Datos inválidos',
+                'detalles' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            $userId = null;
+            try {
+                $userId = auth()->id();
+            } catch (\Exception $e) {
+                $userId = null;
+            }
+
+            $camionadas = $this->camionadaService->moverCamionadas(
+                $request->camionada_ids,
+                (int) $request->lote_destino_id,
+                $userId
+            );
+
+            return response()->json([
+                'mensaje' => count($request->camionada_ids) > 1
+                    ? count($request->camionada_ids) . ' camionadas movidas exitosamente'
+                    : 'Camionada movida exitosamente',
+                'camionadas' => $camionadas,
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Error al mover camionada(s)',
                 'mensaje' => $e->getMessage()
             ], 500);
         }

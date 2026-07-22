@@ -39,7 +39,7 @@ class LoteController extends Controller
      */
     public function index(Request $request)
     {
-        $query = Lote::with(['planta', 'empresa', 'camionadas']);
+        $query = Lote::with(['planta', 'empresa', 'camionadas.mezclas']);
 
         // ✅ MULTI-FAENA: Filtrar por faena del usuario si no es global
         if (!$this->esUsuarioGlobal($request)) {
@@ -123,7 +123,7 @@ class LoteController extends Controller
         $loteData['numero_camionadas'] = $lote->getNumeroCamionadas();
 
         // Calcular camionadas recepcionadas
-        $camionadasRecepcionadas = $lote->camionadas()
+        $camionadasRecepcionadas = $lote->camionadas
             ->whereIn('estado', [
                 \App\Models\Laboratorio\Camionada::ESTADO_RECIBIDO,
                 \App\Models\Laboratorio\Camionada::ESTADO_COMPLETADO
@@ -245,14 +245,13 @@ class LoteController extends Controller
 
     /**
      * Eliminar un lote con opciones para las camionadas
-     * DELETE /api/dispatch/lotes/{id}?opcion=reasignar|eliminar_camionadas|dejar_huerfanas
+     * DELETE /api/dispatch/lotes/{id}?opcion=reasignar|eliminar_camionadas&lote_destino_id=123
      *
      * Solo se pueden eliminar lotes en estado ABIERTO
      *
      * Opciones:
-     * - reasignar: Busca o crea otro lote ABIERTO y reasigna las camionadas
+     * - reasignar: Mueve las camionadas al lote_destino_id indicado (debe estar ABIERTO)
      * - eliminar_camionadas: Elimina todas las camionadas (restaura toneladas a mezclas)
-     * - dejar_huerfanas: Deja las camionadas sin lote (lote_id = NULL)
      */
     public function destroy(Request $request, $id)
     {
@@ -260,37 +259,44 @@ class LoteController extends Controller
             $lote = Lote::with(['camionadas.mezclas', 'planta', 'empresa'])->findOrFail($id);
 
             $cantidadCamionadas = $lote->camionadas()->count();
-            $opcion = $request->input('opcion', 'dejar_huerfanas'); // Default: dejar huérfanas
+            $opcion = $request->input('opcion', 'reasignar');
 
             \DB::beginTransaction();
 
             if ($cantidadCamionadas > 0) {
                 switch ($opcion) {
                     case 'reasignar':
-                        // Buscar o crear otro lote ABIERTO para la misma planta+empresa
-                        $nuevoLote = Lote::where('planta_id', $lote->planta_id)
-                            ->where('empresa_id', $lote->empresa_id)
-                            ->where('estado', Lote::ESTADO_ABIERTO)
-                            ->where('id', '!=', $lote->id) // Excluir el lote actual
-                            ->orderBy('created_at', 'desc')
-                            ->first();
+                        $loteDestinoId = $request->input('lote_destino_id');
 
-                        // Si no existe, crear uno nuevo
-                        if (!$nuevoLote) {
-                            $numeroLote = Lote::generarNumeroLote($lote->planta_id);
-                            $nuevoLote = Lote::create([
-                                'numero_lote' => $numeroLote,
-                                'planta_id' => $lote->planta_id,
-                                'empresa_id' => $lote->empresa_id,
-                                'fecha_creacion' => now(),
-                                'estado' => Lote::ESTADO_ABIERTO,
-                            ]);
+                        if (empty($loteDestinoId)) {
+                            throw new Exception('Debe indicar a qué lote reasignar las camionadas');
                         }
 
-                        // Reasignar camionadas al nuevo lote
-                        $lote->camionadas()->update(['lote_id' => $nuevoLote->id]);
+                        if ((int) $loteDestinoId === (int) $lote->id) {
+                            throw new Exception('El lote destino no puede ser el mismo que se está eliminando');
+                        }
 
-                        $mensaje = "Lote eliminado exitosamente. {$cantidadCamionadas} camionada(s) reasignada(s) al lote {$nuevoLote->numero_lote}";
+                        $loteDestino = Lote::find($loteDestinoId);
+
+                        if (!$loteDestino) {
+                            throw new Exception('El lote destino indicado no existe');
+                        }
+
+                        if ($loteDestino->estado !== Lote::ESTADO_ABIERTO) {
+                            throw new Exception('El lote destino debe estar Abierto');
+                        }
+
+                        $camionadaIds = $lote->camionadas()->pluck('id')->toArray();
+
+                        try {
+                            $userId = auth()->id();
+                        } catch (\Exception $e) {
+                            $userId = null;
+                        }
+
+                        $this->camionadaService->moverCamionadas($camionadaIds, (int) $loteDestinoId, $userId);
+
+                        $mensaje = "Lote eliminado exitosamente. {$cantidadCamionadas} camionada(s) reasignada(s) al lote {$loteDestino->numero_lote}";
                         break;
 
                     case 'eliminar_camionadas':
@@ -310,12 +316,8 @@ class LoteController extends Controller
                         }
                         break;
 
-                    case 'dejar_huerfanas':
                     default:
-                        // Desvincular camionadas (lote_id = NULL)
-                        $lote->camionadas()->update(['lote_id' => null]);
-                        $mensaje = "Lote eliminado exitosamente. {$cantidadCamionadas} camionada(s) desvinculada(s) (quedan sin lote asignado)";
-                        break;
+                        throw new Exception("Opción inválida: {$opcion}");
                 }
             } else {
                 $mensaje = "Lote eliminado exitosamente (no tenía camionadas)";
@@ -395,6 +397,28 @@ class LoteController extends Controller
         } catch (Exception $e) {
             return response()->json([
                 'error' => 'Error al cerrar el lote',
+                'mensaje' => $e->getMessage()
+            ], 400);
+        }
+    }
+
+    /**
+     * Reabrir un lote Completado (volverlo a Abierto)
+     * POST /api/dispatch/lotes/{id}/reabrir
+     */
+    public function reabrir($id)
+    {
+        try {
+            $lote = Lote::findOrFail($id);
+            $lote->reabrir();
+
+            return response()->json([
+                'mensaje' => 'Lote reabierto exitosamente',
+                'lote' => $lote->load(['planta', 'empresa', 'camionadas'])
+            ]);
+        } catch (Exception $e) {
+            return response()->json([
+                'error' => 'Error al reabrir el lote',
                 'mensaje' => $e->getMessage()
             ], 400);
         }
@@ -505,6 +529,11 @@ class LoteController extends Controller
     {
         $query = Lote::with(['planta', 'empresa'])
             ->where('estado', Lote::ESTADO_ABIERTO);
+
+        // ✅ MULTI-FAENA: Filtrar por faena del usuario si no es global
+        if (!$this->esUsuarioGlobal($request)) {
+            $query->where('id_faena', $request->auth_faena);
+        }
 
         if ($request->has('planta_id') && !empty($request->planta_id)) {
             $query->where('planta_id', $request->planta_id);

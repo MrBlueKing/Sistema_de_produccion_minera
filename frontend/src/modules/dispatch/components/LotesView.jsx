@@ -97,9 +97,9 @@ const LotesView = () => {
     }
   };
 
-  const handleEliminarLote = async (opcion) => {
+  const handleEliminarLote = async (opcion, loteDestinoId) => {
     try {
-      const response = await laboratorioService.deleteLote(modalEliminar.lote.id, opcion);
+      const response = await laboratorioService.deleteLote(modalEliminar.lote.id, opcion, loteDestinoId);
       toast.success('Lote eliminado', response.mensaje || 'Lote eliminado exitosamente');
       setModalEliminar({ show: false, lote: null });
       await cargarLotes();

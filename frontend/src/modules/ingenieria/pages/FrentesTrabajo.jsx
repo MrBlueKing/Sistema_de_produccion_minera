@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { HiPlus, HiHome, HiPencil, HiTrash, HiClock, HiTag } from 'react-icons/hi2';
+import { HiPlus, HiHome, HiPencil, HiTrash, HiClock, HiTag, HiInformationCircle } from 'react-icons/hi2';
 import { useNavigate } from 'react-router-dom';
 import Header from '../../../shared/components/organisms/Header';
 import Button from '../../../shared/components/atoms/Button';
@@ -39,6 +39,7 @@ function FrentesTrabajoContent() {
   const [selectedFaenas, setSelectedFaenas] = useState([]); // IDs de faenas seleccionadas
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [showInfo, setShowInfo] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [deleteModal, setDeleteModal] = useState({ show: false, id: null, codigo: '' });
   const [historialModal, setHistorialModal] = useState({ show: false, frenteId: null });
@@ -353,13 +354,21 @@ function FrentesTrabajoContent() {
           <Breadcrumb
             items={[
               {
-                label: 'Dashboard Central',
+                label: 'Portal M3H',
                 href: import.meta.env.VITE_CENTRAL_URL,
                 onClick: (e) => {
                   e.preventDefault();
                   handleGoBack();
                 },
                 icon: HiHome
+              },
+              {
+                label: 'Ingeniería',
+                href: '#',
+                onClick: (e) => {
+                  e.preventDefault();
+                  navigate('/ingenieria');
+                }
               },
               {
                 label: 'Frentes de Trabajo'
@@ -418,6 +427,19 @@ function FrentesTrabajoContent() {
             </div>
 
             <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowInfo((v) => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold border transition-colors ${
+                  showInfo
+                    ? 'bg-blue-500 text-white border-blue-500'
+                    : 'bg-white text-blue-500 border-blue-200 hover:bg-blue-50'
+                }`}
+                title="Ver cómo funciona"
+              >
+                <HiInformationCircle className="w-4 h-4" />
+                <span className="hidden sm:inline">¿Cómo funciona?</span>
+              </button>
               <Button
                 variant="secondary"
                 onClick={() => navigate('/ingenieria/tipos-frente')}
@@ -457,6 +479,27 @@ function FrentesTrabajoContent() {
             </div>
           </div>
         </div>
+
+        {/* Panel ¿Cómo funciona? */}
+        {showInfo && (
+          <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-xl">
+            <p className="text-xs font-bold text-blue-800 uppercase tracking-wide mb-2.5">¿Cómo funciona Frentes de Trabajo?</p>
+            <div className="space-y-2">
+              <div className="bg-white border border-orange-200 rounded-lg px-3 py-2">
+                <p className="text-xs font-bold text-orange-700">Qué es esta pantalla</p>
+                <p className="text-xs text-gray-500 mt-0.5">El catálogo de frentes de trabajo activos de la faena: cada uno con su código, faena, túnel y un <strong>Tipo de Frente</strong> asignado.</p>
+              </div>
+              <div className="bg-white border border-orange-200 rounded-lg px-3 py-2">
+                <p className="text-xs font-bold text-orange-700">Dónde se usa lo que creas acá</p>
+                <p className="text-xs text-gray-500 mt-0.5">Estos frentes son los que aparecen para elegir en Dispatch al registrar una dumpada. Si un frente está mal escrito o desactualizado acá, se refleja directo en el ingreso de producción.</p>
+              </div>
+              <div className="bg-white border border-orange-200 rounded-lg px-3 py-2">
+                <p className="text-xs font-bold text-orange-700">Historial de cambios</p>
+                <p className="text-xs text-gray-500 mt-0.5">Cada edición queda registrada — desde el botón "Historial" puedes ver quién cambió qué, y revertir un cambio si fue un error.</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Formulario */}
         {showForm && (

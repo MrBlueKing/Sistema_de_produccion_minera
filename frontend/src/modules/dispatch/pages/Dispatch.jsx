@@ -99,6 +99,7 @@ function DispatchContent() {
   const { tonelajeDumpadaDefault, usarSistemaAcopios, recargar: recargarConfig } = useConfig(faenaActivaConfig);
   const [loading, setLoading] = useState(true);
   const [deleteModal, setDeleteModal] = useState({ show: false, id: null, acopio: '' });
+  const [deleteMuestraModal, setDeleteMuestraModal] = useState({ show: false, id: null, nombre: '' });
   const [editModal, setEditModal] = useState({ show: false, dumpada: null });
 
   // Selección múltiple (historial)
@@ -602,6 +603,32 @@ function DispatchContent() {
     setDeleteModal({ show: false, id: null, acopio: '' });
   };
 
+  const handleDeleteMuestra = (id) => {
+    const muestra = muestrasLibres.find(m => m.id === id);
+    setDeleteMuestraModal({ show: true, id, nombre: muestra?.nombre || 'esta muestra' });
+  };
+
+  const confirmDeleteMuestra = async () => {
+    const id = deleteMuestraModal.id;
+    setDeleteMuestraModal({ show: false, id: null, nombre: '' });
+    setLoadingMuestras(true);
+
+    try {
+      await dispatchService.deleteMuestraLibre(id);
+      toast.success('¡Muestra eliminada!', 'El registro ha sido eliminado correctamente');
+      await loadMuestrasLibresHistorial();
+    } catch (error) {
+      console.error('❌ Error eliminando muestra libre:', error);
+      toast.error('Error al eliminar', error.response?.data?.message || 'No se pudo eliminar la muestra');
+    } finally {
+      setLoadingMuestras(false);
+    }
+  };
+
+  const cancelDeleteMuestra = () => {
+    setDeleteMuestraModal({ show: false, id: null, nombre: '' });
+  };
+
   // Funciones de selección múltiple
   const handleSelectOne = (id) => {
     setSelectedIds(prev => {
@@ -826,7 +853,7 @@ function DispatchContent() {
           <Breadcrumb
             items={[
               {
-                label: 'Dashboard Central',
+                label: 'Portal M3H',
                 href: import.meta.env.VITE_CENTRAL_URL,
                 onClick: (e) => { e.preventDefault(); handleGoBack(); },
                 icon: HiHome
@@ -894,6 +921,21 @@ function DispatchContent() {
           title="¿Eliminar Dumpada?"
           message="Estás a punto de eliminar la dumpada:"
           highlightText={deleteModal.acopio}
+          warningText="Esta acción no se puede deshacer."
+          confirmText="Eliminar"
+          cancelText="Cancelar"
+          variant="danger"
+          icon={HiTrash}
+        />
+
+        {/* Modal de Confirmación de Eliminación - Muestra Libre */}
+        <ConfirmModal
+          show={deleteMuestraModal.show}
+          onConfirm={confirmDeleteMuestra}
+          onCancel={cancelDeleteMuestra}
+          title="¿Eliminar Muestra Libre?"
+          message="Estás a punto de eliminar la muestra:"
+          highlightText={deleteMuestraModal.nombre}
           warningText="Esta acción no se puede deshacer."
           confirmText="Eliminar"
           cancelText="Cancelar"
@@ -1498,6 +1540,9 @@ function DispatchContent() {
                   <h3 className="text-2xl font-bold text-gray-900">Historial</h3>
                   <p className="text-sm text-gray-600 mt-1">
                     Total: <span className="font-semibold text-blue-600">{historialTab === 'dumpadas' ? totalRecords : muestrasTotalRecords}</span> registro{(historialTab === 'dumpadas' ? totalRecords : muestrasTotalRecords) !== 1 ? 's' : ''}
+                    {!esUsuarioGlobal && dumpadas[0]?.faena_info?.nombre && (
+                      <span className="text-gray-400"> · de tu faena ({dumpadas[0].faena_info.nombre})</span>
+                    )}
                   </p>
                 </div>
                 <button
@@ -1631,6 +1676,7 @@ function DispatchContent() {
                             <th className="text-left py-3 px-3 font-bold text-teal-900 text-xs">Ley Cup</th>
                             <th className="text-left py-3 px-3 font-bold text-teal-900 text-xs">Rango</th>
                             <th className="text-left py-3 px-3 font-bold text-teal-900 text-xs">Estado</th>
+                            <th className="text-left py-3 px-3 font-bold text-teal-900 text-xs">Acciones</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -1664,6 +1710,15 @@ function DispatchContent() {
                                     {m.estado === 'Completado' ? <HiCheckCircle className="w-5 h-5 text-white" /> : <HiXCircle className="w-5 h-5 text-white" />}
                                   </div>
                                 </div>
+                              </td>
+                              <td className="py-3 px-3">
+                                <button
+                                  onClick={() => handleDeleteMuestra(m.id)}
+                                  className="p-1.5 bg-red-500 hover:bg-red-600 text-white rounded-md transition-colors"
+                                  title="Eliminar muestra libre"
+                                >
+                                  <HiTrash className="w-4 h-4" />
+                                </button>
                               </td>
                             </tr>
                           ))}
@@ -1827,9 +1882,9 @@ function DispatchContent() {
                             className="w-4 h-4 rounded border-blue-300 text-blue-600 focus:ring-blue-500"
                           />
                         </th>
-                        <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs" title="Código del frente de trabajo">Frente</th>
-                        <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs" title="Faena de origen">Faena</th>
                         <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs whitespace-nowrap" title="Número de dumpada">N° Dump</th>
+                        <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs" title="Código del frente de trabajo">Frente</th>
+                        <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs" title="Código del acopio de origen">Código</th>
                         <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs" title="Jornada laboral">Jornada</th>
                         <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs" title="Fecha de registro">Fecha</th>
                         <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs" title="Toneladas">Ton</th>
@@ -1864,19 +1919,19 @@ function DispatchContent() {
                                 className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                               />
                             </td>
+                            <td className="py-3 px-3">
+                              <span className="font-mono font-bold text-gray-900 text-xs">
+                                {dumpada.numero_dumpada ? String(dumpada.numero_dumpada) : '-'}
+                              </span>
+                            </td>
                             <td className="py-3 px-3" title={dumpada.frente_trabajo?.codigo_completo || '-'}>
                               <span className="font-bold text-blue-900 bg-gradient-to-r from-blue-100 to-blue-200 px-2 py-1 rounded-md shadow-sm border border-blue-300 inline-block text-xs whitespace-nowrap">
                                 {dumpada.frente_trabajo?.codigo_completo || '-'}
                               </span>
                             </td>
-                            <td className="py-3 px-3" title={dumpada.faena_info?.nombre || '-'}>
-                              <span className="font-semibold text-purple-900 bg-gradient-to-r from-purple-100 to-purple-200 px-2 py-1 rounded-md shadow-sm border border-purple-300 inline-block text-xs whitespace-nowrap">
-                                {dumpada.faena_info?.nombre || '-'}
-                              </span>
-                            </td>
-                            <td className="py-3 px-3">
-                              <span className="font-mono font-bold text-gray-900 text-xs">
-                                {dumpada.numero_dumpada ? String(dumpada.numero_dumpada) : '-'}
+                            <td className="py-3 px-3" title={dumpada.acopios ? `Código del acopio: ${dumpada.acopios}` : 'Sin acopio asociado'}>
+                              <span className="font-mono font-bold text-gray-700 text-xs whitespace-nowrap">
+                                {dumpada.acopios || '-'}
                               </span>
                             </td>
                             <td className="py-3 px-3">

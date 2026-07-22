@@ -197,6 +197,9 @@ Route::prefix('camionadas')->group(function () {
     // Reordenar camionadas dentro de un lote
     Route::post('/reordenar', [CamionadaController::class, 'reordenar']);
 
+    // Mover camionadas a otro lote (reasignación manual)
+    Route::post('/mover', [CamionadaController::class, 'mover']);
+
     // Crear camionada (despacho directo desde mezcla)
     Route::post('/', [CamionadaController::class, 'store']);
 
@@ -266,6 +269,7 @@ Route::prefix('lotes')->group(function () {
 
     // Acciones específicas de lotes
     Route::post('/{id}/cerrar', [LoteController::class, 'cerrar']);
+    Route::post('/{id}/reabrir', [LoteController::class, 'reabrir']);
     Route::get('/{id}/resumen', [LoteController::class, 'resumen']);
     Route::get('/{id}/reconstruccion', [LoteController::class, 'reconstruccion']);
 });

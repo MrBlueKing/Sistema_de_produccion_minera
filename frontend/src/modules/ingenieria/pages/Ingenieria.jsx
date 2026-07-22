@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  HiHome, HiMap, HiTag, HiClipboardDocumentList,
+  HiHome, HiMap, HiTag, HiClipboardDocumentList, HiInformationCircle,
 } from 'react-icons/hi2';
 import Header from '../../../shared/components/organisms/Header';
 import Breadcrumb from '../../../shared/components/atoms/Breadcrumb';
@@ -32,6 +32,7 @@ function IngenieriaContent() {
   const [vistaActual, setVistaActual] = useState('menu');
   const [frentes, setFrentes] = useState([]);
   const [loadingFrentes, setLoadingFrentes] = useState(true);
+  const [showInfo, setShowInfo] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -66,7 +67,7 @@ function IngenieriaContent() {
           <Breadcrumb
             items={[
               {
-                label: 'Dashboard Central',
+                label: 'Portal M3H',
                 href: import.meta.env.VITE_CENTRAL_URL,
                 onClick: (e) => { e.preventDefault(); handleGoBack(); },
                 icon: HiHome,
@@ -109,6 +110,57 @@ function IngenieriaContent() {
               </div>
             </div>
 
+            {/* Botón ¿Cómo funciona? */}
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowInfo((v) => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold border transition-colors ${
+                  showInfo
+                    ? 'bg-blue-500 text-white border-blue-500'
+                    : 'bg-white text-blue-500 border-blue-200 hover:bg-blue-50'
+                }`}
+                title="Ver rol del módulo"
+              >
+                <HiInformationCircle className="w-4 h-4" />
+                <span>¿Cómo funciona?</span>
+              </button>
+            </div>
+
+            {/* Panel ¿Cómo funciona? */}
+            {showInfo && (
+              <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
+                <div className="mb-4 pb-4 border-b border-blue-100">
+                  <p className="text-[9px] font-bold text-blue-400 uppercase tracking-widest mb-2.5">Relación con el flujo de producción</p>
+                  <div className="flex items-center gap-2">
+                    <div className="flex flex-col items-center" style={{ minWidth: '70px' }}>
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white bg-slate-600">ING</div>
+                      <span className="mt-1 text-[9px] font-semibold text-center leading-tight text-gray-700">Ingeniería<br />(config.)</span>
+                    </div>
+                    <div className="flex-1 h-px bg-gray-300 min-w-[24px]" />
+                    <span className="text-[9px] text-gray-400 font-semibold">define frentes</span>
+                    <div className="flex-1 h-px bg-gray-300 min-w-[24px]" />
+                    <div className="flex flex-col items-center opacity-60" style={{ minWidth: '70px' }}>
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white bg-orange-500">1</div>
+                      <span className="mt-1 text-[9px] font-semibold text-center leading-tight text-gray-500">Dispatch<br />Ingreso</span>
+                    </div>
+                  </div>
+                </div>
+
+                <p className="text-xs font-bold text-blue-800 uppercase tracking-wide mb-2.5">¿Cómo funciona Ingeniería?</p>
+                <div className="space-y-2">
+                  <div className="bg-white border border-slate-200 rounded-lg px-3 py-2">
+                    <p className="text-xs font-bold text-slate-700">Qué gestiona este módulo</p>
+                    <p className="text-xs text-gray-500 mt-0.5"><strong>Frentes de Trabajo</strong> (catálogo de ubicaciones de extracción activas), <strong>Tipos de Frente</strong> (catálogo de categorías que se asignan a cada frente) y <strong>Estado de Frentes</strong> (seguimiento de avance real vs. planificado).</p>
+                  </div>
+                  <div className="bg-white border border-slate-200 rounded-lg px-3 py-2">
+                    <p className="text-xs font-bold text-slate-700">Dónde se usa lo que configuras acá</p>
+                    <p className="text-xs text-gray-500 mt-0.5">Los frentes que creas en "Frentes de Trabajo" son los que el operador elige en Dispatch al registrar una dumpada — por eso mantenerlos al día evita errores de digitación en terreno.</p>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Tiles */}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
 
@@ -129,8 +181,11 @@ function IngenieriaContent() {
                 onClick={() => setVistaActual('estado')}
                 className="group bg-indigo-50 rounded-xl border border-indigo-100 shadow-sm p-4 text-left hover:bg-indigo-100 hover:border-indigo-300 hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 active:scale-[0.97]"
               >
-                <div className="w-10 h-10 bg-indigo-500 rounded-xl flex items-center justify-center mb-3 group-hover:bg-indigo-600 transition-colors shadow-sm">
-                  <HiClipboardDocumentList className="w-5 h-5 text-white" />
+                <div className="flex items-start justify-between mb-3">
+                  <div className="w-10 h-10 bg-indigo-500 rounded-xl flex items-center justify-center group-hover:bg-indigo-600 transition-colors shadow-sm">
+                    <HiClipboardDocumentList className="w-5 h-5 text-white" />
+                  </div>
+                  <span className="text-[9px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full">En desarrollo</span>
                 </div>
                 <p className="font-bold text-indigo-900 text-sm leading-tight">Estado de Frentes</p>
                 <p className="text-indigo-400 text-xs mt-0.5">Seguimiento y análisis</p>

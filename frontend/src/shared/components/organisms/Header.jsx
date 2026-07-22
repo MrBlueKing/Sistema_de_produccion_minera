@@ -58,7 +58,7 @@ export default function Header() {
         <div className="flex-1 px-3 sm:px-7 min-w-0">
           <div className="flex items-baseline gap-1 sm:gap-2">
             <span className="text-white font-black text-[13px] sm:text-[26px] tracking-tight leading-none drop-shadow-sm truncate">
-              SISTEMA DE PRODUCCIÓN
+              SISTEMA INTEGRADO DE GESTIÓN
             </span>
             <span className="text-white/75 font-black text-[13px] sm:text-[26px] tracking-tight leading-none drop-shadow-sm flex-shrink-0">
               MINERA

@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+button:not(:disabled) {
+  cursor: pointer;
+}
+
 @keyframes fadeIn {
   from {
     opacity: 0;

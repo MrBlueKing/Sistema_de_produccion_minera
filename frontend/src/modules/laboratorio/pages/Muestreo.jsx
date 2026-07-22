@@ -338,7 +338,7 @@ export default function Muestreo() {
           <Breadcrumb
             items={[
               {
-                label: 'Dashboard Central',
+                label: 'Portal M3H',
                 href: import.meta.env.VITE_CENTRAL_URL,
                 onClick: (e) => {
                   e.preventDefault();
@@ -378,13 +378,19 @@ export default function Muestreo() {
               >
                 Actualizar
               </Button>
-              <Button
-                variant="secondary"
-                onClick={() => setShowInfo(!showInfo)}
-                icon={HiInformationCircle}
+              <button
+                type="button"
+                onClick={() => setShowInfo((v) => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold border transition-colors ${
+                  showInfo
+                    ? 'bg-blue-500 text-white border-blue-500'
+                    : 'bg-white text-blue-500 border-blue-200 hover:bg-blue-50'
+                }`}
+                title="Ver flujo del dato"
               >
-                {showInfo ? 'Ocultar' : 'Ayuda'}
-              </Button>
+                <HiInformationCircle className="w-4 h-4" />
+                <span className="hidden sm:inline">¿Cómo funciona?</span>
+              </button>
             </div>
           </div>
 
@@ -455,44 +461,44 @@ export default function Muestreo() {
           </div>
         </div>
 
-        {/* Panel de Informacion */}
+        {/* Panel ¿Cómo funciona? */}
         {showInfo && (
-          <Card className="mb-6 border-l-4 border-teal-400 bg-teal-50">
-            <div className="flex items-start gap-4">
-              <div className="w-12 h-12 bg-teal-100 rounded-full flex items-center justify-center flex-shrink-0">
-                <HiInformationCircle className="w-7 h-7 text-teal-600" />
-              </div>
-              <div className="flex-1">
-                <h3 className="text-xl font-bold text-teal-900 mb-4">Informacion del Modulo de Muestreo</h3>
-
-                <div className="grid md:grid-cols-2 gap-6">
-                  <div className="bg-white p-4 rounded-lg shadow-sm">
-                    <h4 className="font-semibold text-teal-800 mb-2">Funcion del Muestreo</h4>
-                    <ul className="text-sm text-gray-700 space-y-1">
-                      <li>Visualizar dumpadas sin leyes ingresadas</li>
-                      <li>Gestionar el estado del proceso de muestreo</li>
-                      <li>Las del dia actual aparecen primero</li>
-                      <li>Se agrupan visualmente por frente de trabajo</li>
-                    </ul>
-                  </div>
-
-                  <div className="bg-white p-4 rounded-lg shadow-sm">
-                    <h4 className="font-semibold text-teal-800 mb-2">Estados del Muestreo</h4>
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <span className="bg-gray-500 text-white px-2 py-1 rounded text-xs font-bold">Ingresado</span>
-                        <span className="text-xs">Muestra pendiente de recibir</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="bg-blue-500 text-white px-2 py-1 rounded text-xs font-bold">Recibido</span>
-                        <span className="text-xs">Muestra recibida en laboratorio</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+          <div className="mb-5 p-4 bg-blue-50 border border-blue-200 rounded-xl">
+            <div className="mb-4 pb-4 border-b border-blue-100">
+              <p className="text-[9px] font-bold text-blue-400 uppercase tracking-widest mb-2.5">Flujo del dato</p>
+              <div className="flex items-start">
+                {[
+                  { n: 1, label: 'Ingreso', color: 'bg-orange-500', active: false },
+                  { n: 2, label: 'Envío\nMuestras', color: 'bg-teal-500', active: true },
+                  { n: 3, label: 'Lab', color: 'bg-green-600', active: false },
+                  { n: 4, label: 'Mezclas', color: 'bg-purple-600', active: false },
+                  { n: 5, label: 'Despacho', color: 'bg-indigo-600', active: false },
+                ].flatMap((p, i, arr) => [
+                  <div key={`s${i}`} className={`flex flex-col items-center ${!p.active ? 'opacity-35' : ''}`} style={{ minWidth: '44px' }}>
+                    <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white ${p.active ? p.color : 'bg-gray-300'}`}>{p.n}</div>
+                    <span className={`mt-1 text-[9px] font-semibold text-center leading-tight whitespace-pre-line ${p.active ? 'text-gray-700' : 'text-gray-400'}`}>{p.label}</span>
+                  </div>,
+                  ...(i < arr.length - 1 ? [<div key={`l${i}`} className="flex-1 h-px bg-gray-200 mt-3.5 mx-0.5 min-w-[8px]" />] : [])
+                ])}
               </div>
             </div>
-          </Card>
+
+            <p className="text-xs font-bold text-blue-800 uppercase tracking-wide mb-2.5">¿Cómo funciona el Muestreo?</p>
+            <div className="space-y-2">
+              <div className="bg-white border border-teal-200 rounded-lg px-3 py-2">
+                <p className="text-xs font-bold text-teal-700">Qué aparece acá</p>
+                <p className="text-xs text-gray-500 mt-0.5">Dumpadas de Dispatch que todavía no tienen ley cargada, agrupadas por frente de trabajo. Las del día actual aparecen primero.</p>
+              </div>
+              <div className="bg-white border border-teal-200 rounded-lg px-3 py-2">
+                <p className="text-xs font-bold text-teal-700">Qué haces acá</p>
+                <p className="text-xs text-gray-500 mt-0.5">Marcar que la muestra llegó físicamente al laboratorio: pasa de "Por Recibir" a "Recibida" (individual o en bloque). Todavía no se ingresa ningún resultado de ley.</p>
+              </div>
+              <div className="bg-white border border-teal-200 rounded-lg px-3 py-2">
+                <p className="text-xs font-bold text-teal-700">Siguiente paso</p>
+                <p className="text-xs text-gray-500 mt-0.5">Una vez "Recibida", la muestra queda disponible en la pantalla de Análisis para ingresar Cu Total y Cu Soluble.</p>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Listado de muestras */}

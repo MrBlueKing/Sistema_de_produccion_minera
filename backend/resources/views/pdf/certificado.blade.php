@@ -214,9 +214,39 @@
         .page-break {
             page-break-after: always;
         }
+
+        /* Watermark: solo se pinta cuando se pasa $watermarkTexto (vista previa del Dashboard Gerencial) */
+        .watermark {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+        .watermark span {
+            position: absolute;
+            display: block;
+            width: 260px;
+            transform: rotate(-30deg);
+            font-size: 11px;
+            font-weight: bold;
+            color: #000;
+            opacity: 0.12;
+            text-align: center;
+            white-space: nowrap;
+        }
     </style>
 </head>
 <body>
+    @if(!empty($watermarkTexto))
+        <div class="watermark">
+            @foreach (range(0, 5) as $fila)
+                @foreach (range(0, 2) as $col)
+                    <span style="top: {{ $fila * 160 }}px; left: {{ $col * 260 - 60 }}px;">{{ $watermarkTexto }}</span>
+                @endforeach
+            @endforeach
+        </div>
+    @endif
     <div class="container">
         <!-- Header -->
         <div class="header">
@@ -239,8 +269,8 @@
             <div class="info-left">
                 <p><span class="info-label">Muestra:</span> {{ $numeroCertificado }}</p>
                 <p><span class="info-label">Estado:</span> {{ $laboratorio['estado'] }}</p>
-                <p><span class="info-label">Ingreso Laboratorio:</span> {{ $fechaEmision }}</p>
-                <p><span class="info-label">Egreso:</span> {{ $fechaEmision }}</p>
+                <p><span class="info-label">Ingreso Laboratorio:</span> {{ $fechaIngreso }}</p>
+                <p><span class="info-label">Egreso:</span> {{ $fechaEgreso }}</p>
                 <p><span class="info-label">Análisis:</span> {{ $laboratorio['analisis'] }}</p>
             </div>
             <div class="info-right">

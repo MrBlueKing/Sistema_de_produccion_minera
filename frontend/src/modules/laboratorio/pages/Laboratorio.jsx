@@ -10,6 +10,7 @@ import TableFilters from '../../../shared/components/molecules/TableFilters';
 import useDebounce from '../../../hooks/useDebounce';
 import useToast from '../../../hooks/useToast';
 import laboratorioService from '../services/laboratorio';
+import CertificadosGenerados from '../components/CertificadosGenerados';
 import ingenieriaService from '../../ingenieria/services/ingenieria';
 import api from '../../../core/services/api';
 
@@ -33,6 +34,7 @@ export default function Laboratorio() {
   // Selección múltiple (para vista historial - certificados)
   const [selectedHistorialIds, setSelectedHistorialIds] = useState([]);
   const [generandoPdf, setGenerandoPdf] = useState(false);
+  const [previsualizando, setPrevisualizando] = useState(false);
   const [regenerandoCertificado, setRegenerandoCertificado] = useState(null); // Para tracking del botón específico
 
   // Modal "Para" antes de generar certificado
@@ -40,7 +42,7 @@ export default function Laboratorio() {
 
   // Edición de análisis
   const [editModal, setEditModal] = useState({ show: false, dumpada: null });
-  const [editForm, setEditForm] = useState({ ley: '', cu_soluble: '', cu_insoluble: '' });
+  const [editForm, setEditForm] = useState({ ley: '', cu_soluble: '', cu_insoluble: '', para: '' });
   const [savingEdit, setSavingEdit] = useState(false);
 
   // Paginación
@@ -67,13 +69,12 @@ export default function Laboratorio() {
   const jornadas = ['AM', 'PM', 'Madrugada', 'Noche'];
 
   useEffect(() => {
-    loadData();
     loadMaestros();
     loadFaenas();
     loadEstadisticas();
   }, []);
 
-  // Recargar cuando cambian filtros o vista
+  // Recargar cuando cambian filtros, página o vista (también corre en el montaje inicial)
   useEffect(() => {
     loadData();
   }, [currentPage, debouncedSearchTerm, filters, vistaActual]);
@@ -137,6 +138,12 @@ export default function Laboratorio() {
       };
 
       Object.keys(params).forEach(key => params[key] === undefined && delete params[key]);
+
+      if (vistaActual === 'certificados') {
+        // Esta vista carga sus propios datos en <CertificadosGenerados />
+        setLoading(false);
+        return;
+      }
 
       let response;
       if (vistaActual === 'pendientes') {
@@ -365,6 +372,44 @@ export default function Laboratorio() {
     setParaModal({ show: true, para: '', pendingAction: 'generar' });
   };
 
+  // Vista previa del certificado (PDF real, sin guardar número ni descargar)
+  const handlePreviewCertificado = async () => {
+    if (selectedHistorialIds.length === 0) {
+      toast.warning('Atención', 'Selecciona al menos una muestra para previsualizar el certificado');
+      return;
+    }
+
+    const certificadoActual = getCertificadoSeleccionado();
+    if (certificadoActual === 'CONFLICTO') {
+      const seleccionadas = dumpadas.filter(d => selectedHistorialIds.includes(d._key));
+      const certificados = [...new Set(seleccionadas.map(d => d.certificado).filter(Boolean))];
+      toast.error(
+        'Certificados diferentes',
+        `Has seleccionado muestras de ${certificados.length} certificados distintos: ${certificados.join(', ')}. Selecciona muestras del mismo certificado o sin certificado.`
+      );
+      return;
+    }
+
+    const dumpadaIds      = selectedHistorialIds.filter(k => k.startsWith('d_')).map(k => parseInt(k.slice(2)));
+    const muestraLibreIds = selectedHistorialIds.filter(k => k.startsWith('ml_')).map(k => parseInt(k.slice(3)));
+    const numeroCertificado = certificadoActual && certificadoActual !== 'SIN_CERTIFICADO' ? certificadoActual : null;
+
+    setPrevisualizando(true);
+    try {
+      const response = await laboratorioService.previsualizarCertificadoPdf(dumpadaIds, numeroCertificado, muestraLibreIds);
+      const blob = new Blob([response.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      window.open(url, '_blank');
+      // Se revoca después de un rato para darle tiempo a la pestaña nueva a cargar el PDF
+      setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+    } catch (error) {
+      console.error('Error previsualizando certificado:', error);
+      toast.error('Error al previsualizar', error.response?.data?.message || error.message || 'No se pudo generar la vista previa');
+    } finally {
+      setPrevisualizando(false);
+    }
+  };
+
   const ejecutarGenerarCertificado = async (para) => {
     const dumpadaIds      = selectedHistorialIds.filter(k => k.startsWith('d_')).map(k => parseInt(k.slice(2)));
     const muestraLibreIds = selectedHistorialIds.filter(k => k.startsWith('ml_')).map(k => parseInt(k.slice(3)));
@@ -426,8 +471,6 @@ export default function Laboratorio() {
 
     if (action === 'generar') {
       ejecutarGenerarCertificado(para);
-    } else if (action?.tipo === 'regenerar') {
-      ejecutarRegenerarCertificado(action.numeroCertificado, para);
     }
   };
 
@@ -438,6 +481,7 @@ export default function Laboratorio() {
       ley: dumpada.ley || '',
       cu_soluble: dumpada.cu_soluble || '',
       cu_insoluble: dumpada.cu_insoluble || '',
+      para: '',
     });
     setEditModal({ show: true, dumpada });
   };
@@ -465,6 +509,12 @@ export default function Laboratorio() {
       toast.success('Actualizado', 'El análisis fue editado correctamente');
       setEditModal({ show: false, dumpada: null });
       loadData();
+
+      // Si tiene certificado y se indicó un nuevo destinatario, regenerar y re-descargar el PDF
+      const nuevoPara = editForm.para.trim();
+      if (editModal.dumpada.certificado && nuevoPara) {
+        ejecutarRegenerarCertificado(editModal.dumpada.certificado, nuevoPara);
+      }
     } catch (error) {
       toast.error('Error al guardar', error.response?.data?.message || error.message);
     } finally {
@@ -472,8 +522,8 @@ export default function Laboratorio() {
     }
   };
 
-  // Regenerar certificado existente (descarga directa, sin modal por defecto)
-  const handleRegenerarCertificado = (numeroCertificado, e, cambiarPara = false) => {
+  // Regenerar certificado existente (descarga directa)
+  const handleRegenerarCertificado = (numeroCertificado, e) => {
     e?.stopPropagation();
 
     if (!numeroCertificado) {
@@ -481,11 +531,7 @@ export default function Laboratorio() {
       return;
     }
 
-    if (cambiarPara) {
-      setParaModal({ show: true, para: '', pendingAction: { tipo: 'regenerar', numeroCertificado } });
-    } else {
-      ejecutarRegenerarCertificado(numeroCertificado, null);
-    }
+    ejecutarRegenerarCertificado(numeroCertificado, null);
   };
 
   const ejecutarRegenerarCertificado = async (numeroCertificado, para) => {
@@ -676,7 +722,7 @@ export default function Laboratorio() {
           name: 'certificado',
           label: 'N° Certificado',
           type: 'text',
-          placeholder: 'Ej: 2026-00001'
+          placeholder: 'Ej: 289002'
         }
       ];
     }
@@ -708,7 +754,7 @@ export default function Laboratorio() {
           <Breadcrumb
             items={[
               {
-                label: 'Dashboard Central',
+                label: 'Portal M3H',
                 href: import.meta.env.VITE_CENTRAL_URL,
                 onClick: (e) => {
                   e.preventDefault();
@@ -780,9 +826,11 @@ export default function Laboratorio() {
                     Laboratorio - Análisis de Muestras
                   </h2>
                   <p className="text-gray-600 mt-1">
-                    {vistaActual === 'pendientes'
-                      ? `${totalRecords} muestra${totalRecords !== 1 ? 's' : ''} pendiente${totalRecords !== 1 ? 's' : ''} de análisis`
-                      : `${totalRecords} análisis completado${totalRecords !== 1 ? 's' : ''}`
+                    {loading
+                      ? 'Cargando...'
+                      : vistaActual === 'pendientes'
+                        ? `${totalRecords} muestra${totalRecords !== 1 ? 's' : ''} pendiente${totalRecords !== 1 ? 's' : ''} de análisis`
+                        : `${totalRecords} análisis completado${totalRecords !== 1 ? 's' : ''}`
                     }
                   </p>
                 </div>
@@ -797,13 +845,19 @@ export default function Laboratorio() {
               >
                 {loading ? 'Cargando...' : 'Actualizar'}
               </Button>
-              <Button
-                variant="secondary"
-                onClick={() => setShowInfo(!showInfo)}
-                icon={HiInformationCircle}
+              <button
+                type="button"
+                onClick={() => setShowInfo((v) => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold border transition-colors ${
+                  showInfo
+                    ? 'bg-blue-500 text-white border-blue-500'
+                    : 'bg-white text-blue-500 border-blue-200 hover:bg-blue-50'
+                }`}
+                title="Ver flujo del dato"
               >
-                {showInfo ? 'Ocultar' : 'Ayuda'}
-              </Button>
+                <HiInformationCircle className="w-4 h-4" />
+                <span className="hidden sm:inline">¿Cómo funciona?</span>
+              </button>
             </div>
           </div>
 
@@ -880,94 +934,77 @@ export default function Laboratorio() {
                   </span>
                 )}
               </button>
+              <button
+                onClick={() => handleCambiarVista('certificados')}
+                disabled={loading}
+                className={`py-3 px-4 text-sm font-semibold border-b-2 transition-colors flex items-center gap-2 ${
+                  vistaActual === 'certificados'
+                    ? 'border-blue-600 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                } ${loading ? 'cursor-wait' : ''}`}
+              >
+                <HiDocumentArrowDown className="w-4 h-4" />
+                Certificados
+              </button>
             </nav>
           </div>
         </div>
 
-        {/* Panel de Información */}
+        {/* Panel ¿Cómo funciona? */}
         {showInfo && (
-          <Card className="mb-6 border-l-4 border-orange-400 bg-orange-50">
-            <div className="flex items-start gap-4">
-              <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center flex-shrink-0">
-                <HiInformationCircle className="w-7 h-7 text-orange-600" />
-              </div>
-              <div className="flex-1">
-                <h3 className="text-xl font-bold text-orange-900 mb-4">Información del Laboratorio</h3>
-
-                <div className="grid md:grid-cols-2 gap-6">
-                  <div className="bg-white p-4 rounded-lg shadow-sm">
-                    <h4 className="font-semibold text-orange-800 mb-2">Función del Laboratorio</h4>
-                    <ul className="text-sm text-gray-700 space-y-1">
-                      <li>Visualizar muestras enviadas por Dispatch</li>
-                      <li>Registrar resultados de análisis (Ley, Ley Cup, Certificado)</li>
-                      <li>El rango se calcula automáticamente según la ley</li>
-                      <li>Ver historial de análisis completados</li>
-                    </ul>
-                  </div>
-
-                  <div className="bg-white p-4 rounded-lg shadow-sm">
-                    <h4 className="font-semibold text-orange-800 mb-2">Cómo Completar Análisis</h4>
-                    <ul className="text-sm text-gray-700 space-y-1">
-                      <li>Selecciona una o varias muestras</li>
-                      <li>Click en "Completar Análisis"</li>
-                      <li>Ingresa: Ley, Ley Cup y Certificado</li>
-                      <li>El estado cambia a "Completado"</li>
-                    </ul>
-                  </div>
-
-                  <div className="bg-white p-4 rounded-lg shadow-sm">
-                    <h4 className="font-semibold text-orange-800 mb-2">Estados</h4>
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <span className="bg-blue-500 text-white px-2 py-1 rounded text-xs font-bold">Recibido</span>
-                        <span className="text-xs">Muestra recibida desde muestreo</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="bg-yellow-500 text-white px-2 py-1 rounded text-xs font-bold">Ingresado</span>
-                        <span className="text-xs">Muestra pendiente de análisis</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="bg-green-600 text-white px-2 py-1 rounded text-xs font-bold">Completado</span>
-                        <span className="text-xs">Análisis completado y registrado</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="bg-white p-4 rounded-lg shadow-sm">
-                    <h4 className="font-semibold text-orange-800 mb-2">Rangos de Ley</h4>
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <span className="bg-green-600 text-white px-2 py-1 rounded text-xs font-bold">Alta</span>
-                        <span className="text-xs">Ley mayor o igual a 1%</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="bg-yellow-500 text-white px-2 py-1 rounded text-xs font-bold">Media</span>
-                        <span className="text-xs">Ley entre 0.5% y 1%</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="bg-orange-500 text-white px-2 py-1 rounded text-xs font-bold">Baja</span>
-                        <span className="text-xs">Ley entre 0.2% y 0.5%</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="bg-red-500 text-white px-2 py-1 rounded text-xs font-bold">Esteril</span>
-                        <span className="text-xs">Ley menor a 0.2%</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+          <div className="mb-5 p-4 bg-blue-50 border border-blue-200 rounded-xl">
+            <div className="mb-4 pb-4 border-b border-blue-100">
+              <p className="text-[9px] font-bold text-blue-400 uppercase tracking-widest mb-2.5">Flujo del dato</p>
+              <div className="flex items-start">
+                {[
+                  { n: 1, label: 'Ingreso', color: 'bg-orange-500', active: false },
+                  { n: 2, label: 'Envío\nMuestras', color: 'bg-teal-500', active: false },
+                  { n: 3, label: 'Lab', color: 'bg-green-600', active: true },
+                  { n: 4, label: 'Mezclas', color: 'bg-purple-600', active: false },
+                  { n: 5, label: 'Despacho', color: 'bg-indigo-600', active: false },
+                ].flatMap((p, i, arr) => [
+                  <div key={`s${i}`} className={`flex flex-col items-center ${!p.active ? 'opacity-35' : ''}`} style={{ minWidth: '44px' }}>
+                    <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white ${p.active ? p.color : 'bg-gray-300'}`}>{p.n}</div>
+                    <span className={`mt-1 text-[9px] font-semibold text-center leading-tight whitespace-pre-line ${p.active ? 'text-gray-700' : 'text-gray-400'}`}>{p.label}</span>
+                  </div>,
+                  ...(i < arr.length - 1 ? [<div key={`l${i}`} className="flex-1 h-px bg-gray-200 mt-3.5 mx-0.5 min-w-[8px]" />] : [])
+                ])}
               </div>
             </div>
-          </Card>
+
+            <p className="text-xs font-bold text-blue-800 uppercase tracking-wide mb-2.5">¿Cómo funciona el Análisis?</p>
+            <div className="space-y-2">
+              <div className="bg-white border border-orange-200 rounded-lg px-3 py-2">
+                <p className="text-xs font-bold text-orange-700">Qué aparece acá</p>
+                <p className="text-xs text-gray-500 mt-0.5">En "Pendientes": muestras ya recibidas en el laboratorio (desde Muestreo) más muestras libres, todas esperando resultado. En "Historial": análisis ya completados.</p>
+              </div>
+              <div className="bg-white border border-orange-200 rounded-lg px-3 py-2">
+                <p className="text-xs font-bold text-orange-700">Qué ingresas tú</p>
+                <p className="text-xs text-gray-500 mt-0.5">Solo <strong>Cu Total</strong> y <strong>Cu Soluble</strong>. El sistema calcula automáticamente el Cu Insoluble — no se ingresa a mano.</p>
+              </div>
+              <div className="bg-white border border-orange-200 rounded-lg px-3 py-2">
+                <p className="text-xs font-bold text-orange-700">Siguiente paso</p>
+                <p className="text-xs text-gray-500 mt-0.5">Al completar el análisis la dumpada queda habilitada para Mezclas, y disponible en Historial para generar su certificado en PDF.</p>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Listado */}
+        {vistaActual === 'certificados' ? (
+          <CertificadosGenerados idFaena={filters.id_faena} />
+        ) : (
         <Card className={`border-l-4 ${vistaActual === 'pendientes' ? 'border-orange-400' : 'border-green-400'}`}>
           <div className="mb-6">
             <h3 className="text-2xl font-bold text-gray-900">
               {vistaActual === 'pendientes' ? 'Muestras Pendientes de Análisis' : 'Historial de Análisis'}
             </h3>
             <p className="text-sm text-gray-600 mt-1">
-              Total: <span className={`font-semibold ${vistaActual === 'pendientes' ? 'text-orange-600' : 'text-green-600'}`}>{totalRecords}</span> {vistaActual === 'pendientes' ? 'muestra' : 'registro'}{totalRecords !== 1 ? 's' : ''}
+              {loading ? (
+                'Cargando...'
+              ) : (
+                <>Total: <span className={`font-semibold ${vistaActual === 'pendientes' ? 'text-orange-600' : 'text-green-600'}`}>{totalRecords}</span> {vistaActual === 'pendientes' ? 'muestra' : 'registro'}{totalRecords !== 1 ? 's' : ''}</>
+              )}
             </p>
           </div>
 
@@ -1172,6 +1209,15 @@ export default function Laboratorio() {
 
                           <div className="flex gap-2">
                             <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={handlePreviewCertificado}
+                              disabled={previsualizando}
+                              icon={HiDocumentText}
+                            >
+                              {previsualizando ? 'Abriendo...' : 'Vista previa'}
+                            </Button>
+                            <Button
                               variant="success"
                               size="sm"
                               onClick={handleGenerarCertificado}
@@ -1316,15 +1362,6 @@ export default function Laboratorio() {
                                           <HiDocumentArrowDown className="w-4 h-4" />
                                         )}
                                       </button>
-                                      {/* Cambiar destinatario (Para) */}
-                                      <button
-                                        onClick={(e) => handleRegenerarCertificado(dumpada.certificado, e, true)}
-                                        disabled={regenerandoCertificado === dumpada.certificado}
-                                        className="p-1.5 rounded-lg transition-all bg-orange-100 hover:bg-orange-200 text-orange-700 hover:text-orange-800 shadow-sm"
-                                        title='Cambiar destinatario "Para" y re-descargar'
-                                      >
-                                        <HiPencil className="w-4 h-4" />
-                                      </button>
                                     </>
                                   ) : (
                                     <span className="text-xs text-green-600 font-medium bg-green-50 px-2 py-1 rounded">
@@ -1337,7 +1374,7 @@ export default function Laboratorio() {
                                 <button
                                   onClick={(e) => handleEditClick(dumpada, e)}
                                   className="p-1.5 bg-green-100 hover:bg-green-200 text-green-700 rounded-lg transition-colors"
-                                  title="Editar análisis"
+                                  title={dumpada.certificado ? 'Editar análisis y/o destinatario del certificado' : 'Editar análisis'}
                                 >
                                   <HiPencil className="w-4 h-4" />
                                 </button>
@@ -1366,9 +1403,10 @@ export default function Laboratorio() {
             </>
           )}
         </Card>
+        )}
         {/* Modal de Edición de Análisis */}
         {editModal.show && editModal.dumpada && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-xl shadow-2xl max-w-md w-full">
               <div className="bg-gradient-to-r from-green-600 to-green-500 text-white p-5 rounded-t-xl flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -1407,7 +1445,7 @@ export default function Laboratorio() {
                     step="0.001"
                     value={editForm.ley}
                     onChange={(e) => setEditForm(prev => ({ ...prev, ley: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white text-gray-900"
                     placeholder="Ej: 1.640"
                   />
                 </div>
@@ -1421,7 +1459,7 @@ export default function Laboratorio() {
                     step="0.001"
                     value={editForm.cu_soluble}
                     onChange={(e) => setEditForm(prev => ({ ...prev, cu_soluble: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white text-gray-900"
                     placeholder="Ej: 0.800"
                   />
                 </div>
@@ -1435,10 +1473,28 @@ export default function Laboratorio() {
                     step="0.001"
                     value={editForm.cu_insoluble}
                     onChange={(e) => setEditForm(prev => ({ ...prev, cu_insoluble: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white text-gray-900"
                     placeholder={editForm.ley && editForm.cu_soluble ? `Auto: ${(parseFloat(editForm.ley || 0) - parseFloat(editForm.cu_soluble || 0)).toFixed(3)}` : 'Se calcula automáticamente'}
                   />
                 </div>
+
+                {editModal.dumpada.certificado && (
+                  <div className="pt-3 border-t border-gray-200">
+                    <label className="block text-sm font-semibold text-gray-700 mb-1">
+                      Destinatario del certificado (Para)
+                    </label>
+                    <input
+                      type="text"
+                      value={editForm.para}
+                      onChange={(e) => setEditForm(prev => ({ ...prev, para: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white text-gray-900"
+                      placeholder="Ej: Mra 3H Copper Spa"
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      Ya tiene el certificado <strong>{editModal.dumpada.certificado}</strong>. Completa este campo solo si quieres cambiar el destinatario y re-descargar el PDF.
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="px-5 pb-5 flex gap-3 justify-end">

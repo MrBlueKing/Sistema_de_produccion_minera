@@ -10,6 +10,8 @@ const Laboratorio           = lazy(() => import('../modules/laboratorio/pages/La
 const Muestreo              = lazy(() => import('../modules/laboratorio/pages/Muestreo'));
 const HistorialAnalisis     = lazy(() => import('../modules/laboratorio/pages/HistorialAnalisis'));
 const Explosivos            = lazy(() => import('../modules/explosivos/pages/Explosivos'));
+const DashboardCertificados = lazy(() => import('../modules/dashboard-gerencial/pages/DashboardCertificados'));
+const DashboardOperaciones  = lazy(() => import('../modules/dashboard-gerencial/pages/DashboardOperaciones'));
 
 export const routesConfig = [
   // ========================================
@@ -81,6 +83,24 @@ export const routesConfig = [
     component: Explosivos,
     label: 'Inventario de Explosivos',
     module: 'explosivos',
+  },
+
+  // ========================================
+  // MÓDULO: DASHBOARD GERENCIAL
+  // ========================================
+  {
+    path: '/dashboard-gerencial/certificados',
+    component: DashboardCertificados,
+    requiredRole: 'GerenteCertificados',
+    label: 'Certificados y Leyes',
+    module: 'gerencial',
+  },
+  {
+    path: '/dashboard-gerencial/operaciones',
+    component: DashboardOperaciones,
+    requiredRole: 'GerenteOperaciones',
+    label: 'Operaciones',
+    module: 'gerencial',
   },
 ];
 

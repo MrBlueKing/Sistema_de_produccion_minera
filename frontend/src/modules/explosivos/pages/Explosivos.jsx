@@ -332,7 +332,7 @@ export default function Explosivos() {
         <div className="mb-6">
           <Breadcrumb
             items={[
-              { label: 'Dashboard Central', href: import.meta.env.VITE_CENTRAL_URL, icon: HiHome },
+              { label: 'Portal M3H', href: import.meta.env.VITE_CENTRAL_URL, icon: HiHome },
               { label: esAdmin ? 'Explosivos - Admin' : esJefeMina ? 'Perforación y Tronadura' : 'Explosivos - Polvorín' }
             ]}
           />

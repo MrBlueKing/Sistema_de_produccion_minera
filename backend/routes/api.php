@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\FaenaController;
 use App\Http\Controllers\Api\ConfiguracionController;
 use App\Http\Controllers\Api\PetroleController;
 use App\Http\Controllers\Api\GerencialController;
+use App\Http\Controllers\Api\Laboratorio\CertificadoController;
 use Illuminate\Support\Facades\Route;
 
 // Ruta de prueba pública
@@ -16,22 +17,26 @@ Route::get('/ping', function () {
     ]);
 });
 
-// Dashboard Gerencial (acceso público - solo lectura, consumido por otros sistemas)
-Route::prefix('gerencial')->group(function () {
-    Route::get('/resumen', [GerencialController::class, 'resumen']);
-    Route::get('/faenas', [GerencialController::class, 'faenas']);
-    Route::get('/reporte-produccion', [GerencialController::class, 'reporteProduccion']);
-    // Trazabilidad de lotes (consumido por sistema de petróleo sin auth propia)
-    Route::get('/lotes', [GerencialController::class, 'buscarLotes']);
-    Route::get('/lotes/{id}/reconstruccion', [GerencialController::class, 'reconstruccionLote']);
-    Route::get('/analisis-lotes', [GerencialController::class, 'analisisLotes']);
-    Route::get('/dumpadas-diarias', [GerencialController::class, 'dumpadasDiarias']);
-    Route::get('/plantas', [GerencialController::class, 'plantas']);
-    Route::get('/empresas', [GerencialController::class, 'empresas']);
-});
-
 // Rutas protegidas
 Route::middleware(['validate.token'])->group(function () {
+
+    // Dashboard Gerencial (requiere sesión válida del SAC - módulo "Dashboard Gerencial", rol Gerente)
+    Route::prefix('gerencial')->group(function () {
+        Route::get('/resumen', [GerencialController::class, 'resumen']);
+        Route::get('/faenas', [GerencialController::class, 'faenas']);
+        Route::get('/reporte-produccion', [GerencialController::class, 'reporteProduccion']);
+        Route::get('/lotes', [GerencialController::class, 'buscarLotes']);
+        Route::get('/lotes/{id}/reconstruccion', [GerencialController::class, 'reconstruccionLote']);
+        Route::get('/analisis-lotes', [GerencialController::class, 'analisisLotes']);
+        Route::get('/dumpadas-diarias', [GerencialController::class, 'dumpadasDiarias']);
+        Route::get('/plantas', [GerencialController::class, 'plantas']);
+        Route::get('/empresas', [GerencialController::class, 'empresas']);
+        Route::get('/certificados-resumen', [GerencialController::class, 'certificadosResumen']);
+        // Listado y detalle de certificados (solo lectura, sin generar/descargar PDF)
+        Route::get('/certificados', [CertificadoController::class, 'certificadosGenerados']);
+        Route::get('/certificados/{numeroCertificado}', [CertificadoController::class, 'dumpadasPorCertificado']);
+        Route::get('/certificados/{numeroCertificado}/previsualizar', [CertificadoController::class, 'previsualizarPorNumero']);
+    });
 
     //Rutas de registros de prueba de produccion
     Route::get('/registros', [RegistroProduccionController::class, 'index']);

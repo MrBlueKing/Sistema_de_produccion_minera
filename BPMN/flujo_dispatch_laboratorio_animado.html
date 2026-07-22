@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flujo Dispatch y Laboratorio — Recorrido Animado 3H</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { height:100%; }
+  body {
+    font-family:"Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    background:#0d1117;
+    background-image:radial-gradient(ellipse 80% 60% at 50% -10%, rgba(224,96,16,.09), transparent 60%);
+    color:#e8edf2;
+    display:flex; flex-direction:column;
+    overflow:hidden;
+  }
+
+  /* ---------- HEADER ---------- */
+  header {
+    flex:0 0 auto;
+    display:flex; align-items:center; gap:16px;
+    padding:12px 24px;
+    background:#12161d;
+    border-bottom:2px solid #E06010;
+  }
+  .logo {
+    background:linear-gradient(135deg,#E06010,#8B3A00);
+    color:#fff; font-weight:800; font-size:18px;
+    padding:6px 13px; border-radius:8px; letter-spacing:.5px;
+    box-shadow:0 0 14px rgba(224,96,16,.45);
+  }
+  .titles h1 { font-size:17px; font-weight:700; letter-spacing:.3px; }
+  .titles p  { font-size:12px; color:#8b97a5; margin-top:1px; }
+  .legend {
+    margin-left:auto; display:flex; gap:18px; align-items:center;
+    font-size:11.5px; color:#9aa6b3;
+  }
+  .legend span { display:flex; align-items:center; gap:6px; white-space:nowrap; }
+  .chip-proc { width:16px; height:11px; border:2px solid #E06010; border-radius:3px; background:#1b222c; }
+  .chip-dec  { width:12px; height:12px; background:#2a2716; border:2px solid #FFD54F; transform:rotate(45deg); }
+  .chip-pulse{ width:11px; height:11px; border-radius:50%; background:#ffb066; box-shadow:0 0 8px 2px rgba(255,150,60,.8); }
+  .chip-loop { width:22px; height:0; border-top:2.5px dashed #E06010; }
+
+  /* ---------- DIAGRAMA ---------- */
+  main { flex:1 1 auto; min-height:0; display:flex; align-items:center; justify-content:center; padding:6px 12px; }
+  svg#diagrama { width:100%; height:100%; display:block; }
+
+  /* Nodos */
+  .node .shape { fill:#1b222c; stroke-width:2; transition:fill .35s, stroke .35s, filter .35s; }
+  .node text { fill:#dfe6ee; font-size:12.5px; font-weight:500; pointer-events:none; }
+  .node.decision .shape { fill:#26231a; stroke:#FFD54F; }
+  .node.decision text { fill:#ffe9a8; font-weight:600; }
+  .node.terminal .shape { fill:#E06010; stroke:#8B3A00; stroke-width:2.5; }
+  .node.terminal text { fill:#fff; font-weight:800; letter-spacing:1.5px; font-size:14px; }
+  .node.nota .shape { fill:#1f1a14; }
+  .node.nota text { font-size:11.5px; fill:#f0c9a8; font-style:italic; }
+
+  .node.visited .shape { fill:#232c39; }
+  .node.decision.visited .shape { fill:#332e1c; }
+
+  .node.active .shape {
+    stroke:#ff9440 !important; stroke-width:3;
+    fill:#33241a;
+    filter:drop-shadow(0 0 12px rgba(255,140,50,.95));
+  }
+  .node.decision.active .shape {
+    stroke:#FFD54F !important; fill:#3d3416;
+    filter:drop-shadow(0 0 12px rgba(255,213,79,.9));
+  }
+  .node.terminal.active .shape {
+    fill:#ff7a1a; filter:drop-shadow(0 0 16px rgba(255,140,50,1));
+  }
+  .node.active text { fill:#ffffff; }
+
+  /* Conexiones */
+  .edge { fill:none; stroke:#46505d; stroke-width:2.2; transition:stroke .4s; }
+  .edge.dashed { stroke-dasharray:7 5; }
+  .edge.visited { stroke:#E06010; stroke-width:2.6; }
+  .edge-label { font-size:11px; font-weight:700; }
+  .edge-label.si { fill:#7dd89a; }
+  .edge-label.no { fill:#ff8a65; }
+  .edge-label.loop { fill:#e08a50; font-style:italic; font-weight:600; }
+
+  /* Carriles */
+  .lane-bg { stroke:#242e3a; stroke-width:1; }
+  .lane-tab-text { font-size:10.5px; font-weight:800; letter-spacing:.4px; }
+
+  /* Pulso */
+  #pulso { pointer-events:none; }
+  #pulso .halo {
+    fill:rgba(255,150,60,.30);
+    animation:latido 1.1s ease-in-out infinite;
+    transform-origin:center; transform-box:fill-box;
+  }
+  #pulso .core { fill:#ffb066; stroke:#fff3e6; stroke-width:1.5; }
+  @keyframes latido {
+    0%,100% { transform:scale(1);   opacity:.75; }
+    50%     { transform:scale(1.7); opacity:.25; }
+  }
+
+  /* ---------- PANEL INFERIOR ---------- */
+  footer {
+    flex:0 0 auto;
+    display:flex; align-items:center; gap:28px;
+    padding:14px 26px 16px;
+    background:#12161d;
+    border-top:1px solid #232c39;
+    min-height:128px;
+  }
+  .info { flex:1 1 auto; min-width:0; }
+  .info-top { display:flex; align-items:center; gap:12px; margin-bottom:6px; }
+  .lane-badge {
+    font-size:11px; font-weight:800; letter-spacing:1px;
+    padding:4px 11px; border-radius:99px;
+    color:#0d1117; white-space:nowrap;
+  }
+  #paso-titulo { font-size:20px; font-weight:700; color:#fff; }
+  #paso-desc {
+    font-size:14.5px; line-height:1.5; color:#b8c2cc;
+    max-width:900px;
+  }
+  .controles { flex:0 0 auto; display:flex; flex-direction:column; align-items:flex-end; gap:10px; }
+  #contador { font-size:13px; color:#8b97a5; font-weight:600; letter-spacing:.4px; }
+  .barra { width:250px; height:5px; background:#232c39; border-radius:99px; overflow:hidden; }
+  #barra-fill {
+    height:100%; width:0;
+    background:linear-gradient(90deg,#8B3A00,#E06010,#ffb066);
+    border-radius:99px; transition:width .5s ease;
+  }
+  .botones { display:flex; gap:9px; }
+  button {
+    font-family:inherit; font-size:14px; font-weight:600;
+    padding:9px 18px; border-radius:8px; cursor:pointer;
+    border:1.5px solid #3a4552; background:#1b222c; color:#c9d3dd;
+    transition:background .2s, border-color .2s, opacity .2s;
+  }
+  button:hover:not(:disabled) { background:#242e3a; border-color:#56636f; }
+  button:disabled { opacity:.35; cursor:default; }
+  button.primario {
+    background:linear-gradient(135deg,#E06010,#c0400a);
+    border-color:#8B3A00; color:#fff;
+    box-shadow:0 2px 10px rgba(224,96,16,.35);
+  }
+  button.primario:hover:not(:disabled) { background:linear-gradient(135deg,#f06d1a,#d04a0e); }
+  button.activo-auto { border-color:#FFD54F; color:#FFD54F; }
+  .hint { font-size:11px; color:#5d6875; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">3H</div>
+  <div class="titles">
+    <h1>Flujo de Datos: Dispatch y Laboratorio</h1>
+    <p>Sistema de Gestión Operativo — Capacitación · recorrido animado del proceso completo</p>
+  </div>
+  <div class="legend">
+    <span><i class="chip-proc"></i> Proceso</span>
+    <span><i class="chip-dec"></i> Decisión</span>
+    <span><i class="chip-loop"></i> Reintento / rama NO</span>
+    <span><i class="chip-pulse"></i> Pulso de datos</span>
+  </div>
+</header>
+
+<main>
+  <svg id="diagrama" viewBox="0 0 1960 742" preserveAspectRatio="xMidYMid meet">
+    <defs>
+      <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#46505d"/>
+      </marker>
+      <marker id="arrowActive" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+        <path d="M 0 0 L 10 5 L 0 10 z" fill="#E06010"/>
+      </marker>
+      <filter id="softGlow" x="-60%" y="-60%" width="220%" height="220%">
+        <feGaussianBlur stdDeviation="3.5" result="b"/>
+        <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+    </defs>
+
+    <g id="capa-lanes"></g>
+    <g id="capa-edges"></g>
+    <g id="capa-nodes"></g>
+
+    <g id="pulso" opacity="0">
+      <circle class="halo" r="13"/>
+      <circle class="core" r="6.5" filter="url(#softGlow)"/>
+    </g>
+  </svg>
+</main>
+
+<footer>
+  <div class="info">
+    <div class="info-top">
+      <span class="lane-badge" id="badge-lane">OPERACIONES</span>
+      <span id="paso-titulo">Inicio del ciclo</span>
+    </div>
+    <p id="paso-desc"></p>
+  </div>
+  <div class="controles">
+    <span id="contador">Paso 1 de 26</span>
+    <div class="barra"><div id="barra-fill"></div></div>
+    <div class="botones">
+      <button id="btn-prev">&#8592; Anterior</button>
+      <button id="btn-next" class="primario">Siguiente &#8594;</button>
+      <button id="btn-auto" title="Avance automático">&#9654; Auto</button>
+      <button id="btn-reset" title="Volver al inicio">&#8635;</button>
+    </div>
+    <span class="hint">También puedes usar las flechas &#8592; &#8594; del teclado</span>
+  </div>
+</footer>
+
+<script>
+(function(){
+"use strict";
+const NS = "http://www.w3.org/2000/svg";
+const svg = document.getElementById("diagrama");
+
+/* ============ CARRILES ============ */
+const LANES = [
+  { id:"op",   nombre:["OPERACIONES"],              y:14,  h:106, color:"#E06010" },
+  { id:"dis",  nombre:["DISPATCH"],                 y:124, h:110, color:"#F9A825" },
+  { id:"lab",  nombre:["LABORATORIO","Y PLANTA"],   y:238, h:190, color:"#5B9BD5" },
+  { id:"ger",  nombre:["GERENCIA"],                 y:432, h:190, color:"#4CAF7D" },
+  { id:"cont", nombre:["CONTABILIDAD"],             y:626, h:104, color:"#D06A9C" }
+];
+const LANE_NAME = { op:"OPERACIONES", dis:"DISPATCH", lab:"LABORATORIO Y PLANTA", ger:"GERENCIA", cont:"CONTABILIDAD" };
+const LANE_COLOR = {}; LANES.forEach(l => LANE_COLOR[l.id] = l.color);
+
+/* ============ NODOS ============ */
+const NODES = {
+  inicio:    { x:200,  y:70,  lane:"op",  type:"ellipse", label:["INICIO"] },
+  perf:      { x:360,  y:70,  lane:"op",  type:"rect", label:["Registro de","Perforación y Tronadura"] },
+  ext:       { x:520,  y:70,  lane:"op",  type:"rect", label:["Extracción mineral","mina → cancha","(camión dumper)"] },
+
+  dump:      { x:520,  y:179, lane:"dis", type:"rect", label:["Registro de","Dumpadas"] },
+  muestra:   { x:680,  y:179, lane:"dis", type:"rect", label:["Toma de Muestra","(se mantiene en cancha","hasta cumplir ley)"] },
+  envio:     { x:840,  y:179, lane:"dis", type:"rect", label:["Envío de muestra","a laboratorio"] },
+  lote:      { x:1160, y:179, lane:"dis", type:"rect", label:["Generar Lotes","Internos"] },
+  cargar:    { x:1320, y:179, lane:"dis", type:"rect", label:["Cargar camiones","de distintos lotes"] },
+  despacho:  { x:1480, y:179, lane:"dis", type:"rect", label:["Despacho de","camiones a planta"] },
+
+  analisis:  { x:840,  y:300, lane:"lab", type:"rect", label:["Análisis de muestras","y entrega de","resultados"] },
+  cumple:    { x:1000, y:300, lane:"lab", type:"rhombus", label:["¿Mezcla de","dumpadas","cumple?"] },
+  ajuste:    { x:1000, y:386, lane:"lab", type:"rect", nota:true, label:["Ajuste de mezcla","1.3% Cu · 100 ton","error muestra 19%"] },
+  planta_in: { x:1480, y:300, lane:"lab", type:"rect", label:["Ingresan camiones","a planta procesadora"] },
+  proc:      { x:1670, y:300, lane:"lab", type:"rect", label:["Procesamiento","mineral en planta"] },
+  paq:       { x:1840, y:300, lane:"lab", type:"rect", label:["Muestra representativa","del procesado","(paquete de segunda)"] },
+
+  comparar:  { x:1840, y:480, lane:"ger", type:"rect", label:["Comparar ley Lote","Interno vs paquete","de segunda"] },
+  diez:      { x:1600, y:480, lane:"ger", type:"rhombus", label:["¿Desviación","dentro de","±10%?"] },
+  auditoria: { x:1600, y:572, lane:"ger", type:"rect", small:true, label:["Auditoría Interna"] },
+  punto:     { x:1360, y:480, lane:"ger", type:"rhombus", label:["¿Dentro del","0.10% aceptable","del lote?"] },
+  labext:    { x:1360, y:572, lane:"ger", type:"rect", small:true, label:["Laboratorio Externo"] },
+  canje:     { x:1150, y:480, lane:"ger", type:"rect", label:["Canje paquete de","segunda por","paquete planta"] },
+
+  liq:       { x:1150, y:676, lane:"cont", type:"rect", label:["Planta emite","liquidación de pago"] },
+  dep:       { x:950,  y:676, lane:"cont", type:"rect", label:["Depósito, registro del","pago y factura"] },
+  fin:       { x:770,  y:676, lane:"cont", type:"ellipse", label:["FIN"] }
+};
+
+/* ============ CONEXIONES ============ */
+const EDGES = [
+  { id:"e1",  d:"M 240 70 L 288 70" },
+  { id:"e2",  d:"M 430 70 L 448 70" },
+  { id:"e3",  d:"M 520 99 L 520 148" },
+  { id:"e4",  d:"M 590 179 L 608 179" },
+  { id:"e5",  d:"M 750 179 L 768 179" },
+  { id:"e6",  d:"M 840 208 L 840 269" },
+  { id:"e7",  d:"M 910 300 L 933 300" },
+  { id:"e8",  d:"M 1000 340 L 1000 359", label:{t:"NO", x:1013, y:354, cls:"no"} },
+  { id:"e9",  d:"M 923 386 L 430 386 L 430 179 L 448 179", dashed:true, label:{t:"Reintentar", x:660, y:377, cls:"loop"} },
+  { id:"e10", d:"M 1065 300 L 1110 300 L 1110 210", label:{t:"SÍ", x:1080, y:290, cls:"si"} },
+  { id:"e11", d:"M 1230 179 L 1248 179" },
+  { id:"e12", d:"M 1390 179 L 1408 179" },
+  { id:"e13", d:"M 1480 208 L 1480 269" },
+  { id:"e14", d:"M 1550 300 L 1598 300" },
+  { id:"e15", d:"M 1742 300 L 1766 300" },
+  { id:"e16", d:"M 1840 329 L 1840 449" },
+  { id:"e17", d:"M 1768 480 L 1668 480" },
+  { id:"e18", d:"M 1600 520 L 1600 548", label:{t:"NO", x:1613, y:540, cls:"no"} },
+  { id:"e19", d:"M 1535 480 L 1428 480", label:{t:"SÍ", x:1478, y:470, cls:"si"} },
+  { id:"e20", d:"M 1360 520 L 1360 548", label:{t:"NO", x:1373, y:540, cls:"no"} },
+  { id:"e21", d:"M 1295 480 L 1223 480", label:{t:"SÍ", x:1256, y:470, cls:"si"} },
+  { id:"e22", d:"M 1150 509 L 1150 645" },
+  { id:"e23", d:"M 1080 676 L 1023 676" },
+  { id:"e24", d:"M 878 676 L 812 676" }
+];
+
+/* ============ SECUENCIA DE PASOS ============ */
+const STEPS = [
+  { node:"inicio", title:"Inicio del ciclo productivo",
+    desc:"Comienza el recorrido del mineral y de sus datos: desde la tronadura en la mina hasta la factura final. Cada área participa en un tramo del flujo, y el sistema registra la trazabilidad completa.", edges:[] },
+
+  { node:"perf", title:"Registro de Perforación y Tronadura",
+    desc:"Operaciones registra en el sistema los datos de perforación y tronadura de cada frente: ubicación, fecha y parámetros de la tronada que libera el mineral. Aquí nace la trazabilidad del material.", edges:["e1"] },
+
+  { node:"ext", title:"Extracción de mineral (camión dumper)",
+    desc:"Los camiones dumper transportan el mineral tronado desde la frente en la mina hasta la cancha de acopio, donde quedará a la espera de su clasificación y análisis.", edges:["e2"] },
+
+  { node:"dump", title:"Registro de Dumpadas",
+    desc:"Dispatch registra cada dumpada (descarga de un camión en cancha): frente de origen, camión, fecha y tonelaje. La dumpada es la unidad básica de trazabilidad de todo el sistema.", edges:["e3"] },
+
+  { node:"muestra", title:"Toma de Muestra",
+    desc:"Dispatch toma una muestra representativa de la mezcla de dumpadas acumulada en cancha. El material se mantiene en cancha, sin despacharse, hasta confirmar que la mezcla cumple la ley objetivo.", edges:["e4"] },
+
+  { node:"envio", title:"Envío de muestra a Laboratorio",
+    desc:"La muestra rotulada e identificada con su mezcla de origen se envía al laboratorio para el análisis de leyes de cobre (total y soluble).", edges:["e5"] },
+
+  { node:"analisis", title:"Análisis de muestras",
+    desc:"El laboratorio analiza la muestra y entrega los resultados de ley al sistema. Estos resultados quedan asociados a la mezcla de dumpadas que representa la muestra.", edges:["e6"] },
+
+  { node:"cumple", title:"Decisión: ¿La mezcla cumple?",
+    desc:"Se compara la ley obtenida contra la ley objetivo (1.3% de Cu insoluble). Si NO cumple, se ajusta la composición de la mezcla y se repite el ciclo de muestreo y análisis. Si SÍ cumple, el material queda liberado para formar lotes. Veamos primero el caso NO.", edges:["e7"] },
+
+  { node:"ajuste", title:"Rama NO — Ajuste de composición",
+    desc:"La mezcla (del orden de 100 toneladas) se recompone: se agregan o retiran dumpadas para apuntar al objetivo de 1.3% Cu, considerando que la muestra tiene un margen de error cercano al 19%. Por eso el resultado de una sola muestra nunca es definitivo.", edges:["e8"] },
+
+  { node:"dump", title:"Reintento: vuelve al ciclo de Dispatch",
+    desc:"La mezcla ajustada vuelve al inicio del ciclo: se registran las dumpadas de la nueva composición, se toma una nueva muestra y se envía otra vez a laboratorio. Este bucle se repite las veces que sea necesario hasta cumplir la ley.", edges:["e9"] },
+
+  { node:"cumple", title:"Decisión: ¿La mezcla cumple? — SÍ",
+    desc:"El ciclo de muestreo y análisis se ejecuta nuevamente sobre la mezcla ajustada. Esta vez el resultado cumple la ley objetivo: la mezcla queda aprobada y el flujo continúa hacia la generación de lotes.", edges:["e4","e5","e6","e7"] },
+
+  { node:"lote", title:"Generar Lotes Internos",
+    desc:"Con la mezcla aprobada por laboratorio, Dispatch agrupa el material en lotes internos numerados, cada uno con tonelaje y ley conocidos. El lote es la unidad comercial que se despachará a planta.", edges:["e10"] },
+
+  { node:"cargar", title:"Cargar camiones",
+    desc:"Se cargan los camiones de despacho, pudiendo combinar material de distintos lotes según el plan de despacho. Cada camionada queda registrada con su lote y tonelaje de origen.", edges:["e11"] },
+
+  { node:"despacho", title:"Despacho de camiones a planta",
+    desc:"Los camiones salen hacia la planta procesadora con su guía de despacho. La trazabilidad lote → camionada permite saber exactamente qué material y qué ley viaja en cada camión.", edges:["e12"] },
+
+  { node:"planta_in", title:"Ingresan camiones a planta",
+    desc:"La planta procesadora recibe los camiones, pesa el material en romana y lo ingresa a su circuito. Desde aquí el mineral queda bajo control de la planta.", edges:["e13"] },
+
+  { node:"proc", title:"Procesamiento del mineral",
+    desc:"La planta procesa el mineral recibido. Durante el procesamiento se genera el material a partir del cual se obtendrá la muestra de control de la planta.", edges:["e14"] },
+
+  { node:"paq", title:"Paquete de segunda",
+    desc:"La planta genera una muestra representativa del mineral procesado: el “paquete de segunda”. Este paquete refleja la ley real que la planta midió sobre el material recibido, y es la contraparte contra la cual se validará nuestro despacho.", edges:["e15"] },
+
+  { node:"comparar", title:"Comparar ley del lote vs paquete de segunda",
+    desc:"Gerencia compara la ley del lote interno despachado (medida por nuestro laboratorio) contra la ley del paquete de segunda informada por la planta. De esta comparación depende la validación comercial del despacho.", edges:["e16"] },
+
+  { node:"diez", title:"Decisión: ¿Desviación dentro de ±10%?",
+    desc:"Primer umbral de tolerancia: la diferencia entre ambas leyes debe estar dentro de ±10%. Si se excede, algo falló en el proceso (muestreo, mezcla o despacho) y se activa una auditoría interna. Veamos primero el caso NO.", edges:["e17"] },
+
+  { node:"auditoria", title:"Rama NO — Auditoría Interna",
+    desc:"Una desviación mayor a ±10% dispara una auditoría interna: se revisan los registros de dumpadas, mezclas, muestras y despachos para encontrar el origen de la diferencia y corregir el proceso.", edges:["e18"] },
+
+  { node:"punto", title:"Decisión: ¿Dentro del 0.10% aceptable?",
+    desc:"Caso SÍ del umbral anterior: superada la tolerancia de ±10%, se verifica el segundo umbral, más fino. La diferencia absoluta de ley aceptable para el lote es de 0.10%. Si se excede, la discrepancia se dirime con un laboratorio externo. Veamos primero el caso NO.", edges:[{id:"e18",rev:true},"e19"] },
+
+  { node:"labext", title:"Rama NO — Laboratorio Externo",
+    desc:"Si la diferencia supera el 0.10% aceptable, un laboratorio externo e imparcial analiza la contramuestra para dirimir la ley definitiva del lote entre ambas partes.", edges:["e20"] },
+
+  { node:"canje", title:"Canje del paquete de segunda",
+    desc:"Caso SÍ en ambos umbrales: el resultado queda validado y se realiza el canje del paquete de segunda por el paquete de planta, formalizando el acuerdo de ley entre la faena y la planta.", edges:[{id:"e20",rev:true},"e21"] },
+
+  { node:"liq", title:"Liquidación de pago",
+    desc:"Con la ley acordada, la planta emite la liquidación de pago del lote según el tonelaje despachado y la ley conciliada.", edges:["e22"] },
+
+  { node:"dep", title:"Depósito, registro y factura",
+    desc:"La planta deposita el pago, Contabilidad registra el ingreso y la dueña emite la factura correspondiente, cerrando el ciclo comercial del lote.", edges:["e23"] },
+
+  { node:"fin", title:"Fin del ciclo",
+    desc:"El ciclo queda cerrado: mineral extraído, analizado, despachado, conciliado y facturado. El proceso se repite con cada nueva mezcla y cada nuevo lote, siempre con la misma trazabilidad de punta a punta.", edges:["e24"] }
+];
+
+/* ============ RENDER ESTÁTICO ============ */
+const capaLanes = document.getElementById("capa-lanes");
+const capaEdges = document.getElementById("capa-edges");
+const capaNodes = document.getElementById("capa-nodes");
+
+function el(tag, attrs){
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  return e;
+}
+
+/* Carriles */
+LANES.forEach(l => {
+  const g = el("g", {});
+  g.appendChild(el("rect", { class:"lane-bg", x:108, y:l.y, width:1844, height:l.h, fill:"rgba(255,255,255,0.022)", rx:6 }));
+  const tab = el("rect", { x:12, y:l.y, width:90, height:l.h, rx:6, fill:l.color, "fill-opacity":"0.13", stroke:l.color, "stroke-opacity":"0.55", "stroke-width":"1.5" });
+  g.appendChild(tab);
+  g.appendChild(el("rect", { x:12, y:l.y, width:4, height:l.h, rx:2, fill:l.color }));
+  const lh = 15, y0 = l.y + l.h/2 - (l.nombre.length-1)*lh/2;
+  l.nombre.forEach((line,i) => {
+    const t = el("text", { class:"lane-tab-text", x:57, y:y0+i*lh, "text-anchor":"middle", "dominant-baseline":"middle", fill:l.color });
+    t.textContent = line;
+    g.appendChild(t);
+  });
+  capaLanes.appendChild(g);
+});
+
+/* Conexiones */
+const EDGE_EL = {};
+EDGES.forEach(e => {
+  const p = el("path", { id:e.id, class:"edge"+(e.dashed?" dashed":""), d:e.d, "marker-end":"url(#arrow)" });
+  capaEdges.appendChild(p);
+  EDGE_EL[e.id] = p;
+  if (e.label){
+    const t = el("text", { class:"edge-label "+e.label.cls, x:e.label.x, y:e.label.y });
+    t.textContent = e.label.t;
+    capaEdges.appendChild(t);
+  }
+});
+
+/* Nodos */
+const NODE_EL = {};
+for (const id in NODES){
+  const n = NODES[id];
+  const cls = ["node"];
+  if (n.type === "rhombus") cls.push("decision");
+  if (n.type === "ellipse") cls.push("terminal");
+  if (n.nota) cls.push("nota");
+  const g = el("g", { class:cls.join(" ") });
+
+  let shape;
+  if (n.type === "ellipse"){
+    shape = el("ellipse", { class:"shape", cx:n.x, cy:n.y, rx:40, ry:26, stroke:LANE_COLOR[n.lane] });
+  } else if (n.type === "rhombus"){
+    const w=66, h=42;
+    shape = el("polygon", { class:"shape", points:
+      (n.x)+","+(n.y-h)+" "+(n.x+w)+","+(n.y)+" "+(n.x)+","+(n.y+h)+" "+(n.x-w)+","+(n.y) });
+  } else {
+    const w = n.small ? 150 : 140;
+    const h = n.small ? 42 : 58;
+    shape = el("rect", { class:"shape", x:n.x-w/2, y:n.y-h/2, width:w, height:h, rx:9, stroke:LANE_COLOR[n.lane] });
+  }
+  g.appendChild(shape);
+
+  const t = el("text", { "text-anchor":"middle" });
+  const lh = 14.5, y0 = n.y - (n.label.length-1)*lh/2;
+  n.label.forEach((line,i) => {
+    const ts = el("tspan", { x:n.x, y:y0+i*lh, "dominant-baseline":"middle" });
+    ts.textContent = line;
+    t.appendChild(ts);
+  });
+  g.appendChild(t);
+  capaNodes.appendChild(g);
+  NODE_EL[id] = g;
+}
+
+/* ============ ESTADO Y NAVEGACIÓN ============ */
+const pulso     = document.getElementById("pulso");
+const badgeLane = document.getElementById("badge-lane");
+const tituloEl  = document.getElementById("paso-titulo");
+const descEl    = document.getElementById("paso-desc");
+const contador  = document.getElementById("contador");
+const barraFill = document.getElementById("barra-fill");
+const btnPrev   = document.getElementById("btn-prev");
+const btnNext   = document.getElementById("btn-next");
+const btnAuto   = document.getElementById("btn-auto");
+const btnReset  = document.getElementById("btn-reset");
+
+let paso = 0;
+let animando = false;
+let autoTimer = null;
+
+function normEdges(list){
+  return list.map(e => typeof e === "string" ? {id:e, rev:false} : {id:e.id, rev:!!e.rev});
+}
+
+function setPulso(x, y){
+  pulso.setAttribute("transform", "translate("+x+" "+y+")");
+}
+
+function viajar(segs, done){
+  if (!segs.length){ done(); return; }
+  const paths = segs.map(s => ({ p:EDGE_EL[s.id], rev:s.rev }));
+  const lens  = paths.map(s => s.p.getTotalLength());
+  const total = lens.reduce((a,b)=>a+b, 0);
+  const dur   = Math.max(650, Math.min(2400, total*3.2));
+  const t0    = performance.now();
+  pulso.setAttribute("opacity", "1");
+  function frame(now){
+    const raw = Math.min(1, (now-t0)/dur);
+    const e = raw<.5 ? 2*raw*raw : 1-Math.pow(-2*raw+2,2)/2;
+    let d = e*total, i = 0;
+    while (i < lens.length-1 && d > lens[i]){ d -= lens[i]; i++; }
+    const s = paths[i];
+    const pt = s.p.getPointAtLength(s.rev ? lens[i]-d : d);
+    setPulso(pt.x, pt.y);
+    if (raw < 1) requestAnimationFrame(frame); else done();
+  }
+  requestAnimationFrame(frame);
+}
+
+function aplicarEstado(i){
+  paso = i;
+  const nodosVisitados = new Set();
+  const edgesVisitados = new Set();
+  for (let k = 0; k <= i; k++){
+    nodosVisitados.add(STEPS[k].node);
+    normEdges(STEPS[k].edges).forEach(e => edgesVisitados.add(e.id));
+  }
+  for (const id in NODE_EL){
+    NODE_EL[id].classList.toggle("visited", nodosVisitados.has(id));
+    NODE_EL[id].classList.toggle("active", id === STEPS[i].node);
+  }
+  for (const id in EDGE_EL){
+    const v = edgesVisitados.has(id);
+    EDGE_EL[id].classList.toggle("visited", v);
+    EDGE_EL[id].setAttribute("marker-end", v ? "url(#arrowActive)" : "url(#arrow)");
+  }
+  const st = STEPS[i], nd = NODES[st.node];
+  setPulso(nd.x, nd.y);
+  pulso.setAttribute("opacity", "1");
+
+  badgeLane.textContent = LANE_NAME[nd.lane];
+  badgeLane.style.background = LANE_COLOR[nd.lane];
+  tituloEl.textContent = st.title;
+  descEl.textContent = st.desc;
+  contador.textContent = "Paso " + (i+1) + " de " + STEPS.length;
+  barraFill.style.width = ((i+1)/STEPS.length*100) + "%";
+  btnPrev.disabled = (i === 0);
+  btnNext.disabled = (i === STEPS.length-1);
+}
+
+function irSiguiente(){
+  if (animando || paso >= STEPS.length-1) return;
+  animando = true;
+  const destino = paso+1;
+  const segs = normEdges(STEPS[destino].edges);
+  viajar(segs, function(){ aplicarEstado(destino); animando = false; });
+}
+
+function irAnterior(){
+  if (animando || paso <= 0) return;
+  animando = true;
+  const segs = normEdges(STEPS[paso].edges).slice().reverse()
+    .map(e => ({ id:e.id, rev:!e.rev }));
+  viajar(segs, function(){ aplicarEstado(paso-1); animando = false; });
+}
+
+function detenerAuto(){
+  if (autoTimer){ clearInterval(autoTimer); autoTimer = null; }
+  btnAuto.classList.remove("activo-auto");
+  btnAuto.innerHTML = "&#9654; Auto";
+}
+
+btnNext.addEventListener("click", function(){ detenerAuto(); irSiguiente(); });
+btnPrev.addEventListener("click", function(){ detenerAuto(); irAnterior(); });
+btnReset.addEventListener("click", function(){ detenerAuto(); if(!animando) aplicarEstado(0); });
+btnAuto.addEventListener("click", function(){
+  if (autoTimer){ detenerAuto(); return; }
+  btnAuto.classList.add("activo-auto");
+  btnAuto.innerHTML = "&#10074;&#10074; Pausa";
+  irSiguiente();
+  autoTimer = setInterval(function(){
+    if (paso >= STEPS.length-1){ detenerAuto(); return; }
+    irSiguiente();
+  }, 4200);
+});
+document.addEventListener("keydown", function(ev){
+  if (ev.key === "ArrowRight" || ev.key === " "){ ev.preventDefault(); detenerAuto(); irSiguiente(); }
+  else if (ev.key === "ArrowLeft"){ ev.preventDefault(); detenerAuto(); irAnterior(); }
+});
+
+aplicarEstado(0);
+})();
+</script>
+</body>
+</html>

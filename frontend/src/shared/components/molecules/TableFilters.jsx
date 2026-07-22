@@ -68,7 +68,7 @@ export default function TableFilters({
           <select
             value={value}
             onChange={(e) => handleFilterChange(filter.name, e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm bg-white text-gray-900"
           >
             <option value="">Todos</option>
             {filter.options?.map((option) => (
@@ -85,7 +85,7 @@ export default function TableFilters({
             type="date"
             value={value}
             onChange={(e) => handleFilterChange(filter.name, e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm bg-white text-gray-900"
           />
         );
 
@@ -96,7 +96,7 @@ export default function TableFilters({
             value={value}
             onChange={(e) => handleFilterChange(filter.name, e.target.value)}
             placeholder={filter.placeholder || ''}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm bg-white text-gray-900"
           />
         );
 
@@ -108,7 +108,7 @@ export default function TableFilters({
             value={value}
             onChange={(e) => handleFilterChange(filter.name, e.target.value)}
             placeholder={filter.placeholder || ''}
-            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm bg-white text-gray-900"
           />
         );
     }
@@ -129,7 +129,7 @@ export default function TableFilters({
               value={searchValue}
               onChange={handleSearchChange}
               placeholder={searchPlaceholder}
-              className="block w-full pl-10 pr-10 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm"
+              className="block w-full pl-10 pr-10 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent text-sm bg-white text-gray-900"
             />
             {searchValue && (
               <button

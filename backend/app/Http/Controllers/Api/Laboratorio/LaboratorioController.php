@@ -192,6 +192,7 @@ class LaboratorioController extends Controller
             'cu_insoluble' => $cuInsoluble,
             'rango' => $rango,
             'estado' => Dumpada::ESTADO_COMPLETADO,
+            'fecha_analisis_completado' => now(),
         ]);
 
         $dumpada->load('frenteTrabajo.tipoFrente');
@@ -259,6 +260,7 @@ class LaboratorioController extends Controller
                 'cu_insoluble' => $cuInsoluble,
                 'rango' => $rango,
                 'estado' => Dumpada::ESTADO_COMPLETADO,
+                'fecha_analisis_completado' => now(),
             ]);
 
             $completadas[] = $dumpada->acopios ?: $dumpada->numero_dumpada;

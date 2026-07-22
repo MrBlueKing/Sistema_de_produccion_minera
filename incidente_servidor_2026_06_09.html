@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Informe de Incidente — Servidor m3h.cl — 09/06/2026</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; color: #1a1a2e; }
+
+    header {
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      color: white;
+      padding: 40px;
+      text-align: center;
+    }
+    header h1 { font-size: 2rem; margin-bottom: 8px; }
+    header p { opacity: 0.75; font-size: 0.95rem; }
+    .badge {
+      display: inline-block;
+      background: #e74c3c;
+      color: white;
+      padding: 4px 14px;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      margin-top: 12px;
+      letter-spacing: 1px;
+    }
+    .badge.resuelto { background: #27ae60; }
+
+    .container { max-width: 960px; margin: 40px auto; padding: 0 20px 60px; }
+
+    .card {
+      background: white;
+      border-radius: 12px;
+      padding: 28px 32px;
+      margin-bottom: 28px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+      border-left: 5px solid #0f3460;
+    }
+    .card.warning { border-left-color: #e67e22; }
+    .card.danger  { border-left-color: #e74c3c; }
+    .card.success { border-left-color: #27ae60; }
+    .card.info    { border-left-color: #2980b9; }
+    .card.neutral { border-left-color: #95a5a6; }
+
+    .card h2 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      margin-bottom: 16px;
+      color: #0f3460;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .card.warning h2 { color: #e67e22; }
+    .card.danger  h2 { color: #e74c3c; }
+    .card.success h2 { color: #27ae60; }
+    .card.info    h2 { color: #2980b9; }
+    .card.neutral h2 { color: #7f8c8d; }
+
+    p { line-height: 1.7; margin-bottom: 10px; font-size: 0.95rem; }
+    ul, ol { margin-left: 20px; margin-bottom: 10px; }
+    li { line-height: 1.8; font-size: 0.95rem; }
+
+    code {
+      background: #f4f4f8;
+      border: 1px solid #dde;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-family: 'Consolas', monospace;
+      font-size: 0.88rem;
+      color: #c0392b;
+    }
+    pre {
+      background: #1e1e2e;
+      color: #cdd6f4;
+      padding: 18px 20px;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-size: 0.85rem;
+      line-height: 1.6;
+      margin: 12px 0;
+      font-family: 'Consolas', monospace;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.92rem;
+      margin-top: 8px;
+    }
+    th {
+      background: #0f3460;
+      color: white;
+      padding: 10px 14px;
+      text-align: left;
+      font-weight: 600;
+    }
+    td { padding: 9px 14px; border-bottom: 1px solid #eee; vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    tr:nth-child(even) td { background: #f8f9fb; }
+
+    .tag {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 12px;
+      font-size: 0.78rem;
+      font-weight: 600;
+    }
+    .tag-ok     { background: #d5f5e3; color: #1e8449; }
+    .tag-pendiente { background: #fdebd0; color: #a04000; }
+    .tag-ignorar   { background: #eaecee; color: #566573; }
+
+    .timeline { position: relative; padding-left: 24px; }
+    .timeline::before {
+      content: '';
+      position: absolute;
+      left: 8px;
+      top: 0; bottom: 0;
+      width: 2px;
+      background: #dde;
+    }
+    .timeline-item { position: relative; margin-bottom: 20px; }
+    .timeline-item::before {
+      content: '';
+      position: absolute;
+      left: -20px;
+      top: 6px;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #0f3460;
+      border: 2px solid white;
+      box-shadow: 0 0 0 2px #0f3460;
+    }
+    .timeline-item.danger::before  { background: #e74c3c; box-shadow: 0 0 0 2px #e74c3c; }
+    .timeline-item.success::before { background: #27ae60; box-shadow: 0 0 0 2px #27ae60; }
+    .timeline-item.warning::before { background: #e67e22; box-shadow: 0 0 0 2px #e67e22; }
+    .timeline-time { font-size: 0.78rem; color: #999; margin-bottom: 2px; }
+    .timeline-text { font-size: 0.93rem; line-height: 1.6; }
+
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    @media (max-width: 640px) { .grid-2 { grid-template-columns: 1fr; } }
+
+    .highlight-box {
+      background: #fff8e1;
+      border: 1px solid #f9ca24;
+      border-radius: 8px;
+      padding: 14px 18px;
+      margin: 12px 0;
+      font-size: 0.9rem;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Informe de Incidente de Servidor</h1>
+  <p>Servidor HostingPlus — mhcl — 45.239.111.148</p>
+  <p style="margin-top:6px; opacity:0.6;">09 de junio de 2026</p>
+  <div class="badge resuelto">RESUELTO</div>
+</header>
+
+<div class="container">
+
+  <!-- RESUMEN EJECUTIVO -->
+  <div class="card danger">
+    <h2>Resumen Ejecutivo</h2>
+    <p>
+      El servidor sufrió caídas intermitentes durante varias horas debido a un ataque de fuerza bruta
+      sostenido contra los archivos <code>xmlrpc.php</code> de múltiples instalaciones WordPress alojadas en el mismo servidor.
+      Este ataque agotó la memoria RAM disponible para PHP-FPM, dejando sin respuesta a Apache y,
+      por cascada, a todos los sistemas (petroleo.m3h.cl, produccion.m3h.cl, auth-api.m3h.cl).
+    </p>
+    <p>
+      El incidente fue identificado, contenido y resuelto. Se aplicaron medidas de seguridad permanentes
+      en todos los sitios WordPress afectados.
+    </p>
+  </div>
+
+  <!-- SISTEMAS AFECTADOS -->
+  <div class="card">
+    <h2>Sistemas Afectados</h2>
+    <table>
+      <thead>
+        <tr><th>Sistema</th><th>Dominio</th><th>Impacto</th><th>Estado Final</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Sistema de Producción Minera</td>
+          <td>produccion.m3h.cl</td>
+          <td>Caídas intermitentes — auth-api no respondía</td>
+          <td><span class="tag tag-ok">Operativo ✓</span></td>
+        </tr>
+        <tr>
+          <td>Sistema de Gestión de Petróleo</td>
+          <td>petroleo.m3h.cl / api.m3h.cl</td>
+          <td>Sin conexión al servidor — PHP 8.0 incompatible</td>
+          <td><span class="tag tag-ok">Operativo ✓</span></td>
+        </tr>
+        <tr>
+          <td>SAC (Autenticación Centralizada)</td>
+          <td>auth-api.m3h.cl</td>
+          <td>Timeouts por falta de RAM</td>
+          <td><span class="tag tag-ok">Operativo ✓</span></td>
+        </tr>
+        <tr>
+          <td>Sitio corporativo WordPress</td>
+          <td>m3h.cl</td>
+          <td>Error 500 — plugin incompatible + PHP desactualizado</td>
+          <td><span class="tag tag-ok">Operativo ✓</span></td>
+        </tr>
+        <tr>
+          <td>daar.cl y subdominios</td>
+          <td>daar.cl / container.daar.cl / neumaticos.daar.cl</td>
+          <td>Vectores del ataque xmlrpc.php</td>
+          <td><span class="tag tag-ok">Asegurado ✓</span></td>
+        </tr>
+        <tr>
+          <td>WordPress m3h.cl/wp y m3h.cl/autoevaluacion</td>
+          <td>m3h.cl/wp, m3h.cl/autoevaluacion</td>
+          <td>Marcados como "Dañado" en WP Toolkit</td>
+          <td><span class="tag tag-ignorar">Funcional — ignorar label</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- CAUSA RAÍZ -->
+  <div class="card danger">
+    <h2>Causa Raíz del Incidente</h2>
+    <p><strong>Ataque de fuerza bruta WordPress (xmlrpc.php)</strong></p>
+    <p>
+      El archivo <code>xmlrpc.php</code> es una interfaz XML-RPC de WordPress que permite
+      ejecutar comandos de forma remota. Atacantes la usaron para lanzar miles de peticiones
+      simultáneas intentando adivinar credenciales de administrador.
+    </p>
+    <p>
+      Cada petición levantaba un worker de PHP-FPM consumiendo ~780 MB de memoria virtual.
+      Con suficientes peticiones concurrentes, la RAM del servidor se agotó y Apache dejó
+      de responder completamente — incluyendo todos los sistemas Laravel del servidor.
+    </p>
+    <div class="highlight-box">
+      <strong>Cadena de fallo:</strong><br/>
+      Ataque xmlrpc.php → PHP-FPM workers llenos → RAM agotada → Apache sin respuesta →
+      auth-api.m3h.cl timeout → produccion.m3h.cl y petroleo.m3h.cl sin autenticación
+    </div>
+    <p>También se detectó actividad de un escáner de vulnerabilidades desde la IP <code>172.202.96.198</code>
+    intentando acceder a archivos de webshells (<code>/wp-content/plugins/xmlrpc.php</code>, etc.).</p>
+  </div>
+
+  <!-- LÍNEA DE TIEMPO -->
+  <div class="card">
+    <h2>Línea de Tiempo</h2>
+    <div class="timeline">
+      <div class="timeline-item danger">
+        <div class="timeline-time">Inicio del incidente</div>
+        <div class="timeline-text">produccion.m3h.cl comienza a quedar cargando indefinidamente. El servidor responde a ping pero no por HTTP/HTTPS.</div>
+      </div>
+      <div class="timeline-item danger">
+        <div class="timeline-time">Escalada</div>
+        <div class="timeline-text">WHM deja de responder. Servidor totalmente inaccesible. PHP-FPM ha agotado la RAM del servidor.</div>
+      </div>
+      <div class="timeline-item warning">
+        <div class="timeline-time">Identificación</div>
+        <div class="timeline-text">Al recuperar acceso, se identifica la causa: ataque a xmlrpc.php de WordPress. Se detecta IP de escáner 172.202.96.198 en logs de Apache.</div>
+      </div>
+      <div class="timeline-item success">
+        <div class="timeline-time">Contención inmediata</div>
+        <div class="timeline-text">Se bloquea la IP del escáner en CSF. Se matan los workers PHP-FPM acumulados. El servidor vuelve a responder.</div>
+      </div>
+      <div class="timeline-item success">
+        <div class="timeline-time">Mitigación permanente</div>
+        <div class="timeline-text">Se bloquea xmlrpc.php y wp-login.php en los 5 sitios WordPress del servidor via .htaccess.</div>
+      </div>
+      <div class="timeline-item warning">
+        <div class="timeline-time">Problema secundario — api.m3h.cl</div>
+        <div class="timeline-text">Sistema de petróleo sin conexión. Causa: api.m3h.cl estaba en PHP 8.0 pero el código requiere PHP 8.2.</div>
+      </div>
+      <div class="timeline-item success">
+        <div class="timeline-time">Fix api.m3h.cl</div>
+        <div class="timeline-text">Actualizado PHP de api.m3h.cl a 8.2 en MultiPHP Manager. Sistema de petróleo restaurado.</div>
+      </div>
+      <div class="timeline-item warning">
+        <div class="timeline-time">Problema secundario — m3h.cl</div>
+        <div class="timeline-text">WP Toolkit actualizó WordPress a 7.0 pero PHP seguía en 7.3 → Error 500. Actualizado PHP a 8.1 pero persiste error fatal por plugin incompatible.</div>
+      </div>
+      <div class="timeline-item success">
+        <div class="timeline-time">Fix m3h.cl</div>
+        <div class="timeline-text">Plugin anwp-post-grid-for-elementor deshabilitado (usaba clase Elementor eliminada). m3h.cl restaurado. WP_DEBUG desactivado.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ACCIONES REALIZADAS -->
+  <div class="card success">
+    <h2>Acciones Realizadas</h2>
+
+    <p><strong>1. Bloqueo de xmlrpc.php en todos los WordPress</strong></p>
+    <p>Se agregó en el <code>.htaccess</code> de cada instalación:</p>
+    <pre>&lt;Files xmlrpc.php&gt;
+Order Deny,Allow
+Deny from all
+&lt;/Files&gt;
+
+&lt;Files wp-login.php&gt;
+Order Deny,Allow
+Deny from all
+Allow from TU_IP_OFICINA
+&lt;/Files&gt;</pre>
+    <p>Sitios protegidos:</p>
+    <ul>
+      <li><code>/home/mhcl/public_html/.htaccess</code> — m3h.cl (raíz, daar.cl apunta aquí)</li>
+      <li><code>/home/mhcl/public_html/daar.cl/.htaccess</code></li>
+      <li><code>/home/mhcl/public_html/neumaticos.daar.cl/.htaccess</code></li>
+      <li><code>/home/mhcl/public_html/container.daar.cl/.htaccess</code></li>
+      <li><code>/home/mhcl/public_html/autoevaluacion/.htaccess</code></li>
+      <li><code>/home/mhcl/public_html/wp/.htaccess</code></li>
+    </ul>
+
+    <p style="margin-top:16px"><strong>2. Bloqueo de IP escáner en CSF</strong></p>
+    <p>IP <code>172.202.96.198</code> bloqueada en WHM → Plugins → ConfigServer Security &amp; Firewall.</p>
+
+    <p style="margin-top:16px"><strong>3. Aplicación de medidas de seguridad WP Toolkit</strong></p>
+    <p>Se aplicaron las hardening measures de WP Toolkit en los 6 sitios WordPress.</p>
+
+    <p style="margin-top:16px"><strong>4. Actualización de versiones PHP</strong></p>
+    <table>
+      <thead><tr><th>Dominio</th><th>PHP anterior</th><th>PHP nuevo</th></tr></thead>
+      <tbody>
+        <tr><td>api.m3h.cl</td><td>8.0</td><td>8.2</td></tr>
+        <tr><td>m3h.cl</td><td>7.3</td><td>8.1</td></tr>
+        <tr><td>m3h.cl/autoevaluacion</td><td>7.3</td><td>8.1</td></tr>
+      </tbody>
+    </table>
+
+    <p style="margin-top:16px"><strong>5. Fix plugin incompatible en m3h.cl</strong></p>
+    <p>Plugin <code>anwp-post-grid-for-elementor</code> deshabilitado renombrando su carpeta:</p>
+    <pre>mv /home/mhcl/public_html/wp-content/plugins/anwp-post-grid-for-elementor \
+   /home/mhcl/public_html/wp-content/plugins/anwp-post-grid-for-elementor.disabled</pre>
+    <p>Causa: WP Toolkit actualizó Elementor y eliminó la clase <code>Elementor\Core\Schemes\Typography</code>
+    que el plugin requería.</p>
+
+    <p style="margin-top:16px"><strong>6. WP_DEBUG desactivado en m3h.cl</strong></p>
+    <pre>sed -i "s/define( 'WP_DEBUG', true )/define( 'WP_DEBUG', false )/" \
+    /home/mhcl/public_html/wp-config.php</pre>
+  </div>
+
+  <!-- ESTADO FINAL SISTEMAS -->
+  <div class="card info">
+    <h2>Estado Final de los Sistemas</h2>
+    <table>
+      <thead>
+        <tr><th>Sistema / Dominio</th><th>PHP</th><th>Estado</th><th>Notas</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>produccion.m3h.cl<br/><small>produccion-api.m3h.cl</small></td>
+          <td>8.2</td>
+          <td><span class="tag tag-ok">Operativo ✓</span></td>
+          <td>No afectado directamente</td>
+        </tr>
+        <tr>
+          <td>petroleo.m3h.cl<br/><small>api.m3h.cl</small></td>
+          <td>8.2</td>
+          <td><span class="tag tag-ok">Operativo ✓</span></td>
+          <td>PHP actualizado 8.0→8.2</td>
+        </tr>
+        <tr>
+          <td>auth-api.m3h.cl (SAC)</td>
+          <td>8.2</td>
+          <td><span class="tag tag-ok">Operativo ✓</span></td>
+          <td>No afectado directamente</td>
+        </tr>
+        <tr>
+          <td>m3h.cl</td>
+          <td>8.1</td>
+          <td><span class="tag tag-ok">Operativo ✓</span></td>
+          <td>Plugin incompatible deshabilitado</td>
+        </tr>
+        <tr>
+          <td>daar.cl</td>
+          <td>—</td>
+          <td><span class="tag tag-ok">Asegurado ✓</span></td>
+          <td>xmlrpc.php bloqueado</td>
+        </tr>
+        <tr>
+          <td>container.daar.cl<br/>neumaticos.daar.cl</td>
+          <td>—</td>
+          <td><span class="tag tag-ok">Asegurado ✓</span></td>
+          <td>xmlrpc.php bloqueado</td>
+        </tr>
+        <tr>
+          <td>m3h.cl/wp<br/>m3h.cl/autoevaluacion</td>
+          <td>8.1</td>
+          <td><span class="tag tag-ignorar">Funcional*</span></td>
+          <td>WP Toolkit los marca "Dañado" por .htaccess modificado — cosmético, no funcional</td>
+        </tr>
+      </tbody>
+    </table>
+    <p style="margin-top:12px; font-size:0.85rem; color:#666;">
+      * El label "Dañado" de WP Toolkit se debe a que el checksum del .htaccess no coincide con el original de WordPress
+      porque lo modificamos para bloquear ataques. Los sitios funcionan. No reparar a menos que den problemas reales.
+    </p>
+  </div>
+
+  <!-- PENDIENTES -->
+  <div class="card warning">
+    <h2>Pendientes / Recomendaciones</h2>
+    <table>
+      <thead><tr><th>Tarea</th><th>Prioridad</th><th>Estado</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>Crear cuenta en UptimeRobot para monitoreo de todos los dominios</td>
+          <td>Alta</td>
+          <td><span class="tag tag-pendiente">Pendiente</span></td>
+        </tr>
+        <tr>
+          <td>Actualizar plugins de m3h.cl/wp y m3h.cl/autoevaluacion via wp-admin</td>
+          <td>Media</td>
+          <td><span class="tag tag-pendiente">Pendiente</span></td>
+        </tr>
+        <tr>
+          <td>Verificar versión PHP de intranet.m3h.cl (si existe)</td>
+          <td>Baja</td>
+          <td><span class="tag tag-pendiente">Pendiente</span></td>
+        </tr>
+        <tr>
+          <td>Buscar reemplazo para plugin anwp-post-grid-for-elementor si se usaba activamente</td>
+          <td>Baja</td>
+          <td><span class="tag tag-pendiente">Pendiente</span></td>
+        </tr>
+        <tr>
+          <td>Configurar límite de workers PHP-FPM en WHM para prevenir agotamiento de RAM</td>
+          <td>Media</td>
+          <td><span class="tag tag-pendiente">Pendiente</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- LO QUE NO SE TOCÓ -->
+  <div class="card neutral">
+    <h2>Lo que NO se modificó</h2>
+    <ul>
+      <li>Base de datos — ninguna tabla ni configuración de BD fue modificada</li>
+      <li>Código de los sistemas Laravel (producción, petróleo, SAC)</li>
+      <li>Archivos de contenido WordPress (posts, imágenes, temas)</li>
+      <li>Certificados SSL</li>
+      <li>Configuración de correo</li>
+      <li>Archivos <code>.env</code> de producción</li>
+    </ul>
+  </div>
+
+  <!-- LECCIONES APRENDIDAS -->
+  <div class="card info">
+    <h2>Lecciones Aprendidas</h2>
+    <ul>
+      <li><strong>xmlrpc.php debe bloquearse por defecto</strong> en todos los WordPress que no usen XML-RPC (casi ninguno lo necesita hoy en día).</li>
+      <li><strong>WordPress en un servidor compartido con sistemas críticos es un riesgo.</strong> Un ataque a WordPress puede derribar toda la infraestructura por agotamiento de recursos.</li>
+      <li><strong>WP Toolkit actualiza WordPress automáticamente</strong> sin verificar compatibilidad de plugins — esto rompió m3h.cl.</li>
+      <li><strong>Las versiones de PHP deben auditarse periódicamente</strong> — api.m3h.cl llevaba tiempo en PHP 8.0 sin detectarse.</li>
+      <li><strong>El monitoreo externo es esencial</strong> — el incidente fue detectado por el usuario intentando usar el sistema, no por una alerta automática.</li>
+    </ul>
+  </div>
+
+  <div style="text-align:center; margin-top:40px; color:#aaa; font-size:0.8rem;">
+    Documento generado el 09/06/2026 — Incidente resuelto — Servidor 45.239.111.148 (HostingPlus)
+  </div>
+
+</div>
+</body>
+</html>

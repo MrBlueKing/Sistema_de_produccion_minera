@@ -42,7 +42,7 @@ export default function AccesoDenegado() {
           </p>
           
           <p className="text-gray-600 mb-6">
-            No tienes los permisos necesarios para acceder a esta sección del Sistema de Producción.
+            No tienes los permisos necesarios para acceder a esta sección del Sistema Integrado de Gestión Minera.
           </p>
 
           {/* Información adicional */}

@@ -4,6 +4,7 @@ namespace App\Services\Laboratorio;
 
 use App\Models\Laboratorio\Mezcla;
 use App\Models\Laboratorio\Camionada;
+use App\Models\Laboratorio\CamionadaMovimiento;
 use App\Models\Laboratorio\Lote;
 use Illuminate\Support\Facades\DB;
 use Exception;
@@ -45,18 +46,18 @@ class CamionadaService
                 throw new Exception('Debe seleccionar un lote para la camionada');
             }
 
-            $lote = Lote::with(['planta', 'empresa'])->findOrFail($datos['lote_id']);
+            // Lock de la fila del lote: serializa requests concurrentes que
+            // intenten crear camionadas en el mismo lote al mismo tiempo,
+            // para que el cálculo de numero_camionada de abajo sea seguro.
+            $lote = Lote::where('id', $datos['lote_id'])->lockForUpdate()->firstOrFail();
+            $lote->load(['planta', 'empresa']);
 
             if ($lote->estado !== Lote::ESTADO_ABIERTO) {
                 throw new Exception('El lote seleccionado no está abierto');
             }
 
-            // Número correlativo por lote
-            $ultimaCamionada = Camionada::where('lote_id', $lote->id)
-                ->orderBy('numero_camionada', 'desc')
-                ->first();
-
-            $numeroCamionada = $ultimaCamionada ? ($ultimaCamionada->numero_camionada + 1) : 1;
+            // Número correlativo por lote (lote ya bloqueado arriba)
+            $numeroCamionada = $this->siguienteNumeroCamionada($lote->id);
 
             // Calcular ley_mezcla promedio ponderado por toneladas
             $totalTon = array_sum(array_column($mezclasData, 'toneladas'));
@@ -114,6 +115,106 @@ class CamionadaService
             DB::commit();
 
             return $camionada->fresh(['mezclas', 'lote.planta', 'lote.empresa']);
+
+        } catch (Exception $e) {
+            DB::rollBack();
+            throw $e;
+        }
+    }
+
+    /**
+     * Mover una o varias camionadas a otro lote (reasignación manual).
+     * No toca tonelaje de mezclas: el descuento es por camionada al
+     * recepcionar, no por lote, así que moverla de lote no lo afecta.
+     *
+     * @param array $camionadaIds IDs de camionadas a mover
+     * @param int $loteDestinoId Lote destino (debe estar Abierto)
+     * @param int|null $userId Usuario que realiza el movimiento (para auditoría)
+     * @return \Illuminate\Support\Collection Camionadas movidas, frescas
+     */
+    public function moverCamionadas(array $camionadaIds, int $loteDestinoId, ?int $userId = null)
+    {
+        if (empty($camionadaIds)) {
+            throw new Exception('Debe indicar al menos una camionada para mover');
+        }
+
+        DB::beginTransaction();
+
+        try {
+            $camionadas = Camionada::whereIn('id', $camionadaIds)->get();
+
+            if ($camionadas->count() !== count($camionadaIds)) {
+                throw new Exception('Alguna camionada indicada no existe');
+            }
+
+            // Bloquear todos los lotes involucrados (origen + destino) en
+            // orden ascendente de ID para evitar deadlocks si dos
+            // movimientos cruzados ocurren al mismo tiempo.
+            $loteIds = $camionadas->pluck('lote_id')
+                ->push($loteDestinoId)
+                ->filter()
+                ->unique()
+                ->sort()
+                ->values();
+
+            $lotesBloqueados = Lote::whereIn('id', $loteIds)
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get()
+                ->keyBy('id');
+
+            $loteDestino = $lotesBloqueados->get($loteDestinoId);
+
+            if (!$loteDestino) {
+                throw new Exception('El lote destino no existe');
+            }
+
+            if ($loteDestino->estado !== Lote::ESTADO_ABIERTO) {
+                throw new Exception('El lote destino no está abierto');
+            }
+
+            // El destino puede ser de otra planta/empresa que el origen, así
+            // que hay que refrescar los campos denormalizados de la camionada.
+            $loteDestino->load(['planta', 'empresa']);
+
+            $loteOrigenIdsAfectados = [];
+
+            foreach ($camionadas as $camionada) {
+                if ($camionada->lote_id === $loteDestinoId) {
+                    continue; // ya está en el lote destino, nada que hacer
+                }
+
+                $loteOrigenId = $camionada->lote_id;
+                $loteOrigenIdsAfectados[] = $loteOrigenId;
+                $nuevoNumero = $this->siguienteNumeroCamionada($loteDestinoId);
+
+                $camionada->lote_id = $loteDestinoId;
+                $camionada->numero_camionada = $nuevoNumero;
+                if ($loteDestino->planta) {
+                    $camionada->planta = $loteDestino->planta->nombre;
+                }
+                if ($loteDestino->empresa) {
+                    $camionada->cliente = $loteDestino->empresa->nombre;
+                }
+                $camionada->save();
+
+                CamionadaMovimiento::create([
+                    'camionada_id'    => $camionada->id,
+                    'lote_origen_id'  => $loteOrigenId,
+                    'lote_destino_id' => $loteDestinoId,
+                    'user_id'         => $userId,
+                ]);
+            }
+
+            // Cerrar huecos de numeración en los lotes de origen (las
+            // camionadas que quedaron vuelven a numerarse 1..N sin saltos)
+            foreach (array_unique($loteOrigenIdsAfectados) as $origenId) {
+                $this->renumerarSecuencial($origenId);
+            }
+
+            DB::commit();
+
+            return Camionada::whereIn('id', $camionadaIds)->with(['mezclas', 'lote'])->get();
 
         } catch (Exception $e) {
             DB::rollBack();
@@ -371,6 +472,43 @@ class CamionadaService
     // -----------------------------------------------------------------------
     // Helpers privados
     // -----------------------------------------------------------------------
+
+    /**
+     * Calcula el próximo numero_camionada correlativo de un lote.
+     * Debe llamarse con el lote ya bloqueado (lockForUpdate) por el caller
+     * dentro de una transacción, para que sea seguro ante concurrencia.
+     */
+    private function siguienteNumeroCamionada(int $loteId): int
+    {
+        $ultima = Camionada::where('lote_id', $loteId)
+            ->orderBy('numero_camionada', 'desc')
+            ->first();
+
+        return $ultima ? ($ultima->numero_camionada + 1) : 1;
+    }
+
+    /**
+     * Renumera secuencialmente (1, 2, 3...) las camionadas de un lote,
+     * cerrando huecos dejados por camionadas que se movieron o eliminaron.
+     * Debe llamarse con el lote ya bloqueado por el caller. Al procesar en
+     * orden ascendente, cada número nuevo asignado siempre es <= al número
+     * viejo de esa fila, así que nunca choca con el índice único.
+     */
+    private function renumerarSecuencial(int $loteId): void
+    {
+        $restantes = Camionada::where('lote_id', $loteId)
+            ->orderBy('numero_camionada', 'asc')
+            ->get();
+
+        $siguiente = 1;
+        foreach ($restantes as $camionada) {
+            if ((int) $camionada->numero_camionada !== $siguiente) {
+                $camionada->numero_camionada = $siguiente;
+                $camionada->save();
+            }
+            $siguiente++;
+        }
+    }
 
     /**
      * Descuenta peso_real de cada mezcla en la pivot, proporcionalmente a sus toneladas.

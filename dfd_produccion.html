@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DFD · Sistema de Producción M3H</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+  :root {
+    --orange: #f97316;
+    --green:  #22c55e;
+    --red:    #ef4444;
+    --blue:   #3b82f6;
+    --yellow: #f59e0b;
+    --purple: #8b5cf6;
+    --cyan:   #06b6d4;
+    --rose:   #e11d48;
+    --bg:     #060913;
+    --card:   #0d1117;
+    --border: #1e293b;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--bg);
+    color: #e2e8f0;
+    overflow-x: hidden;
+  }
+
+  /* ── HERO ── */
+  .hero {
+    position: relative;
+    text-align: center;
+    padding: 90px 20px 70px;
+    overflow: hidden;
+  }
+  .hero::before {
+    content: '';
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(ellipse 80% 60% at 50% -10%, rgba(249,115,22,.16) 0%, transparent 70%),
+      radial-gradient(ellipse 40% 40% at 15% 85%, rgba(59,130,246,.07) 0%, transparent 60%),
+      radial-gradient(ellipse 40% 40% at 85% 85%, rgba(139,92,246,.07) 0%, transparent 60%);
+    pointer-events: none;
+  }
+  .hero-badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: rgba(249,115,22,.12);
+    border: 1px solid rgba(249,115,22,.3);
+    border-radius: 999px; padding: 6px 18px;
+    font-size: .76rem; font-weight: 700; color: var(--orange);
+    letter-spacing: .07em; text-transform: uppercase;
+    margin-bottom: 24px;
+  }
+  .hero h1 {
+    font-size: clamp(2.4rem, 5vw, 3.8rem);
+    font-weight: 900; line-height: 1.08; letter-spacing: -2px;
+    background: linear-gradient(135deg, #fff 30%, #f97316 100%);
+    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+    background-clip: text; margin-bottom: 18px;
+  }
+  .hero p {
+    color: #64748b; font-size: 1.05rem; max-width: 560px;
+    margin: 0 auto; line-height: 1.65;
+  }
+
+  /* ── LAYOUT ── */
+  .main { max-width: 1200px; margin: 0 auto; padding: 0 24px 100px; }
+
+  /* ── LEYENDA ── */
+  .legend-row {
+    display: flex; flex-wrap: wrap; gap: 12px;
+    justify-content: center; margin-bottom: 48px;
+  }
+  .legend-pill {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 999px; padding: 8px 18px;
+    font-size: .82rem; font-weight: 500; color: #94a3b8;
+  }
+  .lp-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+  .lp-sq  { width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
+  .lp-db  { width: 18px; height: 12px; border-radius: 2px; border-left: 3px solid; border-right: 3px solid; flex-shrink: 0; }
+
+  /* ── DIAGRAM CARD ── */
+  .diagram-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 24px;
+    padding: 40px 32px;
+    margin-bottom: 64px;
+    position: relative;
+    overflow: hidden;
+  }
+  .diagram-card::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, var(--orange), var(--yellow), var(--green), var(--blue), var(--purple));
+  }
+  .diagram-card-title {
+    font-size: .72rem; font-weight: 700; letter-spacing: .1em;
+    text-transform: uppercase; color: #475569; margin-bottom: 32px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .diagram-card-title::after {
+    content: ''; flex: 1; height: 1px; background: var(--border);
+  }
+  .mermaid-wrap { overflow-x: auto; }
+
+  /* ── SECTION HEADER ── */
+  .sec-header {
+    margin: 0 0 28px 0;
+    display: flex; align-items: center; gap: 14px;
+  }
+  .sec-icon {
+    width: 44px; height: 44px; border-radius: 14px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.3rem; flex-shrink: 0;
+  }
+  .sec-title { font-size: 1.35rem; font-weight: 800; color: #f1f5f9; letter-spacing: -.3px; }
+  .sec-sub   { font-size: .82rem; color: #475569; margin-top: 2px; }
+
+  /* ── CARDS GRID ── */
+  .cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 16px;
+    margin-bottom: 56px;
+  }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 22px 24px;
+    position: relative;
+    overflow: hidden;
+    transition: transform .2s, box-shadow .2s;
+  }
+  .card:hover { transform: translateY(-2px); box-shadow: 0 16px 50px rgba(0,0,0,.5); }
+  .card::before {
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  }
+
+  /* top-bar colors per card */
+  .card.c-orange::before { background: linear-gradient(90deg, var(--orange), transparent); }
+  .card.c-green::before  { background: linear-gradient(90deg, var(--green),  transparent); }
+  .card.c-blue::before   { background: linear-gradient(90deg, var(--blue),   transparent); }
+  .card.c-yellow::before { background: linear-gradient(90deg, var(--yellow), transparent); }
+  .card.c-red::before    { background: linear-gradient(90deg, var(--rose),   transparent); }
+  .card.c-purple::before { background: linear-gradient(90deg, var(--purple), transparent); }
+  .card.c-cyan::before   { background: linear-gradient(90deg, var(--cyan),   transparent); }
+  .card.c-gray::before   { background: linear-gradient(90deg, #475569,       transparent); }
+
+  .card-icon {
+    width: 42px; height: 42px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.3rem; margin-bottom: 14px;
+  }
+  .card.c-orange .card-icon { background: rgba(249,115,22,.12); }
+  .card.c-green  .card-icon { background: rgba(34,197,94,.12); }
+  .card.c-blue   .card-icon { background: rgba(59,130,246,.12); }
+  .card.c-yellow .card-icon { background: rgba(245,158,11,.12); }
+  .card.c-red    .card-icon { background: rgba(225,29,72,.12); }
+  .card.c-purple .card-icon { background: rgba(139,92,246,.12); }
+  .card.c-cyan   .card-icon { background: rgba(6,182,212,.12); }
+  .card.c-gray   .card-icon { background: rgba(71,85,105,.18); }
+
+  .card-id {
+    font-size: .68rem; font-weight: 800; letter-spacing: .1em;
+    text-transform: uppercase; margin-bottom: 4px;
+  }
+  .card.c-orange .card-id { color: var(--orange); }
+  .card.c-green  .card-id { color: var(--green); }
+  .card.c-blue   .card-id { color: var(--blue); }
+  .card.c-yellow .card-id { color: var(--yellow); }
+  .card.c-red    .card-id { color: var(--rose); }
+  .card.c-purple .card-id { color: var(--purple); }
+  .card.c-cyan   .card-id { color: var(--cyan); }
+  .card.c-gray   .card-id { color: #94a3b8; }
+
+  .card-title { font-size: 1rem; font-weight: 700; color: #f1f5f9; margin-bottom: 10px; }
+  .card-desc  { font-size: .86rem; color: #64748b; line-height: 1.65; }
+
+  .flow-list { list-style: none; margin-top: 12px; }
+  .flow-list li {
+    font-size: .82rem; color: #94a3b8; padding: 5px 0;
+    border-bottom: 1px solid rgba(255,255,255,.04);
+    display: flex; align-items: flex-start; gap: 8px;
+  }
+  .flow-list li:last-child { border-bottom: none; padding-bottom: 0; }
+  .flow-list li::before { content: '→'; color: #475569; font-size: .9rem; flex-shrink: 0; margin-top: 1px; }
+  .flow-list li strong { color: #cbd5e1; font-weight: 600; }
+
+  /* ── FOOTER ── */
+  footer {
+    text-align: center; padding: 40px;
+    color: #1e293b; font-size: .8rem;
+    border-top: 1px solid #0d1117;
+  }
+
+  @media (max-width: 640px) {
+    .cards-grid { grid-template-columns: 1fr; }
+    .diagram-card { padding: 20px 12px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-badge">⛏️ Sistema de Producción M3H</div>
+  <h1>Diagrama de<br/>Flujo de Datos</h1>
+  <p>Cómo se mueve la información dentro del sistema — desde los actores externos hasta los almacenes de datos y de vuelta.</p>
+</div>
+
+<div class="main">
+
+  <!-- LEYENDA -->
+  <div class="legend-row">
+    <div class="legend-pill">
+      <div class="lp-db" style="border-color:#475569; background:transparent;"></div>
+      Entidad externa
+    </div>
+    <div class="legend-pill">
+      <div class="lp-dot" style="background: conic-gradient(#f97316, #f59e0b, #22c55e, #e11d48, #8b5cf6, #f97316);"></div>
+      Proceso (P1–P7)
+    </div>
+    <div class="legend-pill">
+      <div class="lp-sq" style="background:#1e3a5f; border: 1.5px solid #3b82f6;"></div>
+      Almacén de datos (D1–D6)
+    </div>
+    <div class="legend-pill">
+      <div style="width:24px; height:2px; background:linear-gradient(90deg,#475569,#94a3b8);"></div>
+      Flujo de datos
+    </div>
+  </div>
+
+  <!-- DIAGRAMA MERMAID -->
+  <div class="diagram-card">
+    <div class="diagram-card-title">DFD Nivel 1 — Flujo de datos completo</div>
+    <div class="mermaid-wrap">
+      <div class="mermaid">
+%%{init: {
+  "theme": "dark",
+  "themeVariables": {
+    "darkMode": true,
+    "background":          "#0d1117",
+    "primaryColor":        "#1e293b",
+    "primaryTextColor":    "#e2e8f0",
+    "primaryBorderColor":  "#334155",
+    "lineColor":           "#475569",
+    "secondaryColor":      "#1e293b",
+    "edgeLabelBackground": "#0d1117",
+    "fontSize":            "13px",
+    "fontFamily":          "Inter, sans-serif"
+  }
+}}%%
+graph LR
+
+  SAC[["🔐 SAC\nAuth Central"]]
+  OP[["👷 Operador\nDispatch"]]
+  ADM[["👔 Admin /\nEncargado"]]
+  LAB_EXT[["🔬 Analista\nLaboratorio"]]
+  PLANTA[["🏭 Planta\nCompradora"]]
+  PETRO[["⛽ Sistema\nPetróleo"]]
+
+  P1(("🔑 P1\nAutenticar"))
+  P2(("📋 P2\nRegistrar\nDumpada"))
+  P3(("🧪 P3\nGestionar\nMuestras"))
+  P4(("🔬 P4\nProcesar\nAnálisis"))
+  P5(("⚗️ P5\nCrear\nMezcla"))
+  P6(("🚛 P6\nGestionar\nDespacho"))
+  P7(("💥 P7\nControlar\nExplosivos"))
+
+  D1[("D1\ndumpadas")]
+  D2[("D2\nlaboratorio")]
+  D3[("D3\nmezclas")]
+  D4[("D4\nlotes /\ncamionadas")]
+  D5[("D5\nconfiguración")]
+  D6[("D6\nstock\nexplosivos")]
+
+  SAC -->|"token · roles · faena"| P1
+  P1 -->|"sesión válida"| P2
+  P1 -->|"sesión válida"| P7
+
+  OP -->|"peso · frente\nhora · conductor"| P2
+  ADM -->|"frentes · dumpers\nrangos · tonelaje"| D5
+  D5 -->|"config de faena"| P2
+  P2 -->|"dumpada guardada"| D1
+
+  D1 -->|"dumpadas ingresadas"| P3
+  P3 -->|"muestra enviada"| D2
+
+  LAB_EXT -->|"Cu Total · Cu Soluble\nHumedad"| P4
+  D2 -->|"muestras pendientes"| P4
+  P4 -->|"resultados registrados"| D2
+
+  D2 -->|"análisis completo"| P5
+  P5 -->|"mezcla + prom. ponderado"| D3
+
+  D3 -->|"mezclas disponibles"| P6
+  P6 -->|"lote + camionadas"| D4
+  P6 -->|"carga despachada"| PLANTA
+  PLANTA -->|"Nº lote · peso real"| P6
+
+  PETRO -->|"personal autorizado"| P7
+  P7 -->|"entradas / salidas"| D6
+  D6 -->|"stock disponible"| P7
+
+  classDef ext   fill:#111827,stroke:#475569,stroke-width:2px,color:#e2e8f0,font-weight:600
+  classDef auth  fill:#0c1a38,stroke:#3b82f6,stroke-width:2.5px,color:#93c5fd,font-weight:700
+  classDef dump  fill:#1c0f05,stroke:#f97316,stroke-width:2.5px,color:#fed7aa,font-weight:700
+  classDef lab   fill:#071a0d,stroke:#22c55e,stroke-width:2.5px,color:#bbf7d0,font-weight:700
+  classDef mezc  fill:#1a1205,stroke:#f59e0b,stroke-width:2.5px,color:#fde68a,font-weight:700
+  classDef desp  fill:#1a0511,stroke:#e11d48,stroke-width:2.5px,color:#fecdd3,font-weight:700
+  classDef explo fill:#120a22,stroke:#8b5cf6,stroke-width:2.5px,color:#ddd6fe,font-weight:700
+  classDef store fill:#060d1c,stroke:#3b82f6,stroke-width:1.5px,color:#7dd3fc,font-style:italic
+
+  class SAC,OP,ADM,LAB_EXT,PLANTA,PETRO ext
+  class P1 auth
+  class P2 dump
+  class P3,P4 lab
+  class P5 mezc
+  class P6 desp
+  class P7 explo
+  class D1,D2,D3,D4,D5,D6 store
+      </div>
+    </div>
+  </div>
+
+  <!-- ENTIDADES EXTERNAS -->
+  <div class="sec-header">
+    <div class="sec-icon" style="background:rgba(71,85,105,.2); border:1px solid #334155;">🌐</div>
+    <div>
+      <div class="sec-title">Entidades Externas</div>
+      <div class="sec-sub">Actores fuera del sistema que introducen o reciben datos</div>
+    </div>
+  </div>
+  <div class="cards-grid">
+
+    <div class="card c-gray">
+      <div class="card-icon">🔐</div>
+      <div class="card-id">Auth</div>
+      <div class="card-title">SAC — Auth Central</div>
+      <div class="card-desc">Valida credenciales y entrega el token de sesión con roles y faena asignada. Todo acceso al sistema pasa primero por aquí.</div>
+      <ul class="flow-list">
+        <li><strong>Envía:</strong> token JWT · roles · faena asignada</li>
+      </ul>
+    </div>
+
+    <div class="card c-orange">
+      <div class="card-icon">👷</div>
+      <div class="card-id">Input</div>
+      <div class="card-title">Operador / Digitador Dispatch</div>
+      <div class="card-desc">Ingresa los datos de cada dumpada en el momento en que el camión vacía su carga en el frente.</div>
+      <ul class="flow-list">
+        <li><strong>Envía:</strong> peso · frente · hora · dumper · conductor · empresa</li>
+      </ul>
+    </div>
+
+    <div class="card c-gray">
+      <div class="card-icon">👔</div>
+      <div class="card-id">Config</div>
+      <div class="card-title">Admin / Encargado Dispatch</div>
+      <div class="card-desc">Gestiona la configuración base del sistema: frentes, dumpers, rangos de ley y tonelaje por defecto por faena.</div>
+      <ul class="flow-list">
+        <li><strong>Envía:</strong> frentes · dumpers · rangos · tonelaje por defecto</li>
+      </ul>
+    </div>
+
+    <div class="card c-green">
+      <div class="card-icon">🔬</div>
+      <div class="card-id">Input</div>
+      <div class="card-title">Analista de Laboratorio</div>
+      <div class="card-desc">Ingresa los resultados de análisis de las muestras recibidas. Sin su input, las dumpadas no avanzan al proceso de mezclas.</div>
+      <ul class="flow-list">
+        <li><strong>Envía:</strong> Cu Total (%) · Cu Soluble (%) · Humedad (%)</li>
+      </ul>
+    </div>
+
+    <div class="card c-red">
+      <div class="card-icon">🏭</div>
+      <div class="card-id">Output / Input</div>
+      <div class="card-title">Planta Compradora</div>
+      <div class="card-desc">Recepciona el mineral despachado. Emite el ticket con el Nº de lote definitivo y el peso real medido en su báscula.</div>
+      <ul class="flow-list">
+        <li><strong>Recibe:</strong> carga despachada (tonelaje · ley)</li>
+        <li><strong>Devuelve:</strong> Nº lote definitivo · peso real en báscula</li>
+      </ul>
+    </div>
+
+    <div class="card c-purple">
+      <div class="card-icon">⛽</div>
+      <div class="card-id">Input</div>
+      <div class="card-title">Sistema de Petróleo</div>
+      <div class="card-desc">Provee el listado de personal autorizado para el módulo de Explosivos, evitando mantener una BD duplicada de personas.</div>
+      <ul class="flow-list">
+        <li><strong>Envía:</strong> listado de personal autorizado para el polvorín</li>
+      </ul>
+    </div>
+
+  </div>
+
+  <!-- PROCESOS -->
+  <div class="sec-header">
+    <div class="sec-icon" style="background:rgba(249,115,22,.1); border:1px solid rgba(249,115,22,.2);">⚙️</div>
+    <div>
+      <div class="sec-title">Procesos</div>
+      <div class="sec-sub">Transformaciones de datos dentro del sistema</div>
+    </div>
+  </div>
+  <div class="cards-grid">
+
+    <div class="card c-blue">
+      <div class="card-icon">🔑</div>
+      <div class="card-id">P1</div>
+      <div class="card-title">Autenticar Usuario</div>
+      <div class="card-desc">Valida el token recibido del SAC. Inyecta en cada request los roles y la faena activa. Todos los demás procesos dependen de este.</div>
+      <ul class="flow-list">
+        <li><strong>Entrada:</strong> token del SAC</li>
+        <li><strong>Salida:</strong> sesión válida con contexto de faena y roles</li>
+      </ul>
+    </div>
+
+    <div class="card c-orange">
+      <div class="card-icon">📋</div>
+      <div class="card-id">P2</div>
+      <div class="card-title">Registrar Dumpada</div>
+      <div class="card-desc">Crea el registro de cada vaciado de camión. Puede recibir datos del formulario manual o de la importación masiva desde Excel.</div>
+      <ul class="flow-list">
+        <li><strong>Entrada:</strong> datos del operador + config de faena (D5)</li>
+        <li><strong>Salida:</strong> dumpada guardada en D1 (estado: Ingresado)</li>
+      </ul>
+    </div>
+
+    <div class="card c-cyan">
+      <div class="card-icon">🧪</div>
+      <div class="card-id">P3</div>
+      <div class="card-title">Gestionar Muestras</div>
+      <div class="card-desc">Registra el envío de muestras físicas al laboratorio. Marca las dumpadas seleccionadas como "Muestra enviada".</div>
+      <ul class="flow-list">
+        <li><strong>Entrada:</strong> dumpadas ingresadas (D1)</li>
+        <li><strong>Salida:</strong> muestra enviada registrada en D2</li>
+      </ul>
+    </div>
+
+    <div class="card c-green">
+      <div class="card-icon">🔬</div>
+      <div class="card-id">P4</div>
+      <div class="card-title">Procesar Análisis</div>
+      <div class="card-desc">Recibe los valores de Cu Total y Cu Soluble del analista. Calcula automáticamente Cu Insoluble y asigna el rango de ley.</div>
+      <ul class="flow-list">
+        <li><strong>Entrada:</strong> resultados del analista + muestras de D2</li>
+        <li><strong>Calcula:</strong> Cu Insoluble = Cu Total − Cu Soluble</li>
+        <li><strong>Salida:</strong> dumpada actualizada en D2 (estado: Con análisis)</li>
+      </ul>
+    </div>
+
+    <div class="card c-yellow">
+      <div class="card-icon">⚗️</div>
+      <div class="card-id">P5</div>
+      <div class="card-title">Crear Mezcla</div>
+      <div class="card-desc">Agrupa dumpadas con análisis para alcanzar una ley Cu objetivo. Calcula en tiempo real el promedio ponderado según el peso de cada dumpada.</div>
+      <ul class="flow-list">
+        <li><strong>Entrada:</strong> dumpadas con análisis completo (D2)</li>
+        <li><strong>Calcula:</strong> Σ(Ley × Peso) / Σ Peso</li>
+        <li><strong>Salida:</strong> mezcla guardada en D3 (estado: En mezcla)</li>
+      </ul>
+    </div>
+
+    <div class="card c-red">
+      <div class="card-icon">🚛</div>
+      <div class="card-id">P6</div>
+      <div class="card-title">Gestionar Despacho</div>
+      <div class="card-desc">Crea lotes de despacho y registra cada camionada. Recibe el ticket de la planta para cerrar el lote con el peso real definitivo.</div>
+      <ul class="flow-list">
+        <li><strong>Entrada:</strong> mezclas de D3 · ticket y peso real de la planta</li>
+        <li><strong>Salida:</strong> lote + camionadas en D4 · carga enviada a Planta</li>
+      </ul>
+    </div>
+
+    <div class="card c-purple">
+      <div class="card-icon">💥</div>
+      <div class="card-id">P7</div>
+      <div class="card-title">Controlar Explosivos</div>
+      <div class="card-desc">Gestiona el inventario del polvorín: entradas de proveedor, salidas por tronadura y stock disponible por tipo de explosivo.</div>
+      <ul class="flow-list">
+        <li><strong>Entrada:</strong> personal autorizado del Sistema Petróleo</li>
+        <li><strong>Salida:</strong> movimientos de stock registrados en D6</li>
+      </ul>
+    </div>
+
+  </div>
+
+  <!-- ALMACENES -->
+  <div class="sec-header">
+    <div class="sec-icon" style="background:rgba(59,130,246,.1); border:1px solid rgba(59,130,246,.2);">🗄️</div>
+    <div>
+      <div class="sec-title">Almacenes de Datos</div>
+      <div class="sec-sub">Tablas en la base de datos MySQL del sistema</div>
+    </div>
+  </div>
+  <div class="cards-grid">
+
+    <div class="card c-blue">
+      <div class="card-icon">📦</div>
+      <div class="card-id">D1</div>
+      <div class="card-title">dumpadas</div>
+      <div class="card-desc">Registro central de cada vaciado de camión. Almacena peso, frente, hora, dumper, conductor y el estado actual dentro del flujo.</div>
+      <ul class="flow-list">
+        <li>Escrito por P2 · leído por P3</li>
+        <li>Tabla: <strong>dumpadas</strong></li>
+      </ul>
+    </div>
+
+    <div class="card c-blue">
+      <div class="card-icon">🧫</div>
+      <div class="card-id">D2</div>
+      <div class="card-title">laboratorio</div>
+      <div class="card-desc">Resultados de análisis vinculados a las dumpadas: Cu Total, Cu Soluble, Cu Insoluble, Humedad, rango de ley y certificado.</div>
+      <ul class="flow-list">
+        <li>Escrito por P3 y P4 · leído por P4 y P5</li>
+        <li>Tablas: <strong>muestras · resultados_laboratorio</strong></li>
+      </ul>
+    </div>
+
+    <div class="card c-blue">
+      <div class="card-icon">⚗️</div>
+      <div class="card-id">D3</div>
+      <div class="card-title">mezclas</div>
+      <div class="card-desc">Agrupaciones de dumpadas con su promedio ponderado de ley calculado. Relaciona dumpadas ↔ mezclas mediante tabla pivot.</div>
+      <ul class="flow-list">
+        <li>Escrito por P5 · leído por P6</li>
+        <li>Tablas: <strong>mezclas · dumpada_mezcla</strong></li>
+      </ul>
+    </div>
+
+    <div class="card c-blue">
+      <div class="card-icon">📋</div>
+      <div class="card-id">D4</div>
+      <div class="card-title">lotes / camionadas</div>
+      <div class="card-desc">Despachos organizados en lotes. Cada camionada tiene peso bruto, tara, neto, conductor y planta destino. El Nº de lote lo emite la planta.</div>
+      <ul class="flow-list">
+        <li>Escrito y leído por P6</li>
+        <li>Tablas: <strong>lotes · camionadas · camionada_mezcla</strong></li>
+      </ul>
+    </div>
+
+    <div class="card c-blue">
+      <div class="card-icon">⚙️</div>
+      <div class="card-id">D5</div>
+      <div class="card-title">configuración</div>
+      <div class="card-desc">Datos maestros de la operación: frentes de trabajo, dumpers, rangos de ley, tonelaje por defecto y configuración por faena.</div>
+      <ul class="flow-list">
+        <li>Escrito por ADM · leído por P2</li>
+        <li>Tablas: <strong>frentes · dumpers · rangos · faenas</strong></li>
+      </ul>
+    </div>
+
+    <div class="card c-blue">
+      <div class="card-icon">💣</div>
+      <div class="card-id">D6</div>
+      <div class="card-title">stock explosivos</div>
+      <div class="card-desc">Inventario del polvorín por tipo de explosivo: cantidad disponible, reservada, lotes con fecha de vencimiento y movimientos históricos.</div>
+      <ul class="flow-list">
+        <li>Escrito y leído por P7</li>
+        <li>Tablas: <strong>stock_explosivos · movimientos · lotes_explosivos</strong></li>
+      </ul>
+    </div>
+
+  </div>
+
+</div><!-- /main -->
+
+<footer>Sistema de Producción M3H &nbsp;·&nbsp; Diagrama de Flujo de Datos (DFD) Nivel 1 &nbsp;·&nbsp; 2026</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    flowchart: { curve: 'basis', padding: 24 },
+    securityLevel: 'loose'
+  });
+</script>
+</body>
+</html>

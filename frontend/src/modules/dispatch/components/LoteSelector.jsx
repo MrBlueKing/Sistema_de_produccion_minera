@@ -10,6 +10,9 @@ import lotesService from '../../../services/lotes';
  * @param {function} onChange - Callback cuando cambia la selección (loteId)
  * @param {function} onNuevoLoteClick - Callback cuando se hace click en "Crear Nuevo Lote"
  * @param {boolean} disabled - Si el selector está deshabilitado
+ * @param {number} excludeId - ID de lote a excluir de la lista (ej. el que se está eliminando)
+ * @param {boolean} allowCrearNuevo - Si se muestra la opción "+ Crear Nuevo Lote"
+ * @param {boolean} requierePlantaEmpresa - Si es false, lista TODOS los lotes abiertos (de la faena del usuario) sin filtrar por planta/empresa
  */
 const LoteSelector = ({
   plantaId,
@@ -17,26 +20,33 @@ const LoteSelector = ({
   loteId,
   onChange,
   onNuevoLoteClick,
-  disabled = false
+  disabled = false,
+  excludeId = null,
+  allowCrearNuevo = true,
+  requierePlantaEmpresa = true
 }) => {
   const [lotes, setLotes] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
+  const puedeCargar = !requierePlantaEmpresa || (plantaId && empresaId);
+
   // Cargar lotes abiertos cuando cambia planta o empresa
   useEffect(() => {
-    if (plantaId && empresaId) {
+    if (puedeCargar) {
       cargarLotesAbiertos();
     } else {
       setLotes([]);
     }
-  }, [plantaId, empresaId]);
+  }, [plantaId, empresaId, requierePlantaEmpresa]);
 
   const cargarLotesAbiertos = async () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await lotesService.getLotesAbiertos(plantaId, empresaId);
+      const data = requierePlantaEmpresa
+        ? await lotesService.getLotesAbiertos(plantaId, empresaId)
+        : await lotesService.getLotesAbiertos();
       setLotes(Array.isArray(data) ? data : []);
     } catch (err) {
       console.error('Error cargando lotes:', err);
@@ -46,6 +56,10 @@ const LoteSelector = ({
       setLoading(false);
     }
   };
+
+  const lotesFiltrados = excludeId
+    ? lotes.filter(lote => lote.id !== excludeId)
+    : lotes;
 
   const handleChange = (e) => {
     const value = e.target.value;
@@ -68,23 +82,26 @@ const LoteSelector = ({
         name="lote_id"
         value={loteId || ''}
         onChange={handleChange}
-        disabled={disabled || loading || !plantaId || !empresaId}
+        disabled={disabled || loading || !puedeCargar}
         required
         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-orange-500 disabled:bg-gray-100"
       >
         <option value="">
           {loading ? 'Cargando lotes...' :
-           !plantaId || !empresaId ? 'Selecciona planta y empresa primero' :
+           !puedeCargar ? 'Selecciona planta y empresa primero' :
            'Selecciona un lote'}
         </option>
 
-        {lotes.map(lote => (
+        {lotesFiltrados.map(lote => (
           <option key={lote.id} value={lote.id}>
-            {lote.numero_lote} - {lote.observaciones || 'Sin observaciones'}
+            {lote.numero_lote || 'Sin número'}
+            {!requierePlantaEmpresa && (lote.planta || lote.empresa)
+              ? ` — ${lote.planta?.nombre || '?'} / ${lote.empresa?.nombre || '?'}`
+              : ` - ${lote.observaciones || 'Sin observaciones'}`}
           </option>
         ))}
 
-        {plantaId && empresaId && (
+        {allowCrearNuevo && puedeCargar && (
           <option value="crear_nuevo" className="font-bold text-green-600">
             + Crear Nuevo Lote
           </option>
@@ -95,9 +112,9 @@ const LoteSelector = ({
         <p className="text-xs text-red-600 mt-1">{error}</p>
       )}
 
-      {!loading && lotes.length === 0 && plantaId && empresaId && !error && (
+      {!loading && lotesFiltrados.length === 0 && puedeCargar && !error && (
         <p className="text-xs text-gray-500 mt-1">
-          No hay lotes abiertos. Crea uno nuevo.
+          {allowCrearNuevo ? 'No hay lotes abiertos. Crea uno nuevo.' : 'No hay otro lote abierto disponible.'}
         </p>
       )}
 

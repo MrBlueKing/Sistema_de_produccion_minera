@@ -261,7 +261,7 @@ export default function HistorialAnalisis() {
           <Breadcrumb
             items={[
               {
-                label: 'Dashboard Central',
+                label: 'Portal M3H',
                 href: import.meta.env.VITE_CENTRAL_URL,
                 onClick: (e) => {
                   e.preventDefault();
@@ -309,13 +309,19 @@ export default function HistorialAnalisis() {
               >
                 {loading ? 'Cargando...' : 'Actualizar'}
               </Button>
-              <Button
-                variant="secondary"
-                onClick={() => setShowInfo(!showInfo)}
-                icon={HiInformationCircle}
+              <button
+                type="button"
+                onClick={() => setShowInfo((v) => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold border transition-colors ${
+                  showInfo
+                    ? 'bg-blue-500 text-white border-blue-500'
+                    : 'bg-white text-blue-500 border-blue-200 hover:bg-blue-50'
+                }`}
+                title="Ver flujo del dato"
               >
-                {showInfo ? 'Ocultar' : 'Ayuda'}
-              </Button>
+                <HiInformationCircle className="w-4 h-4" />
+                <span className="hidden sm:inline">¿Cómo funciona?</span>
+              </button>
             </div>
           </div>
 
@@ -345,52 +351,44 @@ export default function HistorialAnalisis() {
           )}
         </div>
 
-        {/* Panel de Informacion */}
+        {/* Panel ¿Cómo funciona? */}
         {showInfo && (
-          <Card className="mb-6 border-l-4 border-emerald-400 bg-emerald-50">
-            <div className="flex items-start gap-4">
-              <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center flex-shrink-0">
-                <HiInformationCircle className="w-7 h-7 text-emerald-600" />
-              </div>
-              <div className="flex-1">
-                <h3 className="text-xl font-bold text-emerald-900 mb-4">Informacion del Historial</h3>
-
-                <div className="grid md:grid-cols-2 gap-6">
-                  <div className="bg-white p-4 rounded-lg shadow-sm">
-                    <h4 className="font-semibold text-emerald-800 mb-2">Funcion</h4>
-                    <ul className="text-sm text-gray-700 space-y-1">
-                      <li>Visualizar todos los analisis completados</li>
-                      <li>Filtrar por faena, fecha, rango, etc.</li>
-                      <li>Generar reportes en PDF</li>
-                      <li>Los colores de fondo indican la faena de origen</li>
-                    </ul>
-                  </div>
-
-                  <div className="bg-white p-4 rounded-lg shadow-sm">
-                    <h4 className="font-semibold text-emerald-800 mb-2">Rangos de Ley</h4>
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <span className="bg-green-600 text-white px-2 py-1 rounded text-xs font-bold">Alta</span>
-                        <span className="text-xs">Ley mayor o igual a 1%</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="bg-yellow-500 text-white px-2 py-1 rounded text-xs font-bold">Media</span>
-                        <span className="text-xs">Ley entre 0.5% y 1%</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="bg-orange-500 text-white px-2 py-1 rounded text-xs font-bold">Baja</span>
-                        <span className="text-xs">Ley entre 0.2% y 0.5%</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="bg-red-500 text-white px-2 py-1 rounded text-xs font-bold">Esteril</span>
-                        <span className="text-xs">Ley menor a 0.2%</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+          <div className="mb-5 p-4 bg-blue-50 border border-blue-200 rounded-xl">
+            <div className="mb-4 pb-4 border-b border-blue-100">
+              <p className="text-[9px] font-bold text-blue-400 uppercase tracking-widest mb-2.5">Flujo del dato</p>
+              <div className="flex items-start">
+                {[
+                  { n: 1, label: 'Ingreso', color: 'bg-orange-500', active: true },
+                  { n: 2, label: 'Envío\nMuestras', color: 'bg-teal-500', active: true },
+                  { n: 3, label: 'Lab', color: 'bg-green-600', active: true },
+                  { n: 4, label: 'Mezclas', color: 'bg-purple-600', active: true },
+                  { n: 5, label: 'Despacho', color: 'bg-indigo-600', active: true },
+                ].flatMap((p, i, arr) => [
+                  <div key={`s${i}`} className="flex flex-col items-center" style={{ minWidth: '44px' }}>
+                    <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white ${p.color}`}>{p.n}</div>
+                    <span className="mt-1 text-[9px] font-semibold text-center leading-tight whitespace-pre-line text-gray-700">{p.label}</span>
+                  </div>,
+                  ...(i < arr.length - 1 ? [<div key={`l${i}`} className="flex-1 h-px bg-gray-200 mt-3.5 mx-0.5 min-w-[8px]" />] : [])
+                ])}
               </div>
             </div>
-          </Card>
+
+            <p className="text-xs font-bold text-blue-800 uppercase tracking-wide mb-2.5">¿Cómo funciona el Historial?</p>
+            <div className="space-y-2">
+              <div className="bg-white border border-emerald-200 rounded-lg px-3 py-2">
+                <p className="text-xs font-bold text-emerald-700">Qué aparece acá</p>
+                <p className="text-xs text-gray-500 mt-0.5">Todos los análisis ya completados (Cu Total, Cu Soluble, rango, ley con capping), filtrables por faena, fecha o rango. Es una vista de consulta transversal a todo el proceso.</p>
+              </div>
+              <div className="bg-white border border-emerald-200 rounded-lg px-3 py-2">
+                <p className="text-xs font-bold text-emerald-700">Qué puedes hacer</p>
+                <p className="text-xs text-gray-500 mt-0.5">Generar y descargar el certificado en PDF de cada análisis, y editar un análisis ya cerrado si hubo un error de digitación.</p>
+              </div>
+              <div className="bg-white border border-emerald-200 rounded-lg px-3 py-2">
+                <p className="text-xs font-bold text-emerald-700">Colores por faena</p>
+                <p className="text-xs text-gray-500 mt-0.5">Cada fila se pinta con el color de la faena de origen, para distinguir rápido de dónde viene cada registro cuando ves varias faenas a la vez.</p>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Listado */}
@@ -568,7 +566,7 @@ export default function HistorialAnalisis() {
         </Card>
         {/* Modal de Edición */}
         {editModal.show && editModal.dumpada && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-50 p-4">
             <div className="bg-white rounded-xl shadow-2xl max-w-md w-full">
               {/* Header */}
               <div className="bg-gradient-to-r from-emerald-600 to-emerald-500 text-white p-5 rounded-t-xl flex items-center justify-between">
@@ -609,7 +607,7 @@ export default function HistorialAnalisis() {
                     step="0.001"
                     value={editForm.ley}
                     onChange={(e) => setEditForm(prev => ({ ...prev, ley: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent bg-white text-gray-900"
                     placeholder="Ej: 1.640"
                   />
                 </div>
@@ -624,7 +622,7 @@ export default function HistorialAnalisis() {
                     step="0.001"
                     value={editForm.cu_soluble}
                     onChange={(e) => setEditForm(prev => ({ ...prev, cu_soluble: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent bg-white text-gray-900"
                     placeholder="Ej: 0.800"
                   />
                 </div>
@@ -639,7 +637,7 @@ export default function HistorialAnalisis() {
                     step="0.001"
                     value={editForm.cu_insoluble}
                     onChange={(e) => setEditForm(prev => ({ ...prev, cu_insoluble: e.target.value }))}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent bg-white text-gray-900"
                     placeholder={editForm.ley && editForm.cu_soluble ? `Auto: ${(parseFloat(editForm.ley || 0) - parseFloat(editForm.cu_soluble || 0)).toFixed(3)}` : 'Se calcula automáticamente'}
                   />
                 </div>

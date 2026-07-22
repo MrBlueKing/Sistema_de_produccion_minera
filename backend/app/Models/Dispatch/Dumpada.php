@@ -37,6 +37,7 @@ class Dumpada extends Model
         'ley_visual',
         'rango',
         'estado',
+        'fecha_analisis_completado',
         // Campos para mapa de terreno
         'posicion_x',
         'posicion_y',
@@ -50,6 +51,7 @@ class Dumpada extends Model
     protected $casts = [
         'fecha' => 'date:d-m-Y',
         'fecha_certificado_pdf' => 'datetime',
+        'fecha_analisis_completado' => 'datetime',
         'ton' => 'decimal:2',
         'ley' => 'decimal:3',
         'ley_cup' => 'decimal:3',
@@ -356,7 +358,7 @@ class Dumpada extends Model
      */
     public function scopePorCertificadoPdf($query, $numeroCertificado)
     {
-        return $query->where('numero_certificado_pdf', $numeroCertificado);
+        return $query->where('certificado', $numeroCertificado);
     }
 
     /**
@@ -364,6 +366,6 @@ class Dumpada extends Model
      */
     public function tieneCertificadoPdf()
     {
-        return !is_null($this->numero_certificado_pdf);
+        return !is_null($this->certificado);
     }
 }

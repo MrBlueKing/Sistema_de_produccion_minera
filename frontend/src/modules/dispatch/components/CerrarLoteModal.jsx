@@ -184,13 +184,20 @@ const CerrarLoteModal = ({ lote, onConfirm, onCancel }) => {
               onClick={handleToggleOpciones}
               className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors text-left"
             >
-              <div className="flex items-center gap-2">
-                <HiInformationCircle className="w-5 h-5 text-indigo-500" />
-                <span className="text-sm font-medium text-gray-700">
-                  ¿Hubo material recogido del suelo durante el despacho?
-                </span>
+              <div className="flex items-center gap-2 min-w-0">
+                <HiInformationCircle className="w-5 h-5 text-indigo-500 flex-shrink-0" />
+                <div className="min-w-0">
+                  <span className="text-sm font-medium text-gray-700">
+                    ¿Hubo material recogido del suelo durante el despacho? (remanente)
+                  </span>
+                  {!mostrarOpciones && (
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      Opcional — se registra como una mezcla nueva disponible para futuros despachos. Si no hubo nada, dejalo así y cerrá el lote.
+                    </p>
+                  )}
+                </div>
                 {mostrarOpciones && formData.metodo !== 'ninguno' && (
-                  <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-medium">
+                  <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-medium flex-shrink-0">
                     Remanente a registrar
                   </span>
                 )}

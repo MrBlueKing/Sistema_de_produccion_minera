@@ -1,0 +1,1158 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Estado del Arte — Innovación en Muestreo Mineral — M3H</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Calibri:wght@400;700&display=swap');
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Calibri', Calibri, Arial, sans-serif;
+      font-size: 11pt;
+      color: #1a1a1a;
+      background: #f4f4f4;
+      line-height: 1.6;
+    }
+
+    .page {
+      background: #fff;
+      width: 21cm;
+      min-height: 29.7cm;
+      margin: 20px auto;
+      padding: 2.5cm 2.8cm 2.5cm 2.8cm;
+      box-shadow: 0 2px 12px rgba(0,0,0,.13);
+    }
+
+    /* ── Portada ── */
+    .cover {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 26cm;
+      text-align: center;
+      border-bottom: 3px solid #8B3A00;
+      margin-bottom: 0;
+      padding-bottom: 2cm;
+    }
+    .cover-logo { margin-bottom: 0.3cm; }
+    .cover-logo img { height: 250px; width: auto; }
+    .cover-subtitle-org { font-size: 13pt; color: #555; margin-bottom: 1.5cm; letter-spacing: 1px; }
+    .cover-line {
+      width: 8cm;
+      height: 3px;
+      background: linear-gradient(90deg, #8B3A00, #E06010, #f5a623);
+      margin: 0.5cm auto 1cm auto;
+      border-radius: 2px;
+    }
+    .cover h1 { font-size: 22pt; color: #8B3A00; font-weight: 700; margin-bottom: 0.4cm; line-height: 1.3; }
+    .cover h2 { font-size: 13pt; color: #E06010; font-weight: 400; margin-bottom: 2cm; }
+    .cover-meta { font-size: 10pt; color: #777; line-height: 2; }
+    .cover-badge {
+      display: inline-block;
+      background: #8B3A00;
+      color: #fff;
+      font-size: 9pt;
+      padding: 4px 14px;
+      border-radius: 20px;
+      margin-top: 1cm;
+      letter-spacing: 1px;
+    }
+
+    /* ── Índice ── */
+    .toc-title { font-size: 16pt; color: #8B3A00; font-weight: 700; margin-bottom: 0.8cm; padding-bottom: 5px; border-bottom: 2px solid #E06010; }
+    .toc ol { padding-left: 1.2cm; }
+    .toc li { margin-bottom: 7px; font-size: 11pt; }
+    .toc a { color: #8B3A00; text-decoration: none; }
+    .toc a:hover { text-decoration: underline; }
+    .toc .toc-sub { padding-left: 1cm; font-size: 10.5pt; color: #444; margin-top: 3px; }
+
+    /* ── Secciones ── */
+    .section { margin-top: 1.5cm; page-break-inside: avoid; }
+
+    h2.section-title {
+      font-size: 15pt;
+      color: #8B3A00;
+      font-weight: 700;
+      border-left: 5px solid #E06010;
+      padding-left: 10px;
+      margin-bottom: 0.6cm;
+      margin-top: 1cm;
+    }
+    h3.subsection-title {
+      font-size: 12pt;
+      color: #8B3A00;
+      font-weight: 700;
+      margin-top: 0.7cm;
+      margin-bottom: 0.3cm;
+      border-bottom: 1px solid #d0e4f5;
+      padding-bottom: 3px;
+    }
+    h4.detail-title { font-size: 11pt; color: #E06010; font-weight: 700; margin-top: 0.5cm; margin-bottom: 0.2cm; }
+
+    p { margin-bottom: 0.4cm; text-align: justify; }
+
+    /* ── Tablas ── */
+    table { width: 100%; border-collapse: collapse; font-size: 10.5pt; margin: 0.5cm 0 0.8cm 0; }
+    thead tr { background: #8B3A00; color: #fff; }
+    thead th { padding: 8px 10px; text-align: left; font-weight: 700; }
+    tbody tr:nth-child(even) { background: #fff8f3; }
+    tbody tr:nth-child(odd)  { background: #fff; }
+    tbody td { padding: 7px 10px; border-bottom: 1px solid #fde8d8; vertical-align: top; }
+
+    /* ── Badges ── */
+    .badge { display: inline-block; font-size: 8.5pt; padding: 2px 10px; border-radius: 12px; font-weight: 700; letter-spacing: 0.5px; }
+    .badge-ok    { background: #d4edda; color: #155724; }
+    .badge-warn  { background: #fff3cd; color: #856404; }
+    .badge-info  { background: #d1ecf1; color: #0c5460; }
+    .badge-step  { background: #8B3A00; color: #fff; }
+    .badge-red   { background: #f8d7da; color: #721c24; }
+    .badge-blue  { background: #d1ecf1; color: #0c5460; }
+
+    /* ── Notas / alertas ── */
+    .note { border-left: 4px solid #E06010; background: #fff8f3; padding: 0.3cm 0.5cm; margin: 0.4cm 0 0.6cm 0; font-size: 10.5pt; border-radius: 0 4px 4px 0; }
+    .note.warn { border-color: #f0a500; background: #fffbf0; }
+    .note.ok   { border-color: #1e7e34; background: #f0fbf3; }
+    .note.red  { border-color: #c0392b; background: #fdf3f2; }
+    .note.blue { border-color: #2e86de; background: #f0f6ff; }
+
+    /* ── Pasos numerados ── */
+    .steps { counter-reset: step; padding: 0; list-style: none; margin: 0.4cm 0 0.7cm 0; }
+    .steps li { counter-increment: step; display: flex; align-items: flex-start; gap: 12px; margin-bottom: 0.5cm; }
+    .steps li::before {
+      content: counter(step);
+      min-width: 26px; height: 26px;
+      background: #8B3A00; color: #fff;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 9.5pt; font-weight: 700;
+      flex-shrink: 0; margin-top: 1px;
+    }
+    .steps li .step-content { flex: 1; }
+    .steps li .step-content strong { display: block; margin-bottom: 2px; color: #8B3A00; }
+
+    /* ── Diagrama de proceso ── */
+    .flow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0.5cm 0 0.7cm 0; font-size: 10pt; }
+    .flow-box { background: #8B3A00; color: #fff; padding: 6px 14px; border-radius: 6px; font-weight: 700; white-space: nowrap; }
+    .flow-box.alt   { background: #E06010; }
+    .flow-box.green { background: #1e7e34; }
+    .flow-box.red   { background: #c0392b; }
+    .flow-arrow { color: #8B3A00; font-size: 14pt; font-weight: 700; }
+
+    /* ── Proceso vertical con pasos ── */
+    .process-row {
+      display: flex;
+      align-items: stretch;
+      gap: 0;
+      margin: 0.5cm 0 0.7cm 0;
+      border: 1px solid #fde8d8;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .p-step {
+      flex: 1;
+      padding: 14px 8px;
+      text-align: center;
+      background: #fff8f3;
+      border-right: 1px solid #fde8d8;
+      font-size: 9pt;
+      position: relative;
+    }
+    .p-step:last-child { border-right: none; }
+    .p-step::after {
+      content: '›';
+      position: absolute;
+      right: -10px; top: 50%;
+      transform: translateY(-50%);
+      font-size: 16pt;
+      color: #E06010;
+      z-index: 2;
+    }
+    .p-step:last-child::after { display: none; }
+    .p-step .p-num { display: block; font-size: 7.5pt; font-weight: 700; color: #E06010; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px; }
+    .p-step .p-label { display: block; font-weight: 700; color: #8B3A00; font-size: 9.5pt; line-height: 1.3; }
+    .p-step .p-sub { display: block; font-size: 8pt; color: #777; margin-top: 3px; }
+    .p-step.critical { background: #fdf3f2; border-bottom: 3px solid #c0392b; }
+    .p-step.critical .p-label { color: #c0392b; }
+    .p-step.critical .p-num { color: #c0392b; }
+
+    /* ── Tech cards ── */
+    .tech-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 0.4cm 0 0.6cm 0; }
+    .tech-card { border: 1px solid #fde8d8; border-radius: 8px; padding: 18px; background: #fff; box-shadow: 0 1px 4px rgba(139,58,0,0.07); }
+    .tc-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
+    .tc-name { font-size: 11pt; font-weight: 700; color: #8B3A00; }
+    .tc-origin { font-size: 8.5pt; color: #777; margin-top: 2px; }
+    .tc-body { font-size: 9.5pt; color: #333; line-height: 1.6; }
+    .tc-limit { margin-top: 10px; padding: 7px 10px; background: #fdf3f2; border-left: 3px solid #c0392b; border-radius: 0 5px 5px 0; font-size: 9pt; color: #5a1c1c; }
+    .tc-limit strong { color: #c0392b; }
+
+    /* ── Brechas ── */
+    .brecha { display: flex; gap: 14px; padding: 18px; background: #fff; border: 1px solid #fde8d8; border-radius: 8px; margin-bottom: 14px; box-shadow: 0 1px 4px rgba(139,58,0,0.07); }
+    .brecha-icon {
+      min-width: 34px; height: 34px;
+      background: #8B3A00; color: #fff;
+      font-size: 13pt; font-weight: 700;
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .brecha-title { font-size: 11pt; font-weight: 700; color: #8B3A00; margin-bottom: 5px; }
+    .brecha-body { font-size: 10pt; color: #333; line-height: 1.6; }
+    .brecha-tag { margin-top: 7px; }
+
+    /* ── Oportunidad destacada ── */
+    .opportunity {
+      background: linear-gradient(135deg, #8B3A00, #E06010);
+      color: #fff;
+      border-radius: 8px;
+      padding: 22px 28px;
+      margin: 0.5cm 0;
+    }
+    .opportunity h3 { font-size: 13pt; font-weight: 700; color: #ffe0c0; margin-bottom: 10px; }
+    .opportunity p  { color: #ffe0c0; margin-bottom: 6px; text-align: left; }
+    .opportunity ul { padding-left: 18px; }
+    .opportunity li { color: #fff8f3; font-size: 10.5pt; margin-bottom: 5px; line-height: 1.5; }
+
+    /* ── Preguntas Clave ── */
+    .qa-item { display: flex; gap: 12px; padding: 12px 0; border-bottom: 1px solid #fde8d8; }
+    .qa-item:last-child { border-bottom: none; }
+    .qa-q { font-size: 9pt; font-weight: 700; color: #fff; background: #8B3A00; padding: 3px 10px; border-radius: 12px; white-space: nowrap; align-self: flex-start; flex-shrink: 0; }
+    .qa-a { font-size: 10.5pt; color: #1a1a1a; line-height: 1.6; }
+
+    /* ── Fill-in sections ── */
+    .fill-section {
+      border: 2px dashed #f5c89a;
+      border-radius: 6px;
+      padding: 16px 20px;
+      margin: 0.4cm 0 0.6cm 0;
+      background: #fffaf5;
+    }
+    .fill-label {
+      font-size: 8.5pt;
+      font-weight: 700;
+      color: #E06010;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      margin-bottom: 10px;
+    }
+    .fill-label::before { content: '✏ '; }
+    .fill-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .fill-field label { display: block; font-size: 9pt; font-weight: 700; color: #555; margin-bottom: 3px; }
+    .fill-line {
+      border: none;
+      border-bottom: 1px solid #f5c89a;
+      width: 100%;
+      padding: 5px 4px;
+      font-size: 10.5pt;
+      color: #1a1a1a;
+      background: transparent;
+      margin-bottom: 8px;
+      font-family: inherit;
+      display: block;
+    }
+    .fill-line:focus { outline: none; border-bottom-color: #8B3A00; }
+    .fill-area {
+      border: 1px solid #f5c89a;
+      border-radius: 4px;
+      width: 100%;
+      padding: 8px 10px;
+      font-size: 10.5pt;
+      color: #1a1a1a;
+      background: white;
+      font-family: inherit;
+      resize: vertical;
+      min-height: 68px;
+    }
+    .fill-area:focus { outline: none; border-color: #8B3A00; }
+
+    /* ── Separador de página ── */
+    .page-break { page-break-after: always; }
+
+    /* ── Footer ── */
+    .doc-footer {
+      margin-top: 2cm;
+      padding-top: 0.5cm;
+      border-top: 1px solid #ccc;
+      font-size: 9pt;
+      color: #888;
+      text-align: center;
+    }
+
+    @media print {
+      body { font-size: 10pt; background: white; }
+      .page { margin: 0; box-shadow: none; width: 100%; padding: 1.5cm 2cm; min-height: auto; }
+      .tech-card, .brecha, .fill-section, .note, .process-row { break-inside: avoid; }
+      table { break-inside: avoid; }
+      .fill-line { border-bottom-color: #999; }
+      .fill-area { border-color: #999; }
+      @page { margin: 15mm 12mm; size: A4; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════
+     PORTADA
+══════════════════════════════════════════════════ -->
+<div class="page">
+  <div class="cover">
+    <div class="cover-logo"><img src="logo.ico" alt="M3H Logo" /></div>
+    <div class="cover-subtitle-org">Minera Tres Horizontes</div>
+    <div class="cover-line"></div>
+    <h1>Estado del Arte en Muestreo Mineral</h1>
+    <h2>Innovación para Minería Subterránea — Postulación CORFO I+D</h2>
+    <div class="cover-meta">
+      Versión 2.0<br>
+      Junio 2026<br>
+      Área de Tecnología e Innovación
+    </div>
+    <span class="cover-badge">LEVANTAMIENTO CORFO — USO INTERNO</span>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     ÍNDICE
+══════════════════════════════════════════════════ -->
+<div class="page">
+  <div class="toc">
+    <div class="toc-title">Índice de Contenidos</div>
+    <ol>
+      <li><a href="#s1">Antecedentes de la Empresa</a>
+        <div class="toc-sub">
+          1.1 Información general<br>
+          1.2 Historia y trayectoria<br>
+          1.3 Respaldo financiero y equipo del proyecto
+        </div>
+      </li>
+      <li><a href="#s2">Capacidades Tecnológicas</a>
+        <div class="toc-sub">
+          2.1 Sistemas desarrollados internamente<br>
+          2.2 Infraestructura adicional
+        </div>
+      </li>
+      <li><a href="#s3">El Problema — Contexto Operacional</a>
+        <div class="toc-sub">
+          3.1 Proceso actual de muestreo en minería subterránea<br>
+          3.2 Datos operacionales e impacto económico
+        </div>
+      </li>
+      <li><a href="#s4">Fundamentos Científicos del Muestreo</a>
+        <div class="toc-sub">
+          4.1 Teoría del Muestreo (TOS) — Pierre Gy<br>
+          4.2 Normas internacionales aplicables<br>
+          4.3 Brecha normativa en Chile
+        </div>
+      </li>
+      <li><a href="#s5">Estado del Arte — Tecnologías Existentes</a>
+        <div class="toc-sub">
+          5.1 Robots muestreadores de camiones<br>
+          5.2 Sistemas en cinta transportadora<br>
+          5.3 Análisis in-situ sin laboratorio<br>
+          5.4 Tecnologías emergentes
+        </div>
+      </li>
+      <li><a href="#s6">Análisis Comparativo de Tecnologías</a>
+        <div class="toc-sub">
+          6.1 Tabla comparativa (TRL, costo, aplicabilidad)
+        </div>
+      </li>
+      <li><a href="#s7">Brechas de Innovación</a>
+        <div class="toc-sub">
+          4 espacios documentados sin solución comercial disponible
+        </div>
+      </li>
+      <li><a href="#s8">Oportunidades Identificadas</a>
+        <div class="toc-sub">
+          8.1 Posibles direcciones de proyecto<br>
+          8.2 Preguntas abiertas para definir con CORFO
+        </div>
+      </li>
+      <li><a href="#s9">Ecosistema CORFO y Financiamiento</a>
+        <div class="toc-sub">
+          9.1 Instrumentos y entidades relevantes<br>
+          9.2 Ventaja competitiva para la postulación
+        </div>
+      </li>
+      <li><a href="#s10">Preguntas Clave para la Reunión</a>
+        <div class="toc-sub">
+          Lo que CORFO preguntará y cómo responder
+        </div>
+      </li>
+    </ol>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     SECCIÓN 1 — ANTECEDENTES DE LA EMPRESA
+══════════════════════════════════════════════════ -->
+<div class="page">
+  <h2 class="section-title" id="s1">1. Antecedentes de la Empresa</h2>
+
+  <h3 class="subsection-title">1.1 Información General</h3>
+
+  <div class="note warn">
+    <strong>Instrucción:</strong> Esta sección debe completarse con el jefe antes de la reunión CORFO. Los campos marcados con ✏ están listos para rellenar.
+  </div>
+
+  <div class="fill-section">
+    <div class="fill-label">Datos generales de la empresa</div>
+    <div class="fill-row">
+      <div class="fill-field">
+        <label>Razón social</label>
+        <input type="text" class="fill-line" placeholder="Nombre legal de la empresa..." />
+      </div>
+      <div class="fill-field">
+        <label>RUT empresa</label>
+        <input type="text" class="fill-line" placeholder="XX.XXX.XXX-X" />
+      </div>
+      <div class="fill-field">
+        <label>Año de fundación</label>
+        <input type="text" class="fill-line" placeholder="Ej: 2010" />
+      </div>
+      <div class="fill-field">
+        <label>N° de trabajadores</label>
+        <input type="text" class="fill-line" placeholder="Ej: 45 personas" />
+      </div>
+      <div class="fill-field">
+        <label>Región / Ubicación faena</label>
+        <input type="text" class="fill-line" placeholder="Ej: Región de Valparaíso" />
+      </div>
+      <div class="fill-field">
+        <label>Tipo de mineral explotado</label>
+        <input type="text" class="fill-line" placeholder="Ej: Cobre (Cu)" />
+      </div>
+    </div>
+  </div>
+
+  <h3 class="subsection-title">1.2 Historia y Trayectoria</h3>
+
+  <div class="fill-section">
+    <div class="fill-label">Breve historia de la empresa</div>
+    <textarea class="fill-area" placeholder="Cuándo se fundó, cómo ha crecido, hitos importantes, cambios de propiedad o expansiones relevantes..." rows="4"></textarea>
+  </div>
+
+  <h3 class="subsection-title">1.3 Respaldo Financiero y Equipo del Proyecto</h3>
+
+  <div class="fill-section">
+    <div class="fill-label">Solidez financiera y contratos</div>
+    <textarea class="fill-area" placeholder="Contratos vigentes, clientes, volumen de producción anual, ventas aproximadas, certificaciones (ISO, etc.)..." rows="3"></textarea>
+  </div>
+
+  <div class="fill-section">
+    <div class="fill-label">Equipo que ejecutará el proyecto</div>
+    <div class="fill-row">
+      <div class="fill-field">
+        <label>Responsable del proyecto</label>
+        <input type="text" class="fill-line" placeholder="Nombre y cargo..." />
+      </div>
+      <div class="fill-field">
+        <label>Desarrollador TI</label>
+        <input type="text" class="fill-line" placeholder="Nombre y rol..." />
+      </div>
+      <div class="fill-field">
+        <label>Experto en minería / operaciones</label>
+        <input type="text" class="fill-line" placeholder="Nombre y cargo..." />
+      </div>
+      <div class="fill-field">
+        <label>¿Se contratará personal adicional?</label>
+        <input type="text" class="fill-line" placeholder="Ej: Sí — 1 ingeniero de campo" />
+      </div>
+    </div>
+    <textarea class="fill-area" style="margin-top:10px;" placeholder="Competencias del equipo: experiencia técnica, años en minería, conocimientos de software, etc..." rows="3"></textarea>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     SECCIÓN 2 — CAPACIDADES TECNOLÓGICAS
+══════════════════════════════════════════════════ -->
+<div class="page">
+  <h2 class="section-title" id="s2">2. Capacidades Tecnológicas</h2>
+
+  <h3 class="subsection-title">2.1 Infraestructura Digital Propia — Ventaja Diferenciadora</h3>
+
+  <p>La empresa cuenta con una infraestructura tecnológica desarrollada internamente, lo que representa una ventaja significativa para ejecutar un proyecto de innovación basado en software y datos operacionales reales.</p>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Sistema</th>
+        <th>Descripción</th>
+        <th>Relevancia para CORFO</th>
+        <th>Estado</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Sistema de Producción</strong><br><small style="color:#777">produccion.m3h.cl</small></td>
+        <td>Gestiona el ciclo completo de dumpadas: frente de trabajo, jornada, turno; trazabilidad de muestreo; envío a laboratorio; resultados de ley; lotes y despachos a planta.</td>
+        <td>Base de datos operacional donde vive el problema a resolver. MVP parcial del proyecto propuesto.</td>
+        <td><span class="badge badge-ok">En producción</span></td>
+      </tr>
+      <tr>
+        <td><strong>Sistema de Gestión de Petróleo</strong><br><small style="color:#777">petroleo.m3h.cl</small></td>
+        <td>Control de inventario y consumo de combustible por máquina y faena. Gestión de recepciones, estanques y equipos dumper.</td>
+        <td>Demuestra capacidad de integración con sistemas externos y equipos de campo.</td>
+        <td><span class="badge badge-ok">En producción</span></td>
+      </tr>
+      <tr>
+        <td><strong>Autenticación Centralizada (SAC)</strong><br><small style="color:#777">auth-api.m3h.cl</small></td>
+        <td>Gestión centralizada de usuarios, roles y permisos para todos los sistemas. Control de acceso granular por módulo y faena.</td>
+        <td>Base para escalar a nuevas aplicaciones de campo, incluyendo app de muestreo guiado.</td>
+        <td><span class="badge badge-ok">En producción</span></td>
+      </tr>
+      <tr>
+        <td><strong>Sistema de Bodega</strong><br><small style="color:#777">Interno</small></td>
+        <td>Control de inventario, insumos y materiales de la operación minera.</td>
+        <td>Complementa el ecosistema digital de gestión operacional.</td>
+        <td><span class="badge badge-info">En uso</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="note ok">
+    <strong>Capacidad de desarrollo:</strong> todos los sistemas fueron desarrollados internamente con tecnologías modernas (Laravel + React, APIs REST, servidores propios en producción). La empresa tiene capacidad real de desarrollar, mantener y escalar software sin dependencia de terceros — condición ideal para un proyecto de innovación I+D.
+  </div>
+
+  <h3 class="subsection-title">2.2 Infraestructura Adicional</h3>
+
+  <div class="fill-section">
+    <div class="fill-label">Completar con el jefe</div>
+    <div class="fill-row">
+      <div class="fill-field">
+        <label>Servidor / Hosting</label>
+        <input type="text" class="fill-line" placeholder="Ej: HostingPlus cPanel, VPS..." />
+      </div>
+      <div class="fill-field">
+        <label>Equipos de campo disponibles</label>
+        <input type="text" class="fill-line" placeholder="Ej: tablets, teléfonos Android, GPS..." />
+      </div>
+    </div>
+    <textarea class="fill-area" style="margin-top:10px;" placeholder="Conexión a internet en faena, cámaras, sensores existentes, equipos de medición, etc..." rows="3"></textarea>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     SECCIÓN 3 — EL PROBLEMA
+══════════════════════════════════════════════════ -->
+<div class="page">
+  <h2 class="section-title" id="s3">3. El Problema — Contexto Operacional</h2>
+
+  <h3 class="subsection-title">3.1 Proceso Actual de Muestreo en Minería Subterránea</h3>
+
+  <p>En operaciones de <strong>minería subterránea</strong>, el mineral extraído mediante tronadura es cargado por equipos LHD (Load Haul Dump) y transportado por camiones dumper hasta canchas de acopio en superficie. Al volcar, el material forma una <strong>dumpada</strong> — un montón heterogéneo de roca fragmentada con concentración variable del mineral de interés.</p>
+
+  <p>Para conocer la ley (concentración de cobre u otro mineral) de cada dumpada, un muestrista debe recolectar manualmente fragmentos del montón y conformar una muestra representativa que se envía al laboratorio.</p>
+
+  <div class="process-row">
+    <div class="p-step">
+      <span class="p-num">Paso 1</span>
+      <span class="p-label">Tronadura subterránea</span>
+      <span class="p-sub">Extracción del mineral</span>
+    </div>
+    <div class="p-step">
+      <span class="p-num">Paso 2</span>
+      <span class="p-label">Carguío LHD</span>
+      <span class="p-sub">Hacia camión dumper</span>
+    </div>
+    <div class="p-step">
+      <span class="p-num">Paso 3</span>
+      <span class="p-label">Transporte a cancha</span>
+      <span class="p-sub">Subida a superficie</span>
+    </div>
+    <div class="p-step critical">
+      <span class="p-num">⚠ Paso 4</span>
+      <span class="p-label">Muestreo manual</span>
+      <span class="p-sub">Sin protocolo definido</span>
+    </div>
+    <div class="p-step">
+      <span class="p-num">Paso 5</span>
+      <span class="p-label">Laboratorio</span>
+      <span class="p-sub">Análisis de ley</span>
+    </div>
+    <div class="p-step">
+      <span class="p-num">Paso 6</span>
+      <span class="p-label">Decisión operacional</span>
+      <span class="p-sub">Mezclas y despacho</span>
+    </div>
+  </div>
+
+  <div class="note red">
+    <strong>El problema central:</strong> el Paso 4 depende completamente del criterio del muestrista, sin protocolo, sin guía de puntos de muestreo y sin registro digital del proceso. Si la muestra no es representativa, todos los pasos siguientes (laboratorio, decisión operacional, valoración del mineral) se basan en información incorrecta.
+  </div>
+
+  <h3 class="subsection-title">3.2 Datos Operacionales del Proceso Actual</h3>
+
+  <div class="fill-section">
+    <div class="fill-label">Completar con datos reales de la operación</div>
+    <div class="fill-row">
+      <div class="fill-field">
+        <label>N° de dumpadas por turno (promedio)</label>
+        <input type="text" class="fill-line" placeholder="Ej: 12 dumpadas/turno" />
+      </div>
+      <div class="fill-field">
+        <label>N° de turnos por día</label>
+        <input type="text" class="fill-line" placeholder="Ej: 2 turnos (AM/PM)" />
+      </div>
+      <div class="fill-field">
+        <label>Tiempo promedio de muestreo por dumpada</label>
+        <input type="text" class="fill-line" placeholder="Ej: 15 minutos" />
+      </div>
+      <div class="fill-field">
+        <label>Tiempo de respuesta del laboratorio</label>
+        <input type="text" class="fill-line" placeholder="Ej: 24–48 horas" />
+      </div>
+      <div class="fill-field">
+        <label>N° de muestristas en nómina</label>
+        <input type="text" class="fill-line" placeholder="Ej: 2 personas" />
+      </div>
+      <div class="fill-field">
+        <label>¿Existe protocolo escrito actual?</label>
+        <input type="text" class="fill-line" placeholder="Sí / No / Parcial" />
+      </div>
+    </div>
+    <textarea class="fill-area" style="margin-top:10px;" placeholder="Descripción detallada del proceso actual: ¿cómo decide el muestrista dónde tomar la muestra? ¿qué herramientas usa? ¿cómo la rotula y envía al laboratorio? ¿qué pasa cuando hay dudas sobre el resultado?..." rows="4"></textarea>
+  </div>
+
+  <div class="fill-section">
+    <div class="fill-label">Impacto económico del problema (completar si hay datos)</div>
+    <textarea class="fill-area" placeholder="¿Ha habido casos donde un resultado incorrecto generó pérdidas? ¿Se han tomado decisiones de mezcla o despacho que resultaron equivocadas? ¿Cuánto cuesta un re-muestreo? ¿Cuál es el valor económico aproximado de una dumpada?..." rows="4"></textarea>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     SECCIÓN 4 — FUNDAMENTOS CIENTÍFICOS
+══════════════════════════════════════════════════ -->
+<div class="page">
+  <h2 class="section-title" id="s4">4. Fundamentos Científicos del Muestreo</h2>
+
+  <h3 class="subsection-title">4.1 Teoría del Muestreo (TOS) — Pierre Gy</h3>
+
+  <p>El fundamento científico del muestreo mineral es la <strong>Teoría del Muestreo (TOS)</strong> desarrollada por el francés Pierre Gy (1924–2015), adoptada como base por las principales normas internacionales del sector. La TOS identifica 8 tipos de error que se aplican directamente al proceso de muestreo de dumpadas:</p>
+
+  <table>
+    <thead>
+      <tr><th>Error (TOS)</th><th>Causa principal</th><th>Cómo ocurre en una dumpada</th><th>Nivel</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Error de Extracción</strong></td>
+        <td>Tomar lo accesible, no lo delimitado</td>
+        <td>El muestrista recoge piedras fáciles de agarrar, no puntos representativos del montón</td>
+        <td><span class="badge badge-red">Alto</span></td>
+      </tr>
+      <tr>
+        <td><strong>Error de Segregación</strong></td>
+        <td>Partículas grandes ruedan al borde; finos quedan al centro</td>
+        <td>Muestrear el borde sobrerepresenta material grueso y subrepresenta finos</td>
+        <td><span class="badge badge-red">Alto</span></td>
+      </tr>
+      <tr>
+        <td><strong>Error de Delimitación</strong></td>
+        <td>El incremento no captura sección transversal completa</td>
+        <td>Fragmentos individuales en vez de cortes completos del material</td>
+        <td><span class="badge badge-warn">Medio</span></td>
+      </tr>
+      <tr>
+        <td><strong>Error Fundamental</strong></td>
+        <td>Varianza por tamaño insuficiente de muestra</td>
+        <td>Número de fragmentos recogidos puede ser estadísticamente insuficiente</td>
+        <td><span class="badge badge-warn">Medio</span></td>
+      </tr>
+      <tr>
+        <td><strong>Error de Preparación</strong></td>
+        <td>Contaminación, pérdidas o degradación</td>
+        <td>Manejo inadecuado entre terreno y laboratorio</td>
+        <td><span class="badge badge-info">Bajo-medio</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="note">
+    <strong>Principio Fundamental del Muestreo:</strong> todas las partículas del lote deben tener igual probabilidad de ser seleccionadas. El muestreo manual sin protocolo incumple este principio por definición, generando sesgo sistemático no cuantificable que se propaga a todas las decisiones operacionales.
+  </div>
+
+  <h3 class="subsection-title">4.2 Normas Internacionales Aplicables al Proyecto</h3>
+
+  <table>
+    <thead><tr><th>Norma</th><th>Alcance</th><th>Relevancia</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>ISO 3082:2017</strong></td>
+        <td>Muestreo y preparación de muestras de mineral de hierro</td>
+        <td><span class="badge badge-ok">Alta — extensible a Cu</span></td>
+      </tr>
+      <tr>
+        <td><strong>ISO 3086</strong></td>
+        <td>Verificación experimental de sesgo en sistemas de muestreo</td>
+        <td><span class="badge badge-ok">Alta — validación de protocolos</span></td>
+      </tr>
+      <tr>
+        <td><strong>EN ISO 18135:2017</strong></td>
+        <td>Muestreo de sólidos granulares (biocombustibles)</td>
+        <td><span class="badge badge-warn">Media — base para robots de perforación</span></td>
+      </tr>
+      <tr>
+        <td><strong>ASTM D2234</strong></td>
+        <td>Muestreo de carbón mineral</td>
+        <td><span class="badge badge-info">Referencia — material ROM</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3 class="subsection-title">4.3 Brecha Normativa en Chile</h3>
+
+  <div class="note ok">
+    <strong>Oportunidad estratégica:</strong> no existe norma NCh ni protocolo SERNAGEOMIN específico para muestreo de dumpadas en minería subterránea. Esto valida la necesidad de un protocolo innovador y abre la posibilidad de generar un estándar de industria desde la empresa, con impacto regulatorio potencial a nivel nacional.
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     SECCIÓN 5 — ESTADO DEL ARTE
+══════════════════════════════════════════════════ -->
+<div class="page">
+  <h2 class="section-title" id="s5">5. Estado del Arte — Tecnologías Existentes</h2>
+
+  <div class="note blue">
+    <strong>Metodología de revisión:</strong> se analizaron soluciones comerciales disponibles globalmente, literatura técnica reciente (2020–2026), proyectos financiados por organismos de innovación y publicaciones de la industria minera. Fuentes: fabricantes de equipos, centros de investigación (VTT Finlandia, CSIRO Australia) y bases de datos de patentes.
+  </div>
+
+  <h3 class="subsection-title">5.1 Robots Muestreadores de Camiones</h3>
+
+  <div class="tech-grid">
+    <div class="tech-card">
+      <div class="tc-header">
+        <div><div class="tc-name">Prometec Q-Robot</div><div class="tc-origin">🇫🇮 Finlandia — prometec.fi</div></div>
+        <span class="badge badge-warn">Adaptación requerida</span>
+      </div>
+      <div class="tc-body">
+        Robot que perfora múltiples puntos aleatorios a distintas profundidades del material cargado en el camión, <em>antes de la descarga</em>. Usa visión artificial para detectar soportes del camión y evitar colisiones. Analiza más de 60.000 camiones al año. Cumple EN ISO 18135:2017. Verificado por VTT (Instituto Tecnológico Nacional de Finlandia).
+      </div>
+      <div class="tc-limit"><strong>Limitación:</strong> diseñado para biomasa y sólidos granulares finos. No validado para mineral ROM con fragmentos de 30–50 cm. Opera sobre el camión cargado, no sobre la dumpada volcada.</div>
+    </div>
+    <div class="tech-card">
+      <div class="tc-header">
+        <div><div class="tc-name">MIRS — MI Robotic Sampler</div><div class="tc-origin">🇨🇱 Chile — mirsrobotics.com</div></div>
+        <span class="badge badge-ok">Empresa chilena</span>
+      </div>
+      <div class="tc-body">
+        Robot montado en rieles sobre camiones de concentrado. Cobertura total de la superficie del camión a profundidad completa, sin contaminación cruzada. Determina la calidad de ~60% de los concentrados que salen por el puerto de Callao, Perú. Experiencia en cobre, molibdeno, zinc y cobalto.
+      </div>
+      <div class="tc-limit"><strong>Limitación:</strong> diseñado exclusivamente para concentrado fino post-procesamiento (material molido y homogéneo). No apto para mineral ROM grueso y heterogéneo de dumpada.</div>
+    </div>
+  </div>
+
+  <h3 class="subsection-title">5.2 Sistemas de Muestreo en Cinta Transportadora</h3>
+
+  <p>Fabricantes principales: <strong>McLanahan, FLSmidth (Essa), Multotec, York-EP</strong>. Cortadores de muestra que capturan sección transversal completa del flujo de mineral, cumpliendo el Principio Fundamental del Muestreo de Gy. Son el <em>gold standard</em> de representatividad cuando el mineral fluye por conveyor.</p>
+
+  <div class="note red">
+    <strong>Inaplicable a dumpadas en cancha:</strong> el mineral cae directamente al suelo desde el camión. Sin cinta transportadora como etapa intermedia, estos sistemas no tienen aplicación. Instalar cintas solo para muestreo representaría una inversión de infraestructura completamente desproporcionada para mediana minería.
+  </div>
+
+  <h3 class="subsection-title">5.3 Análisis In-Situ sin Laboratorio</h3>
+
+  <div class="tech-grid">
+    <div class="tech-card">
+      <div class="tc-header">
+        <div><div class="tc-name">XRF Portátil (Handheld)</div><div class="tc-origin">Evident (Vanta) · Bruker (TITAN) · Thermo Fisher (Niton)</div></div>
+        <span class="badge badge-ok">Disponible hoy</span>
+      </div>
+      <div class="tc-body">
+        Mide composición elemental en segundos, directamente en terreno. Resultados en minutos versus días de laboratorio certificado. Ampliamente usado en exploración geológica. Costo: USD 15.000–40.000.
+      </div>
+      <div class="tc-limit"><strong>Limitación:</strong> mide solo la superficie expuesta del fragmento, no su interior. Si la muestra no es representativa, el resultado XRF tampoco lo será. Complementa el muestreo correcto, no lo reemplaza.</div>
+    </div>
+    <div class="tech-card">
+      <div class="tc-header">
+        <div><div class="tc-name">Sensores Hiperespectrales</div><div class="tc-origin">Specim (Finlandia) · Hypermine · CSIRO (Australia)</div></div>
+        <span class="badge badge-warn">Madurez media</span>
+      </div>
+      <div class="tc-body">
+        Cámaras hiperespectrales (drones o postes fijos) identifican composición mineralógica superficial en tiempo real. Hypermine (spin-out de VTT) + ML identificó 10.000 t de mineral de baja ley en mina Kansanshi (Zambia). Prometedor para clasificación a gran escala.
+      </div>
+      <div class="tc-limit"><strong>Limitación crítica:</strong> mide exclusivamente la superficie visible. Las partículas grandes ruedan al exterior — error de segregación estructural que la imagenología no puede corregir.</div>
+    </div>
+    <div class="tech-card">
+      <div class="tc-header">
+        <div><div class="tc-name">PGNAA / PFTNA en Cinta</div><div class="tc-origin">Thermo Fisher (CB Omni Agile) · Real Time Instruments</div></div>
+        <span class="badge badge-red">No aplica</span>
+      </div>
+      <div class="tc-body">
+        Analizadores de activación neutrónica sobre cintas transportadoras. Miden composición elemental de todo el flujo de material sin contacto, minuto a minuto. Los más precisos para análisis continuo en gran minería.
+      </div>
+      <div class="tc-limit"><strong>Limitación:</strong> requieren infraestructura de cinta. Costo USD 300k–1M+. Exclusivos de gran minería con miles de toneladas por hora.</div>
+    </div>
+    <div class="tech-card">
+      <div class="tc-header">
+        <div><div class="tc-name">Protocolo Sistematizado (Grilla + Cuarteo)</div><div class="tc-origin">Basado en TOS / ISO 3082</div></div>
+        <span class="badge badge-ok">Costo ~$0</span>
+      </div>
+      <div class="tc-body">
+        División de la dumpada en grilla (ej. 3×3 = 9 zonas). Punto de muestreo aleatorio dentro de cada zona. Extracción a múltiples profundidades. Composición de todos los incrementos y reducción por cuarteo. Mejora sustancial de representatividad.
+      </div>
+      <div class="tc-limit"><strong>Limitación:</strong> sigue siendo manual y depende del operador. No genera datos digitales automáticamente. Mejora de proceso, no innovación tecnológica en sí misma.</div>
+    </div>
+  </div>
+
+  <h3 class="subsection-title">5.4 Tecnologías Emergentes</h3>
+
+  <table>
+    <thead><tr><th>Tecnología</th><th>Descripción</th><th>Estado actual</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Visión artificial + ML para estimación de ley</strong></td>
+        <td>Modelos de deep learning entrenados con imágenes de fragmentos para estimar ley visual de forma automática</td>
+        <td><span class="badge badge-warn">I+D activo — no comercial</span></td>
+      </tr>
+      <tr>
+        <td><strong>Dron + fotogrametría 3D de pila</strong></td>
+        <td>Modelo volumétrico de la dumpada para calcular tonelaje y guiar puntos de muestreo representativos</td>
+        <td><span class="badge badge-warn">Prototipos — TRL 5–6</span></td>
+      </tr>
+      <tr>
+        <td><strong>Brazo robótico de muestreo en cancha</strong></td>
+        <td>Robot en vehículo autónomo que perfora la dumpada volcada en múltiples puntos predefinidos</td>
+        <td><span class="badge badge-red">Concepto — TRL 3–4</span></td>
+      </tr>
+      <tr>
+        <td><strong>App móvil de protocolo guiado</strong></td>
+        <td>Aplicación que guía al muestrista con puntos GPS, profundidades y registro fotográfico en tiempo real</td>
+        <td><span class="badge badge-ok">Factible hoy — TRL 7–8</span></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     SECCIÓN 6 — ANÁLISIS COMPARATIVO
+══════════════════════════════════════════════════ -->
+<div class="page">
+  <h2 class="section-title" id="s6">6. Análisis Comparativo de Tecnologías</h2>
+
+  <h3 class="subsection-title">6.1 Tabla Comparativa (TRL, Costo, Aplicabilidad)</h3>
+
+  <table>
+    <thead>
+      <tr><th>Tecnología</th><th>TRL</th><th>Costo estimado</th><th>Aplicabilidad al proyecto</th><th>Barrera principal</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Protocolo sistematizado (grilla)</td>
+        <td><span class="badge badge-ok">9 / 9</span></td>
+        <td>~$0</td>
+        <td><span class="badge badge-ok">Alta</span></td>
+        <td>Cambio de proceso y cultura operacional</td>
+      </tr>
+      <tr>
+        <td>XRF portátil (Vanta, Niton, Bruker)</td>
+        <td><span class="badge badge-ok">9 / 9</span></td>
+        <td>USD 15k–40k</td>
+        <td><span class="badge badge-ok">Alta (complementario)</span></td>
+        <td>No reemplaza representatividad del muestreo</td>
+      </tr>
+      <tr>
+        <td>App móvil de protocolo guiado</td>
+        <td><span class="badge badge-ok">7–8 / 9</span></td>
+        <td>USD 20k–60k desarrollo</td>
+        <td><span class="badge badge-ok">Alta — desarrollable internamente</span></td>
+        <td>Requiere desarrollo + adopción en terreno</td>
+      </tr>
+      <tr>
+        <td>Robot muestreador en camión (MIRS, Prometec)</td>
+        <td><span class="badge badge-warn">7–8 / 9</span></td>
+        <td>USD 200k–800k</td>
+        <td><span class="badge badge-warn">Media (requiere adaptación)</span></td>
+        <td>Diseñado para camión, no para cancha volcada</td>
+      </tr>
+      <tr>
+        <td>Dron + fotogrametría 3D</td>
+        <td><span class="badge badge-warn">5–6 / 9</span></td>
+        <td>USD 30k–150k</td>
+        <td><span class="badge badge-warn">Media (solo volumetría)</span></td>
+        <td>No estima ley, solo forma y volumen</td>
+      </tr>
+      <tr>
+        <td>Imágenes hiperespectrales</td>
+        <td><span class="badge badge-warn">6–7 / 9</span></td>
+        <td>USD 50k–200k</td>
+        <td><span class="badge badge-warn">Media (solo superficie)</span></td>
+        <td>Error de segregación no corregido</td>
+      </tr>
+      <tr>
+        <td>Brazo robótico de muestreo en cancha</td>
+        <td><span class="badge badge-red">3–4 / 9</span></td>
+        <td>Por definir (I+D)</td>
+        <td><span class="badge badge-ok">Alta — si se desarrolla</span></td>
+        <td>No existe solución comercial — oportunidad I+D</td>
+      </tr>
+      <tr>
+        <td>PGNAA en cinta transportadora</td>
+        <td><span class="badge badge-ok">9 / 9</span></td>
+        <td>USD 300k–1M+</td>
+        <td><span class="badge badge-red">Baja</span></td>
+        <td>Requiere infraestructura de cinta, gran minería</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <p style="font-size:9pt;color:#888;margin-top:4px;">TRL = Technology Readiness Level (escala 1–9 de madurez tecnológica, NASA/ESA). TRL 9 = tecnología en producción; TRL 1 = principios básicos observados.</p>
+
+  <div class="note ok">
+    <strong>Conclusión del análisis:</strong> las soluciones de alta madurez (TRL 9) o no son aplicables al contexto de dumpadas en cancha, o tienen costos de gran minería fuera del alcance de mediana escala. Las tecnologías aplicables y accesibles requieren desarrollo local. Esto es precisamente la oportunidad que justifica un proyecto I+D.
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     SECCIÓN 7 — BRECHAS DE INNOVACIÓN
+══════════════════════════════════════════════════ -->
+<div class="page">
+  <h2 class="section-title" id="s7">7. Brechas de Innovación</h2>
+
+  <p>El análisis comparativo evidencia cuatro espacios donde no existe solución disponible en el mercado para el contexto específico de minería subterránea de mediana escala con muestreo de dumpadas en cancha:</p>
+
+  <div class="brecha">
+    <div class="brecha-icon">1</div>
+    <div>
+      <div class="brecha-title">Muestreador automático para material ROM grueso en cancha — la más crítica</div>
+      <div class="brecha-body">Los robots existentes (MIRS, Prometec) están diseñados para material fino cargado en camión. <strong>No existe solución comercial</strong> para extraer muestras representativas de una dumpada de material ROM heterogéneo (fragmentos de 5–50 cm) directamente en la cancha, una vez volcado el material. Este es el espacio de innovación más directo, con brecha tecnológica documentada y menor competencia global.</div>
+      <div class="brecha-tag"><span class="badge badge-red">Brecha alta — mercado desatendido</span></div>
+    </div>
+  </div>
+
+  <div class="brecha">
+    <div class="brecha-icon">2</div>
+    <div>
+      <div class="brecha-title">Trazabilidad digital completa: campo → custodia → laboratorio → resultado</div>
+      <div class="brecha-body">En gran minería existe integración entre dispatch, gestión de calidad y LIMS (Laboratory Information Management System). En mediana y pequeña minería subterránea, la cadena de custodia es manual, en papel, con pérdida frecuente de trazabilidad. <strong>El sistema de producción existente ya resuelve parcialmente esta brecha</strong> — registra dumpadas, frentes, muestreo y resultados. La innovación completa el eslabón del campo.</div>
+      <div class="brecha-tag"><span class="badge badge-warn">Parcialmente resuelta por sistema existente</span></div>
+    </div>
+  </div>
+
+  <div class="brecha">
+    <div class="brecha-icon">3</div>
+    <div>
+      <div class="brecha-title">Protocolo de muestreo guiado digitalmente para el operador en terreno</div>
+      <div class="brecha-body">No existe aplicación móvil de uso industrial que guíe al muestrista con puntos GPS dentro de la dumpada, indique profundidad de extracción, registre fotografías como evidencia, genere automáticamente el código de muestra y lo sincronice con el sistema de producción. La tecnología para construirlo existe — la integración orientada al contexto minero subterráneo chileno, no.</div>
+      <div class="brecha-tag"><span class="badge badge-ok">Desarrollable con capacidad interna existente</span></div>
+    </div>
+  </div>
+
+  <div class="brecha">
+    <div class="brecha-icon">4</div>
+    <div>
+      <div class="brecha-title">Protocolo estándar chileno para dumpadas en minería subterránea</div>
+      <div class="brecha-body">No existe norma NCh ni protocolo oficial SERNAGEOMIN para muestreo de dumpadas en canchas de acopio de minería subterránea. Las normas ISO existentes son generales o aplican a gran minería y flujos continuos. Desarrollar un protocolo con base científica (TOS/ISO 3082) adaptado a la realidad operacional de la mediana minería chilena posicionaría a la empresa como referente técnico del sector.</div>
+      <div class="brecha-tag"><span class="badge badge-blue">Oportunidad de impacto regulatorio</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     SECCIÓN 8 — PROYECTO PROPUESTO
+══════════════════════════════════════════════════ -->
+<div class="page">
+  <h2 class="section-title" id="s8">8. Oportunidades Identificadas</h2>
+
+  <p>A partir del estado del arte y las brechas documentadas en las secciones anteriores, se identifican las siguientes direcciones posibles para un proyecto de innovación. <strong>Ninguna está definida aún</strong> — el objetivo de la reunión con CORFO es precisamente acotar cuál de ellas es más viable y pertinente para la empresa.</p>
+
+  <h3 class="subsection-title">8.1 Posibles Direcciones de Proyecto</h3>
+
+  <table>
+    <thead>
+      <tr><th>Dirección</th><th>En qué consiste</th><th>Complejidad</th><th>Aprovecha lo existente</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>A — Protocolo + App de campo</strong></td>
+        <td>Definir un método sistematizado de muestreo (basado en TOS) y desarrollar una app móvil que guíe al muestrista con puntos, profundidades y registro fotográfico, sincronizada con el sistema de producción</td>
+        <td><span class="badge badge-ok">Baja-media</span></td>
+        <td><span class="badge badge-ok">Sí — sistema de producción existente</span></td>
+      </tr>
+      <tr>
+        <td><strong>B — Trazabilidad digital completa</strong></td>
+        <td>Fortalecer la cadena de custodia campo → laboratorio → resultado dentro del sistema de producción, eliminando el papel y automatizando la asociación muestra-dumpada-camión-frente</td>
+        <td><span class="badge badge-ok">Baja</span></td>
+        <td><span class="badge badge-ok">Sí — ya hay módulos de muestreo</span></td>
+      </tr>
+      <tr>
+        <td><strong>C — Protocolo estándar para la industria</strong></td>
+        <td>Desarrollar y validar un protocolo de muestreo de dumpadas adaptado a la mediana minería subterránea chilena, con base en TOS/ISO 3082, como aporte normativo al sector</td>
+        <td><span class="badge badge-warn">Media</span></td>
+        <td><span class="badge badge-warn">Parcialmente</span></td>
+      </tr>
+      <tr>
+        <td><strong>D — Componente físico de extracción automática</strong></td>
+        <td>Investigar y prototipar un dispositivo que extraiga incrementos representativos de material ROM grueso volcado en cancha, resolviendo la brecha más crítica y sin solución comercial</td>
+        <td><span class="badge badge-red">Alta — I+D real</span></td>
+        <td><span class="badge badge-info">Solo como plataforma de datos</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="note">
+    <strong>Nota:</strong> las direcciones A y B son las más alcanzables con la capacidad actual y pueden ejecutarse de forma combinada. La dirección D es la que tiene mayor potencial de innovación pero también mayor incertidumbre tecnológica — que es precisamente lo que CORFO financia.
+  </div>
+
+  <h3 class="subsection-title">8.2 Preguntas Abiertas para Definir con CORFO</h3>
+
+  <div class="fill-section">
+    <div class="fill-label">A discutir en la reunión</div>
+    <textarea class="fill-area" placeholder="¿Qué problema duele más hoy operacionalmente: representatividad, trazabilidad, velocidad del laboratorio?&#10;¿Hay presupuesto disponible para un aporte de contraparte?&#10;¿Se ha conversado con alguna universidad o centro tecnológico?&#10;¿Qué tan dispuesta está la operación a cambiar el proceso de muestreo actual?..." rows="6"></textarea>
+  </div>
+
+  <div class="fill-section">
+    <div class="fill-label">Recursos disponibles (para informar a CORFO)</div>
+    <div class="fill-row">
+      <div class="fill-field">
+        <label>Presupuesto de contraparte disponible</label>
+        <input type="text" class="fill-line" placeholder="Ej: CLP $X millones" />
+      </div>
+      <div class="fill-field">
+        <label>Dedicación del equipo técnico</label>
+        <input type="text" class="fill-line" placeholder="Ej: 50% de un desarrollador" />
+      </div>
+      <div class="fill-field">
+        <label>¿Faena disponible para piloto?</label>
+        <input type="text" class="fill-line" placeholder="Sí / No / condiciones..." />
+      </div>
+      <div class="fill-field">
+        <label>Plazo deseado</label>
+        <input type="text" class="fill-line" placeholder="Ej: 12–18 meses" />
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     SECCIÓN 9 — ECOSISTEMA CORFO
+══════════════════════════════════════════════════ -->
+<div class="page">
+  <h2 class="section-title" id="s9">9. Ecosistema CORFO y Financiamiento</h2>
+
+  <h3 class="subsection-title">9.1 Instrumentos y Entidades Relevantes</h3>
+
+  <table>
+    <thead>
+      <tr><th>Instrumento / Entidad</th><th>Descripción</th><th>Relevancia para el proyecto</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>CORFO — Programa Desafíos I+D</strong></td>
+        <td>Financia I+D con alta incertidumbre tecnológica, desde prototipo hasta validación a escala productiva</td>
+        <td><span class="badge badge-ok">Alta — brecha documentada y mercado real</span></td>
+      </tr>
+      <tr>
+        <td><strong>Centro Nacional de Pilotaje (CNP)</strong></td>
+        <td>14 sitios de prueba en 7 regiones, red de +100 expertos, respaldado por CORFO</td>
+        <td><span class="badge badge-ok">Alta — pilotar prototipo en faena real</span></td>
+      </tr>
+      <tr>
+        <td><strong>FONDEF / ANID</strong></td>
+        <td>Fondos de investigación aplicada con vinculación universidad-empresa</td>
+        <td><span class="badge badge-warn">Media — requiere alianza con universidad</span></td>
+      </tr>
+      <tr>
+        <td><strong>MIRS (Chile)</strong></td>
+        <td>Empresa chilena con experiencia probada en robótica de muestreo minero</td>
+        <td><span class="badge badge-info">Posible socio tecnológico</span></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="note ok">
+    <strong>Precedente:</strong> Nova Mineralis (Fundación Ciencia y Vida) obtuvo $988,6 millones CLP de CORFO para escalar tecnología minero-metalúrgica. Demuestra que proyectos de innovación en minería con base científica y mercado demostrado acceden a financiamiento significativo en Chile.
+  </div>
+
+  <h3 class="subsection-title">9.2 Ventaja Competitiva para la Postulación</h3>
+
+  <div class="note blue">
+    <strong>No se parte de cero:</strong> la empresa tiene infraestructura digital real, datos operacionales propios, capacidad de desarrollo full-stack probada (4 sistemas en producción), e infraestructura cloud propia. Tiene acceso directo a la faena donde se pilotaría y datos de muestreo para entrenamiento y validación. Esto reduce significativamente el riesgo percibido por el evaluador CORFO.
+  </div>
+
+  <table>
+    <thead><tr><th>Factor</th><th>Estado en la empresa</th><th>Impacto en evaluación CORFO</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Infraestructura digital propia</td>
+        <td>4 sistemas en producción</td>
+        <td><span class="badge badge-ok">Reduce riesgo de ejecución</span></td>
+      </tr>
+      <tr>
+        <td>Datos operacionales reales</td>
+        <td>Dumpadas, muestreo, leyes históricas</td>
+        <td><span class="badge badge-ok">Validación disponible desde día 1</span></td>
+      </tr>
+      <tr>
+        <td>Acceso a faena para piloto</td>
+        <td>Operación activa en terreno</td>
+        <td><span class="badge badge-ok">Permite iterar y validar en contexto real</span></td>
+      </tr>
+      <tr>
+        <td>Brecha tecnológica documentada</td>
+        <td>No existe solución para ROM en cancha</td>
+        <td><span class="badge badge-ok">Justifica la incertidumbre I+D</span></td>
+      </tr>
+      <tr>
+        <td>Mercado objetivo definido</td>
+        <td>Mediana minería subterránea chilena</td>
+        <td><span class="badge badge-ok">Escalabilidad potencial regional</span></td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ═══════════════════════════════════════════════
+     SECCIÓN 10 — PREGUNTAS CLAVE
+══════════════════════════════════════════════════ -->
+<div class="page">
+  <h2 class="section-title" id="s10">10. Preguntas Clave para la Reunión</h2>
+
+  <p>Estas son las preguntas que CORFO habitualmente realiza en reuniones de levantamiento para proyectos I+D. Conviene tener las respuestas preparadas antes de la reunión.</p>
+
+  <div class="qa-item">
+    <span class="qa-q">Q1</span>
+    <span class="qa-a"><strong>"¿Cuál es la innovación específica?"</strong><br>
+    Desarrollar un sistema (protocolo + app de campo + componente físico a definir) que garantice representatividad estadística del muestreo de dumpadas en minería subterránea, integrado a la plataforma digital operacional. La innovación está en la integración: no existe solución para material ROM grueso volcado en cancha que combine protocolo científico, guía digital al operador y trazabilidad automática al sistema de producción.</span>
+  </div>
+  <div class="qa-item">
+    <span class="qa-q">Q2</span>
+    <span class="qa-a"><strong>"¿Por qué no usan lo que ya existe?"</strong><br>
+    Las soluciones existentes son para gran minería (USD 200k–800k mínimo), requieren infraestructura de cintas transportadoras que la mediana minería no tiene, o trabajan sobre el camión cargado y no sobre la dumpada volcada. Ninguna solución aborda material ROM heterogéneo en cancha, mediana escala, minería subterránea.</span>
+  </div>
+  <div class="qa-item">
+    <span class="qa-q">Q3</span>
+    <span class="qa-a"><strong>"¿Tienen capacidad para ejecutar el proyecto?"</strong><br>
+    Sí: capacidad de desarrollo full-stack probada (4 sistemas en producción), servidores web propios en producción con múltiples subdominios y APIs REST expuestas en internet, acceso directo a la faena para pilotar, y datos operacionales reales de muestreo para entrenamiento y validación. Falta definir el componente físico, para lo cual se evaluarán socios (MIRS, universidades, CNP).</span>
+  </div>
+  <div class="qa-item">
+    <span class="qa-q">Q4</span>
+    <span class="qa-a"><strong>"¿Cuál es el mercado objetivo?"</strong><br>
+    Mediana y pequeña minería subterránea chilena — sector con decenas de operaciones activas, completamente desatendido por las soluciones de gran minería. Potencial de escalabilidad a nivel latinoamericano dado que el contexto operacional es similar en Perú, Bolivia y Argentina.</span>
+  </div>
+  <div class="qa-item">
+    <span class="qa-q">Q5</span>
+    <span class="qa-a"><strong>"¿Qué incertidumbre tecnológica existe?"</strong><br>
+    El componente físico de extracción automática de incrementos en material ROM grueso y heterogéneo no tiene solución probada. Esa es precisamente la incertidumbre que justifica la I+D: el protocolo y el componente digital son alcanzables (TRL 7–8); el mecanismo de extracción física representativa requiere investigación y prototipado (TRL 3–4).</span>
+  </div>
+  <div class="qa-item">
+    <span class="qa-q">Q6</span>
+    <span class="qa-a"><strong>"¿Cómo demostrarán que funciona?"</strong><br>
+    Con datos: antes y después de implementar el protocolo, comparar la varianza entre muestras paralelas tomadas con el método actual versus el sistematizado. El sistema de producción ya registra todas las variables necesarias (frente, turno, camión, resultado de ley), lo que permite construir series estadísticas comparativas desde el inicio del piloto.</span>
+  </div>
+
+  <div class="fill-section" style="margin-top:0.8cm;">
+    <div class="fill-label">Preguntas adicionales a aclarar en la reunión</div>
+    <textarea class="fill-area" placeholder="Anotar aquí dudas específicas que quieran resolver en la reunión con el representante CORFO..." rows="5"></textarea>
+  </div>
+
+  <div class="doc-footer">
+    Estado del Arte — Innovación en Muestreo Mineral — M3H · Versión 2.0 · Junio 2026 · Uso Interno<br>
+    <small>Para generar PDF: abrir en Chrome y presionar Ctrl+P → Guardar como PDF (tamaño A4, márgenes predeterminados)</small>
+  </div>
+</div>
+
+</body>
+</html>

@@ -474,6 +474,80 @@ class GerencialController extends Controller
     }
 
     /**
+     * Resumen de certificados y leyes: total de certificados emitidos en el período,
+     * distribución de rangos (Alta/Media/Baja/Estéril) y serie temporal de emisión.
+     * Nota: solo considera dumpadas por ahora (muestras libres certificadas son 0 hoy;
+     * si en el futuro tienen volumen, sumarlas siguiendo el mismo patrón que
+     * CertificadoPdfService::getCertificadosGenerados()).
+     * GET /api/gerencial/certificados-resumen
+     */
+    public function certificadosResumen(Request $request)
+    {
+        try {
+            $fechaInicio  = $request->get('fecha_inicio', Carbon::now()->startOfMonth()->format('Y-m-d'));
+            $fechaFin     = $request->get('fecha_fin', Carbon::now()->format('Y-m-d'));
+            $idFaena      = $request->get('id_faena');
+            $granularidad = $request->get('granularidad', 'mes'); // dia|semana|mes|anio
+
+            $formatoFecha = match ($granularidad) {
+                'dia'    => '%Y-%m-%d',
+                'semana' => '%x-%v',
+                'anio'   => '%Y',
+                default  => '%Y-%m',
+            };
+
+            // COALESCE porque certificados históricos (pre-fix) no tienen fecha_certificado_pdf
+            $desde = $fechaInicio . ' 00:00:00';
+            $hasta = $fechaFin . ' 23:59:59';
+
+            $totalQuery = DB::table('dumpadas')
+                ->whereNotNull('certificado')
+                ->whereRaw('COALESCE(fecha_certificado_pdf, updated_at) BETWEEN ? AND ?', [$desde, $hasta]);
+            if ($idFaena) $totalQuery->where('id_faena', $idFaena);
+            $totalCertificados = (clone $totalQuery)->selectRaw('COUNT(DISTINCT certificado) as total')->value('total');
+
+            $distribucionRango = (clone $totalQuery)
+                ->select('rango')
+                ->selectRaw('COUNT(*) as cantidad')
+                ->groupBy('rango')
+                ->get();
+
+            $serieTemporal = (clone $totalQuery)
+                ->selectRaw("DATE_FORMAT(COALESCE(fecha_certificado_pdf, updated_at), '{$formatoFecha}') as periodo")
+                ->selectRaw('COUNT(DISTINCT certificado) as cantidad')
+                ->groupBy('periodo')
+                ->orderBy('periodo')
+                ->get();
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'periodo' => [
+                        'fecha_inicio' => $fechaInicio,
+                        'fecha_fin' => $fechaFin,
+                        'granularidad' => $granularidad,
+                    ],
+                    'total_certificados' => (int) ($totalCertificados ?? 0),
+                    'distribucion_rango' => $distribucionRango->map(fn($r) => [
+                        'rango' => $r->rango ?? 'Sin rango',
+                        'cantidad' => (int) $r->cantidad,
+                    ]),
+                    'serie_temporal' => $serieTemporal->map(fn($r) => [
+                        'periodo' => $r->periodo,
+                        'cantidad' => (int) $r->cantidad,
+                    ]),
+                ],
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener resumen de certificados',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
      * Dumpadas por día y frente — para gráfico de avance diario
      * GET /api/gerencial/dumpadas-diarias
      */

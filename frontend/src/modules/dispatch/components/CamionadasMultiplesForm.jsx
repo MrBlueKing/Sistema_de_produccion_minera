@@ -300,8 +300,10 @@ const CamionadasMultiplesForm = ({ onSuccess, onCancel, loteIdPreseleccionado = 
     try {
       const camionadasValidas = camionadas.filter(c => c.patente && parseFloat(c.peso) > 0);
 
-      const promesas = camionadasValidas.map(camionada =>
-        laboratorioService.createCamionada({
+      // Secuencial (no Promise.all): crear varias camionadas en paralelo al
+      // mismo lote generaba numero_camionada duplicados.
+      for (const camionada of camionadasValidas) {
+        await laboratorioService.createCamionada({
           mezclas: camionada.mezclas
             .filter(m => m.mezcla_id && parseFloat(m.toneladas) > 0)
             .map(m => ({ mezcla_id: parseInt(m.mezcla_id), toneladas: parseFloat(m.toneladas) })),
@@ -309,10 +311,8 @@ const CamionadasMultiplesForm = ({ onSuccess, onCancel, loteIdPreseleccionado = 
           patente: camionada.patente,
           peso: parseFloat(camionada.peso),
           fecha_despacho: formGeneral.fecha_despacho,
-        })
-      );
-
-      await Promise.all(promesas);
+        });
+      }
       toast.success(`${camionadasValidas.length} camionada(s) creada(s)`, `Total: ${calcularTotalPeso().toFixed(2)} t`);
       onSuccess();
     } catch (error) {

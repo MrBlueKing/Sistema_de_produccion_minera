@@ -125,7 +125,7 @@ export default function FrentesTrabajoHistorial() {
           <Breadcrumb
             items={[
               {
-                label: 'Dashboard Central',
+                label: 'Portal M3H',
                 href: import.meta.env.VITE_CENTRAL_URL,
                 onClick: (e) => {
                   e.preventDefault();

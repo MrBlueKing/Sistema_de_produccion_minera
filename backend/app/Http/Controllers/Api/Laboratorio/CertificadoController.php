@@ -205,8 +205,10 @@ class CertificadoController extends Controller
     public function previsualizar(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'dumpada_ids' => 'required|array|min:1',
-            'dumpada_ids.*' => 'required|integer|exists:dumpadas,id',
+            'dumpada_ids' => 'nullable|array',
+            'dumpada_ids.*' => 'integer|exists:dumpadas,id',
+            'muestra_libre_ids' => 'nullable|array',
+            'muestra_libre_ids.*' => 'integer|exists:muestras_libres,id',
             'numero_certificado' => 'nullable|string|max:50',
         ]);
 
@@ -217,13 +219,29 @@ class CertificadoController extends Controller
             ], 422);
         }
 
+        if (empty($request->dumpada_ids) && empty($request->muestra_libre_ids)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Debe seleccionar al menos una muestra.'
+            ], 422);
+        }
+
         try {
-            // guardarNumero = false para previsualización
-            $pdf = $this->certificadoService->generarCertificado(
-                $request->dumpada_ids,
-                $request->numero_certificado,
-                false
-            );
+            // Si ya tiene número de certificado asignado, es un certificado EXISTENTE:
+            // usar el mismo camino que "regenerar" (sin exigir ley/cu_soluble/cu_insoluble
+            // completos), porque certificados históricos importados pueden no tener
+            // cu_soluble cargado por separado.
+            if ($request->numero_certificado) {
+                $pdf = $this->certificadoService->regenerarCertificado($request->numero_certificado);
+            } else {
+                // Certificado nuevo (sin número aún): sí exigir análisis completo
+                $pdf = $this->certificadoService->generarCertificado(
+                    $request->dumpada_ids ?? [],
+                    null,
+                    false,
+                    $request->muestra_libre_ids ?? []
+                );
+            }
 
             return $pdf->stream('certificado_preview.pdf');
         } catch (\Exception $e) {
@@ -235,17 +253,44 @@ class CertificadoController extends Controller
     }
 
     /**
-     * Listar certificados PDF generados
+     * Listar certificados PDF generados (con filtros y paginación)
      */
     public function certificadosGenerados(Request $request)
     {
-        $idFaena = $request->get('id_faena');
+        $idFaena     = $request->get('id_faena');
+        $search      = $request->get('search');
+        $fechaInicio = $request->get('fecha_inicio');
+        $fechaFin    = $request->get('fecha_fin');
+        $muestrasMin = $request->filled('muestras_min') ? (int) $request->get('muestras_min') : null;
+        $muestrasMax = $request->filled('muestras_max') ? (int) $request->get('muestras_max') : null;
+        $perPage     = (int) $request->get('per_page', 20);
+        $page        = (int) $request->get('page', 1);
 
-        $certificados = $this->certificadoService->getCertificadosGenerados($idFaena);
+        $todos = $this->certificadoService->getCertificadosGenerados(
+            $idFaena,
+            $search,
+            $fechaInicio,
+            $fechaFin,
+            $muestrasMin,
+            $muestrasMax
+        );
+
+        $total    = $todos->count();
+        $lastPage = max(1, (int) ceil($total / $perPage));
+        $offset   = ($page - 1) * $perPage;
+        $items    = $todos->slice($offset, $perPage)->values();
 
         return response()->json([
             'success' => true,
-            'data' => $certificados
+            'data' => $items,
+            'pagination' => [
+                'total'        => $total,
+                'per_page'     => $perPage,
+                'current_page' => $page,
+                'last_page'    => $lastPage,
+                'from'         => $total > 0 ? $offset + 1 : null,
+                'to'           => $total > 0 ? min($offset + $perPage, $total) : null,
+            ],
         ]);
     }
 
@@ -268,6 +313,33 @@ class CertificadoController extends Controller
     }
 
     /**
+     * Previsualizar un certificado existente por su número (sin descargar).
+     * Usado por el Dashboard Gerencial: deja VER el PDF en el navegador,
+     * pero no dispara una descarga (a diferencia de regenerar()).
+     *
+     * El PDF se marca con una marca de agua (usuario + fecha/hora) quemada en el
+     * documento: no impide imprimir/guardar desde el visor nativo del navegador
+     * (eso no se puede bloquear), pero deja rastro de quién vio el certificado
+     * en cualquier copia que se saque.
+     */
+    public function previsualizarPorNumero(Request $request, string $numeroCertificado)
+    {
+        try {
+            $usuario = $request->input('auth_user');
+            $nombreUsuario = trim(($usuario['nombre'] ?? '') . ' ' . ($usuario['apellido'] ?? '')) ?: ($usuario['rut'] ?? 'Usuario');
+            $watermarkTexto = $nombreUsuario . ' · ' . now()->format('d-m-Y H:i');
+
+            $pdf = $this->certificadoService->regenerarCertificado($numeroCertificado, null, $watermarkTexto);
+            return $pdf->stream('certificado_preview.pdf');
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage()
+            ], 400);
+        }
+    }
+
+    /**
      * Obtener dumpadas de un certificado específico
      */
     public function dumpadasPorCertificado(string $numeroCertificado)
@@ -278,21 +350,30 @@ class CertificadoController extends Controller
             ->orderBy('numero_jornada')
             ->get();
 
-        if ($dumpadas->isEmpty()) {
+        $dumpadas->each(function ($dumpada) {
+            $dumpada->codigo_completo = $dumpada->generarCodigoCompleto();
+            $dumpada->tipo = 'dumpada';
+        });
+
+        $muestrasLibres = MuestraLibre::where('certificado', $numeroCertificado)
+            ->orderBy('fecha')
+            ->get();
+
+        $muestrasLibres->each(function ($muestra) {
+            $muestra->tipo = 'muestra_libre';
+        });
+
+        if ($dumpadas->isEmpty() && $muestrasLibres->isEmpty()) {
             return response()->json([
                 'success' => false,
-                'message' => "No se encontraron dumpadas con el certificado: {$numeroCertificado}"
+                'message' => "No se encontraron muestras con el certificado: {$numeroCertificado}"
             ], 404);
         }
 
-        $dumpadas->each(function ($dumpada) {
-            $dumpada->codigo_completo = $dumpada->generarCodigoCompleto();
-        });
-
         return response()->json([
             'success' => true,
-            'data' => $dumpadas,
-            'total' => $dumpadas->count()
+            'data' => $dumpadas->concat($muestrasLibres)->values(),
+            'total' => $dumpadas->count() + $muestrasLibres->count()
         ]);
     }
 

@@ -1,0 +1,200 @@
+<mxfile host="app.diagrams.net" agent="Claude AI">
+  <diagram id="flujo-dispatch-lab-3h" name="Flujo Dispatch y Laboratorio">
+    <mxGraphModel dx="3433" dy="1757" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="3500" pageHeight="970" math="0" shadow="1">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="titulo" parent="1" style="text;html=1;strokeColor=#c0400a;fillColor=#E06010;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=1;fontColor=#ffffff;fontSize=36;fontStyle=1;" value="&lt;font&gt;SISTEMA DE GESTIÓN OPERATIVO 3H — Flujo de Datos&lt;/font&gt;" vertex="1">
+          <mxGeometry height="55" width="3480" x="10" y="10" as="geometry" />
+        </mxCell>
+        <mxCell id="bg_op" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#a0522d;strokeColor=#6D1F00;strokeWidth=2;fontColor=#ffffff;fontSize=16;" value="" vertex="1">
+          <mxGeometry height="135" width="3480" x="10" y="75" as="geometry" />
+        </mxCell>
+        <mxCell id="hdr_op" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#E06010;strokeColor=#c0400a;fontColor=#ffffff;fontSize=20;fontStyle=1;align=center;verticalAlign=middle;" value="MÓDULO&#xa;OPERACIONES" vertex="1">
+          <mxGeometry height="135" width="140" x="10" y="75" as="geometry" />
+        </mxCell>
+        <mxCell id="bg_dis" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#008a00;strokeColor=#005700;strokeWidth=2;fontColor=#ffffff;fontSize=16;" value="" vertex="1">
+          <mxGeometry height="150" width="3480" x="10" y="210" as="geometry" />
+        </mxCell>
+        <mxCell id="hdr_dis" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#E06010;strokeColor=#c0400a;fontColor=#ffffff;fontSize=20;fontStyle=1;align=center;verticalAlign=middle;" value="MÓDULO&#xa;DISPATCH" vertex="1">
+          <mxGeometry height="150" width="140" x="10" y="210" as="geometry" />
+        </mxCell>
+        <mxCell id="bg_lab" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#008a00;strokeColor=#005700;strokeWidth=2;fontColor=#ffffff;fontSize=16;" value="" vertex="1">
+          <mxGeometry height="190" width="3480" x="10" y="360" as="geometry" />
+        </mxCell>
+        <mxCell id="hdr_lab" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#E06010;strokeColor=#c0400a;fontColor=#ffffff;fontSize=20;fontStyle=1;align=center;verticalAlign=middle;" value="MÓDULO&#xa;LABORATORIO&#xa;Y PLANTA" vertex="1">
+          <mxGeometry height="190" width="140" x="10" y="360" as="geometry" />
+        </mxCell>
+        <mxCell id="bg_ger" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#a0522d;strokeColor=#6D1F00;strokeWidth=2;fontColor=#ffffff;fontSize=16;" value="" vertex="1">
+          <mxGeometry height="185" width="3480" x="10" y="550" as="geometry" />
+        </mxCell>
+        <mxCell id="hdr_ger" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#E06010;strokeColor=#c0400a;fontColor=#ffffff;fontSize=20;fontStyle=1;align=center;verticalAlign=middle;" value="MÓDULO&#xa;GERENCIA" vertex="1">
+          <mxGeometry height="185" width="140" x="10" y="550" as="geometry" />
+        </mxCell>
+        <mxCell id="bg_cont" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#a0522d;strokeColor=#6D1F00;strokeWidth=2;fontColor=#ffffff;fontSize=16;" value="" vertex="1">
+          <mxGeometry height="145" width="3480" x="10" y="735" as="geometry" />
+        </mxCell>
+        <mxCell id="hdr_cont" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#E06010;strokeColor=#c0400a;fontColor=#ffffff;fontSize=20;fontStyle=1;align=center;verticalAlign=middle;" value="CONTABILIDAD" vertex="1">
+          <mxGeometry height="145" width="140" x="10" y="735" as="geometry" />
+        </mxCell>
+        <mxCell id="n_start" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#E06010;strokeColor=#c0400a;fontColor=#ffffff;fontStyle=1;fontSize=16;" value="INICIO" vertex="1">
+          <mxGeometry height="50" width="75" x="170" y="117" as="geometry" />
+        </mxCell>
+        <mxCell id="n_perf" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE0C0;strokeColor=#E06010;fontSize=16;" value="Registro de&#xa;Perforación y Tronadura" vertex="1">
+          <mxGeometry height="60" width="180" x="285" y="112" as="geometry" />
+        </mxCell>
+        <mxCell id="n_ext" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE0C0;strokeColor=#E06010;fontSize=16;" value="Extracción mineral&#xa;mina → cancha&#xa;(camión dumper)" vertex="1">
+          <mxGeometry height="68" width="180" x="510" y="108" as="geometry" />
+        </mxCell>
+        <mxCell id="n_dump" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF9C4;strokeColor=#F9A825;fontSize=16;" value="Registro de&#xa;Dumpadas" vertex="1">
+          <mxGeometry height="60" width="180" x="510" y="250" as="geometry" />
+        </mxCell>
+        <mxCell id="n_muestra" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF9C4;strokeColor=#F9A825;fontSize=16;" value="Toma de Muestra&#xa;(se mantiene en cancha&#xa;hasta cumplir ley)" vertex="1">
+          <mxGeometry height="70" width="180" x="730" y="245" as="geometry" />
+        </mxCell>
+        <mxCell id="n_envio" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF9C4;strokeColor=#F9A825;fontSize=16;" value="Envío de muestra&#xa;a laboratorio" vertex="1">
+          <mxGeometry height="60" width="180" x="950" y="250" as="geometry" />
+        </mxCell>
+        <mxCell id="n_lote" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF9C4;strokeColor=#F9A825;fontSize=16;" value="Generar Lotes&#xa;Internos" vertex="1">
+          <mxGeometry height="60" width="180" x="1510" y="250" as="geometry" />
+        </mxCell>
+        <mxCell id="n_cargar" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF9C4;strokeColor=#F9A825;fontSize=16;" value="Cargar camiones&#xa;de distintos lotes" vertex="1">
+          <mxGeometry height="60" width="180" x="1730" y="250" as="geometry" />
+        </mxCell>
+        <mxCell id="n_despacho" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF9C4;strokeColor=#F9A825;fontSize=16;" value="Despacho de&#xa;camiones a planta" vertex="1">
+          <mxGeometry height="60" width="180" x="1950" y="250" as="geometry" />
+        </mxCell>
+        <mxCell id="n_analisis" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D6E8FF;strokeColor=#1565C0;fontSize=16;" value="Análisis de muestras&#xa;y paquetes de segunda&#xa;Entrega de resultados" vertex="1">
+          <mxGeometry height="70" width="180" x="950" y="385" as="geometry" />
+        </mxCell>
+        <mxCell id="n_cumple" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFD54F;strokeColor=#E06010;fontSize=16;fontStyle=1;" value="¿Mezcla de&#xa;dumpadas&#xa;cumple?" vertex="1">
+          <mxGeometry height="100" width="160" x="1185" y="370" as="geometry" />
+        </mxCell>
+        <mxCell id="n_ajuste" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFE8D0;strokeColor=#E06010;fontSize=16;fontStyle=2;align=center;" value="Objetivo: 1.3% Cu Insoluble&#xa;Mezcla dumpadas = 100 ton&#xa;Error de muestra = 19%" vertex="1">
+          <mxGeometry height="60" width="215" x="1157.5" y="495" as="geometry" />
+        </mxCell>
+        <mxCell id="n_planta_in" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D6E8FF;strokeColor=#1565C0;fontSize=16;" value="Ingresan camiones&#xa;a planta procesadora" vertex="1">
+          <mxGeometry height="60" width="180" x="1950" y="390" as="geometry" />
+        </mxCell>
+        <mxCell id="n_proc" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D6E8FF;strokeColor=#1565C0;fontSize=16;" value="Procesamiento&#xa;mineral en planta" vertex="1">
+          <mxGeometry height="60" width="180" x="2170" y="390" as="geometry" />
+        </mxCell>
+        <mxCell id="n_paq" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#D6E8FF;strokeColor=#1565C0;fontSize=16;" value="Muestra representativa&#xa;minerales procesados&#xa;(paquete de segunda)" vertex="1">
+          <mxGeometry height="70" width="180" x="2390" y="385" as="geometry" />
+        </mxCell>
+        <mxCell id="n_comparar" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#C8F0D0;strokeColor=#2E7D32;fontSize=16;" value="Comparar ley Lote Interno&#xa;vs paquete de segunda" vertex="1">
+          <mxGeometry height="65" width="180" x="2390" y="587.5" as="geometry" />
+        </mxCell>
+        <mxCell id="n_diez" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFD54F;strokeColor=#E06010;fontSize=16;fontStyle=1;" value="¿Dentro de la&#xa;desviación&#xa;±10%?" vertex="1">
+          <mxGeometry height="100" width="160" x="2620" y="570" as="geometry" />
+        </mxCell>
+        <mxCell id="n_auditoria" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFCCCC;strokeColor=#c62828;fontSize=16;fontStyle=1;" value="Auditoría Interna" vertex="1">
+          <mxGeometry height="50" width="160" x="2620" y="690" as="geometry" />
+        </mxCell>
+        <mxCell id="n_punto" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#FFD54F;strokeColor=#E06010;fontSize=16;fontStyle=1;" value="¿Dentro del&#xa;0.10% aceptable&#xa;para el lote?" vertex="1">
+          <mxGeometry height="100" width="160" x="2840" y="570" as="geometry" />
+        </mxCell>
+        <mxCell id="n_canje" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#C8F0D0;strokeColor=#2E7D32;fontSize=16;" value="Canje paquete&#xa;de segunda por&#xa;paquete planta" vertex="1">
+          <mxGeometry height="65" width="175" x="3095" y="587.5" as="geometry" />
+        </mxCell>
+        <mxCell id="n_liq" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F8BBD9;strokeColor=#AD1457;fontSize=16;" value="Planta emite&#xa;liquidación de pago" vertex="1">
+          <mxGeometry height="60" width="175" x="3095" y="777.5" as="geometry" />
+        </mxCell>
+        <mxCell id="n_dep" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#F8BBD9;strokeColor=#AD1457;fontSize=16;" value="Planta deposita dinero.&#xa;Contabilidad registra el pago.&#xa;Dueña emite factura." vertex="1">
+          <mxGeometry height="70" width="175" x="3300" y="772.5" as="geometry" />
+        </mxCell>
+        <mxCell id="n_end" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#E06010;strokeColor=#c0400a;fontColor=#ffffff;fontStyle=1;fontSize=16;" value="FIN" vertex="1">
+          <mxGeometry height="50" width="70" x="3352.5" y="890" as="geometry" />
+        </mxCell>
+        <mxCell id="e1" edge="1" parent="1" source="n_start" style="edgeStyle=orthogonalEdgeStyle;fontSize=16;" target="n_perf">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e2" edge="1" parent="1" source="n_perf" style="edgeStyle=orthogonalEdgeStyle;fontSize=16;" target="n_ext">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e3" edge="1" parent="1" source="n_ext" style="edgeStyle=orthogonalEdgeStyle;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontSize=16;" target="n_dump">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e4" edge="1" parent="1" source="n_dump" style="edgeStyle=orthogonalEdgeStyle;fontSize=16;" target="n_muestra">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e5" edge="1" parent="1" source="n_muestra" style="edgeStyle=orthogonalEdgeStyle;fontSize=16;" target="n_envio">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e6" edge="1" parent="1" source="n_envio" style="edgeStyle=orthogonalEdgeStyle;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontSize=16;" target="n_analisis">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e7" edge="1" parent="1" source="n_analisis" style="edgeStyle=orthogonalEdgeStyle;fontSize=16;" target="n_cumple">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e8" edge="1" parent="1" source="n_cumple" style="edgeStyle=orthogonalEdgeStyle;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontStyle=1;fontSize=16;strokeColor=#c0400a;fontColor=#c0400a;" target="n_ajuste" value="NO">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e9" edge="1" parent="1" source="n_ajuste" style="edgeStyle=orthogonalEdgeStyle;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=1;entryDx=0;entryDy=0;dashed=1;fontStyle=3;fontSize=16;" target="n_dump" value="Reintentar">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1140" y="525" />
+              <mxPoint x="450" y="525" />
+              <mxPoint x="450" y="310" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e10" edge="1" parent="1" source="n_cumple" style="edgeStyle=orthogonalEdgeStyle;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=1;entryDx=0;entryDy=0;fontStyle=1;fontSize=16;fontColor=#2E7D32;strokeColor=light-dark(#000000,#000000);" target="n_lote" value="SÍ">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1400" y="425" />
+              <mxPoint x="1400" y="310" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e11" edge="1" parent="1" source="n_lote" style="edgeStyle=orthogonalEdgeStyle;fontSize=16;" target="n_cargar">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e12" edge="1" parent="1" source="n_cargar" style="edgeStyle=orthogonalEdgeStyle;fontSize=16;" target="n_despacho">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e13" edge="1" parent="1" source="n_despacho" style="edgeStyle=orthogonalEdgeStyle;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontSize=16;" target="n_planta_in">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e14" edge="1" parent="1" source="n_planta_in" style="edgeStyle=orthogonalEdgeStyle;fontSize=16;" target="n_proc">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e15" edge="1" parent="1" source="n_proc" style="edgeStyle=orthogonalEdgeStyle;fontSize=16;" target="n_paq">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e16" edge="1" parent="1" source="n_paq" style="edgeStyle=orthogonalEdgeStyle;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontSize=16;" target="n_comparar">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e17" edge="1" parent="1" source="n_comparar" style="edgeStyle=orthogonalEdgeStyle;fontSize=16;" target="n_diez">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e18" edge="1" parent="1" source="n_diez" style="edgeStyle=orthogonalEdgeStyle;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontStyle=1;fontSize=16;strokeColor=#c0400a;fontColor=#c0400a;" target="n_auditoria" value="NO">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e19" edge="1" parent="1" source="n_diez" style="edgeStyle=orthogonalEdgeStyle;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;fontStyle=1;fontSize=16;strokeColor=#2E7D32;fontColor=#2E7D32;" target="n_punto" value="SÍ">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e20" edge="1" parent="1" source="n_punto" style="edgeStyle=orthogonalEdgeStyle;exitX=0.5;exitY=1;exitDx=0;exitDy=0;dashed=1;strokeColor=#c0400a;fontStyle=3;fontSize=16;fontColor=#c0400a;" target="n_auditoria" value="NO → Lab externo">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="2920" y="700" />
+              <mxPoint x="2700" y="700" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e21" edge="1" parent="1" source="n_punto" style="edgeStyle=orthogonalEdgeStyle;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;fontStyle=1;fontSize=16;strokeColor=#2E7D32;fontColor=#2E7D32;" target="n_canje" value="SÍ">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e22" edge="1" parent="1" source="n_canje" style="edgeStyle=orthogonalEdgeStyle;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontSize=16;" target="n_liq">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e23" edge="1" parent="1" source="n_liq" style="edgeStyle=orthogonalEdgeStyle;fontSize=16;" target="n_dep">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e24" edge="1" parent="1" source="n_dep" style="edgeStyle=orthogonalEdgeStyle;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontSize=16;" target="n_end">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

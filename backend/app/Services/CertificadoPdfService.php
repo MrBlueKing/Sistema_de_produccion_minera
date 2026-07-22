@@ -48,7 +48,8 @@ class CertificadoPdfService
         }
 
         if ($guardarNumero) {
-            $this->asignarCertificadoADumpadas($dumpadas, $numeroCertificado);
+            $ahora = Carbon::now();
+            $this->asignarCertificadoADumpadas($dumpadas, $numeroCertificado, $ahora);
             foreach ($muestrasLibres as $m) {
                 $m->update(['certificado' => $numeroCertificado]);
             }
@@ -61,7 +62,8 @@ class CertificadoPdfService
 
         $data = [
             'numeroCertificado' => $numeroCertificado,
-            'fechaEmision'      => Carbon::now()->format('d M. Y'),
+            'fechaIngreso'      => $this->calcularFechaIngreso($dumpadas),
+            'fechaEgreso'       => $this->calcularFechaEgreso($dumpadas),
             'muestras'          => $muestrasData,
             'laboratorio'       => $this->getDatosLaboratorio($para),
         ];
@@ -73,10 +75,39 @@ class CertificadoPdfService
     }
 
     /**
+     * Fecha de ingreso del certificado: la más antigua entre las dumpadas incluidas
+     * en que se completó el análisis (se ingresó la ley). Si ninguna la tiene
+     * registrada (dato histórico o certificado solo con muestras específicas),
+     * se usa la fecha de la muestra como aproximación.
+     */
+    private function calcularFechaIngreso($dumpadas)
+    {
+        $fecha = $dumpadas->pluck('fecha_analisis_completado')->filter()->min();
+
+        if (!$fecha) {
+            $fecha = $dumpadas->pluck('fecha')->filter()->min();
+        }
+
+        return $fecha ? Carbon::parse($fecha)->format('d M. Y') : '-';
+    }
+
+    /**
+     * Fecha de egreso del certificado: cuándo se generó por primera vez el PDF
+     * (fecha_certificado_pdf). Si es un certificado histórico sin ese dato guardado,
+     * se usa el momento actual como respaldo.
+     */
+    private function calcularFechaEgreso($dumpadas)
+    {
+        $fecha = $dumpadas->pluck('fecha_certificado_pdf')->filter()->min();
+
+        return $fecha ? Carbon::parse($fecha)->format('d M. Y') : Carbon::now()->format('d M. Y');
+    }
+
+    /**
      * Regenerar un certificado existente por su número.
      * Incluye automáticamente dumpadas y muestras específicas con ese certificado.
      */
-    public function regenerarCertificado(string $numeroCertificado, ?string $para = null)
+    public function regenerarCertificado(string $numeroCertificado, ?string $para = null, ?string $watermarkTexto = null)
     {
         $dumpadas = Dumpada::with('frenteTrabajo')
             ->where('certificado', $numeroCertificado)
@@ -99,9 +130,11 @@ class CertificadoPdfService
 
         $data = [
             'numeroCertificado' => $numeroCertificado,
-            'fechaEmision'      => Carbon::now()->format('d M. Y'),
+            'fechaIngreso'      => $this->calcularFechaIngreso($dumpadas),
+            'fechaEgreso'       => $this->calcularFechaEgreso($dumpadas),
             'muestras'          => $muestrasData,
             'laboratorio'       => $this->getDatosLaboratorio($para),
+            'watermarkTexto'    => $watermarkTexto,
         ];
 
         $pdf = Pdf::loadView('pdf.certificado', $data);
@@ -114,11 +147,14 @@ class CertificadoPdfService
      * Asignar número de certificado a las dumpadas
      * Guarda en el campo 'certificado' (único campo)
      */
-    private function asignarCertificadoADumpadas($dumpadas, $numeroCertificado)
+    private function asignarCertificadoADumpadas($dumpadas, $numeroCertificado, ?Carbon $ahora = null)
     {
+        $ahora = $ahora ?? Carbon::now();
+
         foreach ($dumpadas as $dumpada) {
             $dumpada->update([
                 'certificado' => $numeroCertificado,
+                'fecha_certificado_pdf' => $dumpada->fecha_certificado_pdf ?? $ahora,
             ]);
         }
     }
@@ -132,9 +168,9 @@ class CertificadoPdfService
             return [
                 'codigo' => $dumpada->codigo_completo ?? $dumpada->generarCodigoCompleto(),
                 'fecha' => $dumpada->fecha ? Carbon::parse($dumpada->fecha)->format('d.m.Y') : '',
-                'cu_total' => number_format($dumpada->ley, 2, ',', '.'),
-                'cu_soluble' => number_format($dumpada->cu_soluble, 2, ',', '.'),
-                'cu_insoluble' => number_format($dumpada->cu_insoluble, 2, ',', '.'),
+                'cu_total' => $dumpada->ley !== null ? number_format($dumpada->ley, 2, ',', '.') : '-',
+                'cu_soluble' => $dumpada->cu_soluble !== null ? number_format($dumpada->cu_soluble, 2, ',', '.') : '-',
+                'cu_insoluble' => $dumpada->cu_insoluble !== null ? number_format($dumpada->cu_insoluble, 2, ',', '.') : '-',
                 'certificado_lab' => $numeroCertificado,
             ];
         })->toArray();
@@ -193,7 +229,8 @@ class CertificadoPdfService
 
         $data = [
             'numeroCertificado' => $numeroCertificado,
-            'fechaEmision'      => Carbon::now()->format('d M. Y'),
+            'fechaIngreso'      => Carbon::now()->format('d M. Y'),
+            'fechaEgreso'       => Carbon::now()->format('d M. Y'),
             'muestras'          => $this->prepararMuestrasMuestraLibre($muestras, $numeroCertificado),
             'laboratorio'       => $this->getDatosLaboratorio(),
         ];
@@ -218,7 +255,8 @@ class CertificadoPdfService
 
         $data = [
             'numeroCertificado' => $numeroCertificado,
-            'fechaEmision'      => Carbon::now()->format('d M. Y'),
+            'fechaIngreso'      => Carbon::now()->format('d M. Y'),
+            'fechaEgreso'       => Carbon::now()->format('d M. Y'),
             'muestras'          => $this->prepararMuestrasMuestraLibre($muestras, $numeroCertificado),
             'laboratorio'       => $this->getDatosLaboratorio(),
         ];
@@ -237,9 +275,9 @@ class CertificadoPdfService
             return [
                 'codigo'         => $m->codigo,
                 'fecha'          => $m->fecha ? Carbon::parse($m->fecha)->format('d.m.Y') : '',
-                'cu_total'       => number_format($m->ley, 2, ',', '.'),
-                'cu_soluble'     => number_format($m->cu_soluble, 2, ',', '.'),
-                'cu_insoluble'   => number_format($m->cu_insoluble, 2, ',', '.'),
+                'cu_total'       => $m->ley !== null ? number_format($m->ley, 2, ',', '.') : '-',
+                'cu_soluble'     => $m->cu_soluble !== null ? number_format($m->cu_soluble, 2, ',', '.') : '-',
+                'cu_insoluble'   => $m->cu_insoluble !== null ? number_format($m->cu_insoluble, 2, ',', '.') : '-',
                 'certificado_lab' => $numeroCertificado,
             ];
         })->toArray();
@@ -250,49 +288,111 @@ class CertificadoPdfService
      * Formato: año-número secuencial (ej: 2026-00001).
      * Considera tanto dumpadas como muestras específicas para no repetir números.
      */
+    /**
+     * Genera el próximo número de certificado como correlativo plano (ej: 289002),
+     * continuando la numeración histórica importada desde Excel — sin prefijo de año.
+     */
     private function generarNumeroCertificado()
     {
-        $year    = Carbon::now()->year;
-        $prefijo = $year . '-';
-
-        $ultimoDumpada = Dumpada::where('certificado', 'like', $prefijo . '%')
-            ->whereNotNull('certificado')
-            ->orderByRaw('CAST(SUBSTRING(certificado, 6) AS UNSIGNED) DESC')
+        $ultimoDumpada = Dumpada::whereNotNull('certificado')
+            ->where('certificado', 'REGEXP', '^[0-9]+$')
+            ->orderByRaw('CAST(certificado AS UNSIGNED) DESC')
             ->value('certificado');
 
-        $ultimoMuestra = MuestraLibre::where('certificado', 'like', $prefijo . '%')
-            ->whereNotNull('certificado')
-            ->orderByRaw('CAST(SUBSTRING(certificado, 6) AS UNSIGNED) DESC')
+        $ultimoMuestra = MuestraLibre::whereNotNull('certificado')
+            ->where('certificado', 'REGEXP', '^[0-9]+$')
+            ->orderByRaw('CAST(certificado AS UNSIGNED) DESC')
             ->value('certificado');
 
-        $numDumpada = $ultimoDumpada ? (int) substr($ultimoDumpada, 5) : 0;
-        $numMuestra = $ultimoMuestra ? (int) substr($ultimoMuestra, 5) : 0;
+        $numDumpada = $ultimoDumpada ? (int) $ultimoDumpada : 0;
+        $numMuestra = $ultimoMuestra ? (int) $ultimoMuestra : 0;
         $numero     = max($numDumpada, $numMuestra) + 1;
 
-        return $prefijo . str_pad($numero, 5, '0', STR_PAD_LEFT);
+        return (string) $numero;
     }
 
     /**
-     * Obtener lista de certificados generados
+     * Obtener lista de certificados generados (con filtros, sin paginar todavía;
+     * la paginación la hace el controller sobre la colección ya filtrada)
      *
      * @param int|null $idFaena Filtrar por faena
+     * @param string|null $search Búsqueda parcial por número de certificado
+     * @param string|null $fechaInicio Fecha de generación desde (Y-m-d)
+     * @param string|null $fechaFin Fecha de generación hasta (Y-m-d)
+     * @param int|null $muestrasMin Cantidad mínima de muestras incluidas
+     * @param int|null $muestrasMax Cantidad máxima de muestras incluidas
      * @return \Illuminate\Support\Collection
      */
-    public function getCertificadosGenerados(?int $idFaena = null)
-    {
-        $query = Dumpada::whereNotNull('certificado')
-            ->where('certificado', 'like', '____-%') // Formato: YYYY-XXXXX
+    public function getCertificadosGenerados(
+        ?int $idFaena = null,
+        ?string $search = null,
+        ?string $fechaInicio = null,
+        ?string $fechaFin = null,
+        ?int $muestrasMin = null,
+        ?int $muestrasMax = null
+    ) {
+        // fecha_certificado_pdf es la fecha real de generación (desde el fix de fechas del certificado);
+        // updated_at queda como respaldo para certificados históricos que no la tienen guardada.
+        $queryDumpadas = Dumpada::whereNotNull('certificado')
             ->select('certificado')
-            ->selectRaw('COUNT(*) as total_dumpadas')
-            ->selectRaw('MIN(updated_at) as fecha_generacion')
-            ->groupBy('certificado')
-            ->orderBy('certificado', 'desc');
+            ->selectRaw('COUNT(*) as total_muestras')
+            ->selectRaw('MIN(COALESCE(fecha_certificado_pdf, updated_at)) as fecha_generacion')
+            ->groupBy('certificado');
 
         if ($idFaena) {
-            $query->where('id_faena', $idFaena);
+            $queryDumpadas->where('id_faena', $idFaena);
+        }
+        if ($search) {
+            $queryDumpadas->where('certificado', 'like', "%{$search}%");
         }
 
-        return $query->get();
+        $queryMuestrasLibres = MuestraLibre::whereNotNull('certificado')
+            ->select('certificado')
+            ->selectRaw('COUNT(*) as total_muestras')
+            ->selectRaw('MIN(updated_at) as fecha_generacion')
+            ->groupBy('certificado');
+
+        if ($idFaena) {
+            $queryMuestrasLibres->where('id_faena', $idFaena);
+        }
+        if ($search) {
+            $queryMuestrasLibres->where('certificado', 'like', "%{$search}%");
+        }
+
+        // Se combinan ambas fuentes en PHP (no UNION en SQL) porque un mismo número de
+        // certificado puede tener muestras repartidas entre dumpadas y muestras libres.
+        $combinado = [];
+        foreach ($queryDumpadas->get()->concat($queryMuestrasLibres->get()) as $fila) {
+            $numero = $fila->certificado;
+            if (!isset($combinado[$numero])) {
+                $combinado[$numero] = ['certificado' => $numero, 'total_muestras' => 0, 'fecha_generacion' => $fila->fecha_generacion];
+            }
+            $combinado[$numero]['total_muestras'] += $fila->total_muestras;
+            if ($fila->fecha_generacion < $combinado[$numero]['fecha_generacion']) {
+                $combinado[$numero]['fecha_generacion'] = $fila->fecha_generacion;
+            }
+        }
+
+        $resultado = collect(array_values($combinado));
+
+        // Filtros que dependen de valores ya agregados (fecha mínima, conteo combinado)
+        // se aplican sobre la colección en memoria, después de combinar ambas fuentes.
+        if ($fechaInicio) {
+            $desde = Carbon::parse($fechaInicio)->startOfDay();
+            $resultado = $resultado->filter(fn($c) => $c['fecha_generacion'] && Carbon::parse($c['fecha_generacion'])->gte($desde));
+        }
+        if ($fechaFin) {
+            $hasta = Carbon::parse($fechaFin)->endOfDay();
+            $resultado = $resultado->filter(fn($c) => $c['fecha_generacion'] && Carbon::parse($c['fecha_generacion'])->lte($hasta));
+        }
+        if ($muestrasMin !== null) {
+            $resultado = $resultado->filter(fn($c) => $c['total_muestras'] >= $muestrasMin);
+        }
+        if ($muestrasMax !== null) {
+            $resultado = $resultado->filter(fn($c) => $c['total_muestras'] <= $muestrasMax);
+        }
+
+        return $resultado->sortByDesc('certificado')->values();
     }
 
     /**

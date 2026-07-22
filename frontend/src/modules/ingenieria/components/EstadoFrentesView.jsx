@@ -3,6 +3,7 @@ import {
   HiPlus, HiPencil, HiTrash, HiCheck,
   HiCalendar, HiChartBar, HiTableCells, HiXMark,
   HiSquares2X2, HiExclamationTriangle, HiCheckCircle, HiClock, HiMinusCircle,
+  HiInformationCircle,
 } from 'react-icons/hi2';
 import Button from '../../../shared/components/atoms/Button';
 import Input from '../../../shared/components/atoms/Input';
@@ -128,6 +129,7 @@ export default function EstadoFrentesView({ frentes = [], faenaFiltro = null }) 
   const [totalPages, setTotalPages] = useState(1);
   const perPage = 15;
 
+  const [showInfo, setShowInfo] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [formData, setFormData] = useState(FORM_EMPTY);
@@ -327,10 +329,46 @@ export default function EstadoFrentesView({ frentes = [], faenaFiltro = null }) 
           <h2 className="text-lg font-bold text-gray-900">Estado de Frentes</h2>
           <p className="text-sm text-gray-500">Seguimiento histórico — estimado vs real</p>
         </div>
-        <Button onClick={openCreate} variant="primary" size="sm">
-          <HiPlus className="w-4 h-4 mr-1" /> Nuevo registro
-        </Button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowInfo((v) => !v)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold border transition-colors ${
+              showInfo
+                ? 'bg-blue-500 text-white border-blue-500'
+                : 'bg-white text-blue-500 border-blue-200 hover:bg-blue-50'
+            }`}
+            title="Ver cómo funciona"
+          >
+            <HiInformationCircle className="w-4 h-4" />
+            <span className="hidden sm:inline">¿Cómo funciona?</span>
+          </button>
+          <Button onClick={openCreate} variant="primary" size="sm">
+            <HiPlus className="w-4 h-4 mr-1" /> Nuevo registro
+          </Button>
+        </div>
       </div>
+
+      {/* Panel ¿Cómo funciona? */}
+      {showInfo && (
+        <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
+          <p className="text-xs font-bold text-blue-800 uppercase tracking-wide mb-2.5">¿Cómo funciona Estado de Frentes?</p>
+          <div className="space-y-2">
+            <div className="bg-white border border-indigo-200 rounded-lg px-3 py-2">
+              <p className="text-xs font-bold text-indigo-700">Qué registras acá</p>
+              <p className="text-xs text-gray-500 mt-0.5">Por cada frente: nivel de <strong>ventilación</strong> (1–5), <strong>estabilidad</strong> del terreno, <strong>duración estimada</strong> y su <strong>fecha de inicio planificada</strong>. Cuando el frente arranca de verdad, marcas la fecha de inicio real.</p>
+            </div>
+            <div className="bg-white border border-indigo-200 rounded-lg px-3 py-2">
+              <p className="text-xs font-bold text-indigo-700">Cómo se calcula el desvío</p>
+              <p className="text-xs text-gray-500 mt-0.5">El sistema compara la fecha estimada de inicio contra la fecha real y calcula automáticamente los días de atraso — no se ingresa a mano.</p>
+            </div>
+            <div className="bg-white border border-indigo-200 rounded-lg px-3 py-2">
+              <p className="text-xs font-bold text-indigo-700">Semáforo</p>
+              <p className="text-xs text-gray-500 mt-0.5"><span className="inline-block w-2 h-2 rounded-full bg-gray-300 mr-1"/>Sin iniciar · <span className="inline-block w-2 h-2 rounded-full bg-green-400 mr-1"/>En tiempo · <span className="inline-block w-2 h-2 rounded-full bg-amber-400 mr-1"/>Atraso leve (1–5 días) · <span className="inline-block w-2 h-2 rounded-full bg-red-500 mr-1"/>Atraso grave (más de 5 días).</p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Formulario */}
       {showForm && (

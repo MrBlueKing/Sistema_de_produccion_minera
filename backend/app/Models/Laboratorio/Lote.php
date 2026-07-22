@@ -60,19 +60,19 @@ class Lote extends Model
 
     public function getPesoTotal()
     {
-        return $this->camionadas()->sum('peso');
+        return $this->camionadas->sum('peso');
     }
 
     public function getPesoRecibido()
     {
-        return $this->camionadas()
+        return $this->camionadas
             ->whereNotNull('peso_real')
             ->sum('peso_real');
     }
 
     public function getNumeroCamionadas()
     {
-        return $this->camionadas()->count();
+        return $this->camionadas->count();
     }
 
     /**
@@ -83,12 +83,7 @@ class Lote extends Model
      */
     public function getRemanente()
     {
-        $pesoTeorico = $this->camionadas()->sum('peso');
-        $pesoReal = $this->camionadas()
-            ->whereNotNull('peso_real')
-            ->sum('peso_real');
-
-        return round($pesoTeorico - $pesoReal, 2);
+        return round($this->getPesoTotal() - $this->getPesoRecibido(), 2);
     }
 
     /**
@@ -97,8 +92,8 @@ class Lote extends Model
      */
     public function todasCamionadasRecepcionadas()
     {
-        $total = $this->camionadas()->count();
-        $recepcionadas = $this->camionadas()
+        $total = $this->camionadas->count();
+        $recepcionadas = $this->camionadas
             ->whereIn('estado', [
                 \App\Models\Laboratorio\Camionada::ESTADO_RECIBIDO,
                 \App\Models\Laboratorio\Camionada::ESTADO_COMPLETADO
@@ -181,6 +176,34 @@ class Lote extends Model
             \DB::rollBack();
             throw $e;
         }
+    }
+
+    /**
+     * Reabrir un lote Completado (volverlo a Abierto).
+     *
+     * Se bloquea si el lote ya generó una mezcla de remanente al cerrarse
+     * (basada en paladas contadas a mano) porque no hay forma segura de
+     * revertir eso automáticamente: esa mezcla puede ya haberse usado en
+     * camionadas posteriores.
+     */
+    public function reabrir()
+    {
+        if ($this->estado !== self::ESTADO_COMPLETADO) {
+            throw new \Exception('Solo se puede reabrir un lote Completado.');
+        }
+
+        $tieneRemanente = Mezcla::where('lote_origen_id', $this->id)
+            ->where('es_remanente', true)
+            ->exists();
+
+        if ($tieneRemanente) {
+            throw new \Exception('Este lote generó una mezcla de remanente al cerrarse y no se puede reabrir automáticamente. Contacta al administrador.');
+        }
+
+        $this->estado = self::ESTADO_ABIERTO;
+        $this->save();
+
+        return $this;
     }
 
     /**
@@ -332,10 +355,7 @@ class Lote extends Model
      */
     public function getLeyLotePromedio()
     {
-        $camionadas = $this->camionadas()
-            ->with('mezclas')
-            ->whereNotNull('peso_real')
-            ->get();
+        $camionadas = $this->camionadas->whereNotNull('peso_real');
 
         if ($camionadas->isEmpty()) {
             return null;
@@ -367,10 +387,7 @@ class Lote extends Model
      */
     public function getLeyLabPromedio()
     {
-        $camionadas = $this->camionadas()
-            ->with('mezclas')
-            ->whereNotNull('peso_real')
-            ->get();
+        $camionadas = $this->camionadas->whereNotNull('peso_real');
 
         if ($camionadas->isEmpty()) {
             return null;
@@ -402,10 +419,7 @@ class Lote extends Model
      */
     public function getLeyVisualPromedio()
     {
-        $camionadas = $this->camionadas()
-            ->with('mezclas')
-            ->whereNotNull('peso_real')
-            ->get();
+        $camionadas = $this->camionadas->whereNotNull('peso_real');
 
         if ($camionadas->isEmpty()) {
             return null;

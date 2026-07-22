@@ -91,7 +91,7 @@ export default function AppRoutes() {
                 onClick={() => window.location.href = import.meta.env.VITE_CENTRAL_URL}
                 className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
-                Volver al Dashboard Central
+                Volver al Portal M3H
               </button>
             </div>
           </div>

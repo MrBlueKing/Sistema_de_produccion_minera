@@ -1,0 +1,780 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sistema de Explosivos · Flujo Operacional</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+  :root {
+    --orange: #f97316;
+    --green:  #22c55e;
+    --red:    #ef4444;
+    --blue:   #3b82f6;
+    --yellow: #f59e0b;
+    --purple: #8b5cf6;
+    --bg:     #060913;
+    --card:   #0d1117;
+    --border: #1e293b;
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--bg);
+    color: #e2e8f0;
+    overflow-x: hidden;
+  }
+
+  /* ── HERO ── */
+  .hero {
+    position: relative;
+    text-align: center;
+    padding: 80px 20px 60px;
+    overflow: hidden;
+  }
+
+  .hero::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 80% 60% at 50% -10%, rgba(249,115,22,0.18) 0%, transparent 70%),
+      radial-gradient(ellipse 40% 40% at 20% 80%, rgba(139,92,246,0.08) 0%, transparent 60%),
+      radial-gradient(ellipse 40% 40% at 80% 80%, rgba(59,130,246,0.08) 0%, transparent 60%);
+    pointer-events: none;
+  }
+
+  .hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(249,115,22,0.12);
+    border: 1px solid rgba(249,115,22,0.3);
+    border-radius: 999px;
+    padding: 6px 16px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--orange);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin-bottom: 24px;
+  }
+
+  .hero h1 {
+    font-size: clamp(2.2rem, 5vw, 3.6rem);
+    font-weight: 900;
+    line-height: 1.1;
+    letter-spacing: -1.5px;
+    background: linear-gradient(135deg, #fff 30%, #f97316 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 16px;
+  }
+
+  .hero p {
+    color: #64748b;
+    font-size: 1.05rem;
+    font-weight: 400;
+    max-width: 520px;
+    margin: 0 auto;
+    line-height: 1.6;
+  }
+
+  /* ── MAIN LAYOUT ── */
+  .main { max-width: 1100px; margin: 0 auto; padding: 0 24px 80px; }
+
+  /* ── FLOW TIMELINE ── */
+  .timeline {
+    position: relative;
+    padding-left: 60px;
+    margin-bottom: 64px;
+  }
+
+  .timeline::before {
+    content: '';
+    position: absolute;
+    left: 22px;
+    top: 24px;
+    bottom: 24px;
+    width: 2px;
+    background: linear-gradient(180deg,
+      var(--orange) 0%,
+      var(--green) 30%,
+      var(--red) 55%,
+      var(--blue) 75%,
+      var(--yellow) 100%
+    );
+    opacity: 0.4;
+  }
+
+  .tl-item {
+    position: relative;
+    margin-bottom: 32px;
+  }
+
+  .tl-item:last-child { margin-bottom: 0; }
+
+  .tl-dot {
+    position: absolute;
+    left: -49px;
+    top: 20px;
+    width: 46px;
+    height: 46px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 900;
+    font-size: 1rem;
+    border: 2px solid;
+    background: var(--bg);
+    z-index: 1;
+    box-shadow: 0 0 0 4px var(--bg);
+  }
+
+  .tl-dot.c1 { color: var(--orange); border-color: var(--orange); box-shadow: 0 0 20px rgba(249,115,22,0.3), 0 0 0 4px var(--bg); }
+  .tl-dot.c2 { color: var(--green);  border-color: var(--green);  box-shadow: 0 0 20px rgba(34,197,94,0.3),  0 0 0 4px var(--bg); }
+  .tl-dot.c3 { color: var(--red);    border-color: var(--red);    box-shadow: 0 0 20px rgba(239,68,68,0.3),   0 0 0 4px var(--bg); }
+  .tl-dot.c4 { color: var(--blue);   border-color: var(--blue);   box-shadow: 0 0 20px rgba(59,130,246,0.3),  0 0 0 4px var(--bg); }
+  .tl-dot.c5 { color: var(--yellow); border-color: var(--yellow); box-shadow: 0 0 20px rgba(245,158,11,0.3),  0 0 0 4px var(--bg); }
+
+  .tl-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 28px 32px;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+
+  .tl-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+
+  .tl-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+  }
+
+  .tl-card.c1::before { background: linear-gradient(90deg, var(--orange), transparent); }
+  .tl-card.c2::before { background: linear-gradient(90deg, var(--green),  transparent); }
+  .tl-card.c3::before { background: linear-gradient(90deg, var(--red),    transparent); }
+  .tl-card.c4::before { background: linear-gradient(90deg, var(--blue),   transparent); }
+  .tl-card.c5::before { background: linear-gradient(90deg, var(--yellow),  transparent); }
+
+  .tl-card::after {
+    content: '';
+    position: absolute;
+    top: 0; right: 0;
+    width: 200px; height: 200px;
+    border-radius: 50%;
+    opacity: 0.03;
+    pointer-events: none;
+  }
+  .tl-card.c1::after { background: var(--orange); transform: translate(40%,-40%); }
+  .tl-card.c2::after { background: var(--green);  transform: translate(40%,-40%); }
+  .tl-card.c3::after { background: var(--red);    transform: translate(40%,-40%); }
+  .tl-card.c4::after { background: var(--blue);   transform: translate(40%,-40%); }
+  .tl-card.c5::after { background: var(--yellow);  transform: translate(40%,-40%); }
+
+  .card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .card-title-group { display: flex; align-items: center; gap: 14px; }
+
+  .card-icon {
+    width: 48px; height: 48px;
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.4rem;
+    flex-shrink: 0;
+  }
+
+  .c1 .card-icon { background: rgba(249,115,22,0.12); }
+  .c2 .card-icon { background: rgba(34,197,94,0.12); }
+  .c3 .card-icon { background: rgba(239,68,68,0.12); }
+  .c4 .card-icon { background: rgba(59,130,246,0.12); }
+  .c5 .card-icon { background: rgba(245,158,11,0.12); }
+
+  .card-title {
+    font-size: 1.25rem;
+    font-weight: 800;
+    color: #f1f5f9;
+    letter-spacing: -0.3px;
+  }
+
+  .card-subtitle { font-size: 0.82rem; color: #475569; margin-top: 2px; font-weight: 400; }
+
+  .tag {
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 4px 12px;
+    border-radius: 999px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+
+  .tag-orange { background: rgba(249,115,22,0.12); color: var(--orange); border: 1px solid rgba(249,115,22,0.2); }
+  .tag-green  { background: rgba(34,197,94,0.12);  color: var(--green);  border: 1px solid rgba(34,197,94,0.2); }
+  .tag-red    { background: rgba(239,68,68,0.12);   color: var(--red);    border: 1px solid rgba(239,68,68,0.2); }
+  .tag-blue   { background: rgba(59,130,246,0.12);  color: var(--blue);   border: 1px solid rgba(59,130,246,0.2); }
+  .tag-yellow { background: rgba(245,158,11,0.12);  color: var(--yellow); border: 1px solid rgba(245,158,11,0.2); }
+
+  /* ── CONFIG GRID ── */
+  .config-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+
+  .config-card {
+    background: #0a0f1a;
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px 20px;
+  }
+
+  .config-card-title {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--orange);
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .config-card-title::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: rgba(249,115,22,0.15);
+  }
+
+  .config-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    font-size: 0.84rem;
+    color: #94a3b8;
+  }
+  .config-item:last-child { border-bottom: none; padding-bottom: 0; }
+  .config-item::before { content: '·'; color: var(--orange); font-size: 1rem; flex-shrink: 0; }
+
+  /* ── FLOW STEPS ── */
+  .steps { display: flex; flex-direction: column; gap: 10px; }
+
+  .step-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 14px 18px;
+    background: #080d16;
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.04);
+    transition: border-color 0.2s;
+  }
+
+  .step-row:hover { border-color: rgba(255,255,255,0.1); }
+
+  .step-num {
+    width: 24px; height: 24px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.72rem;
+    font-weight: 800;
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  .c2 .step-num { background: rgba(34,197,94,0.15);  color: var(--green); }
+  .c3 .step-num { background: rgba(239,68,68,0.15);   color: var(--red); }
+
+  .step-content { font-size: 0.9rem; color: #94a3b8; line-height: 1.6; }
+  .step-content strong { color: #e2e8f0; font-weight: 600; }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    background: #1e293b;
+    color: #7dd3fc;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 0.78rem;
+    padding: 1px 8px;
+    border-radius: 6px;
+    border: 1px solid rgba(125,211,252,0.15);
+  }
+
+  /* ── STOCK FORMULA ── */
+  .formula-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 24px;
+    background: #080d16;
+    border-radius: 16px;
+    border: 1px solid rgba(59,130,246,0.15);
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+
+  .f-box {
+    text-align: center;
+    padding: 14px 24px;
+    border-radius: 12px;
+    min-width: 130px;
+  }
+
+  .f-box.total   { background: rgba(59,130,246,0.1);  border: 1px solid rgba(59,130,246,0.2); }
+  .f-box.reserv  { background: rgba(239,68,68,0.08);  border: 1px solid rgba(239,68,68,0.2); }
+  .f-box.result  { background: rgba(34,197,94,0.1);   border: 1px solid rgba(34,197,94,0.2); }
+
+  .f-val { font-size: 1rem; font-weight: 800; letter-spacing: -0.3px; }
+  .f-box.total  .f-val  { color: var(--blue); }
+  .f-box.reserv .f-val  { color: var(--red); }
+  .f-box.result .f-val  { color: var(--green); }
+
+  .f-lbl { font-size: 0.7rem; color: #475569; text-transform: uppercase; letter-spacing: 0.06em; margin-top: 4px; }
+
+  .f-op { font-size: 1.8rem; color: #334155; font-weight: 300; }
+
+  .stock-note {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: #080d16;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.04);
+    font-size: 0.85rem;
+    color: #64748b;
+  }
+  .stock-note strong { color: #94a3b8; }
+
+  /* ── ALERTAS ── */
+  .alert-list { display: flex; flex-direction: column; gap: 10px; }
+
+  .alert-pill {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 20px;
+    border-radius: 14px;
+    border: 1px solid;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .alert-pill::after {
+    content: '';
+    position: absolute;
+    right: -20px; top: -20px;
+    width: 80px; height: 80px;
+    border-radius: 50%;
+    opacity: 0.06;
+  }
+
+  .alert-pill.red    { background: rgba(239,68,68,0.06);  border-color: rgba(239,68,68,0.2); }
+  .alert-pill.yellow { background: rgba(245,158,11,0.06); border-color: rgba(245,158,11,0.2); }
+  .alert-pill.orange { background: rgba(249,115,22,0.06); border-color: rgba(249,115,22,0.2); }
+
+  .alert-pill.red::after    { background: var(--red); }
+  .alert-pill.yellow::after { background: var(--yellow); }
+  .alert-pill.orange::after { background: var(--orange); }
+
+  .alert-orb {
+    width: 42px; height: 42px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.2rem;
+    flex-shrink: 0;
+  }
+
+  .red .alert-orb    { background: rgba(239,68,68,0.15); }
+  .yellow .alert-orb { background: rgba(245,158,11,0.15); }
+  .orange .alert-orb { background: rgba(249,115,22,0.15); }
+
+  .alert-info { flex: 1; }
+  .alert-title { font-weight: 700; font-size: 0.92rem; }
+  .red .alert-title    { color: #fca5a5; }
+  .yellow .alert-title { color: #fcd34d; }
+  .orange .alert-title { color: #fdba74; }
+  .alert-desc { font-size: 0.82rem; color: #475569; margin-top: 3px; }
+
+  .alert-badge {
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 999px;
+    flex-shrink: 0;
+  }
+  .red .alert-badge    { background: rgba(239,68,68,0.15);  color: var(--red); }
+  .yellow .alert-badge { background: rgba(245,158,11,0.15); color: var(--yellow); }
+  .orange .alert-badge { background: rgba(249,115,22,0.15); color: var(--orange); }
+
+  /* ── MISSING SECTION ── */
+  .missing-section {
+    margin-top: 56px;
+    padding: 40px;
+    background: var(--card);
+    border: 1px solid #1e293b;
+    border-radius: 24px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .missing-section::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse 60% 60% at 50% 0%, rgba(139,92,246,0.05) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .missing-section::after {
+    content: '!';
+    position: absolute;
+    right: 40px;
+    top: 30px;
+    font-size: 8rem;
+    font-weight: 900;
+    color: rgba(139,92,246,0.05);
+    line-height: 1;
+  }
+
+  .missing-header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 32px;
+  }
+
+  .missing-icon-wrap {
+    width: 52px; height: 52px;
+    border-radius: 16px;
+    background: rgba(139,92,246,0.12);
+    border: 1px solid rgba(139,92,246,0.2);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.4rem;
+  }
+
+  .missing-title { font-size: 1.3rem; font-weight: 800; color: #c4b5fd; letter-spacing: -0.3px; }
+  .missing-sub { font-size: 0.82rem; color: #475569; margin-top: 3px; }
+
+  .missing-grid { display: flex; flex-direction: column; gap: 14px; }
+
+  .missing-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    padding: 20px 24px;
+    background: #080d16;
+    border-radius: 14px;
+    border: 1px solid rgba(139,92,246,0.12);
+    transition: border-color 0.2s;
+  }
+
+  .missing-card:hover { border-color: rgba(139,92,246,0.3); }
+
+  .missing-card-icon {
+    width: 40px; height: 40px;
+    border-radius: 10px;
+    background: rgba(139,92,246,0.1);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    flex-shrink: 0;
+  }
+
+  .missing-card-text .ttl { font-weight: 700; color: #a78bfa; font-size: 0.95rem; margin-bottom: 5px; }
+  .missing-card-text .desc { font-size: 0.85rem; color: #475569; line-height: 1.55; }
+
+  /* ── FOOTER ── */
+  footer {
+    text-align: center;
+    padding: 40px;
+    color: #1e293b;
+    font-size: 0.8rem;
+    border-top: 1px solid #0d1117;
+  }
+
+  @media (max-width: 640px) {
+    .config-grid { grid-template-columns: 1fr; }
+    .timeline { padding-left: 44px; }
+    .tl-dot { left: -33px; width: 34px; height: 34px; font-size: 0.8rem; }
+    .tl-card { padding: 20px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-badge">🧨 Módulo de Explosivos</div>
+  <h1>Flujo Operacional<br>del Sistema</h1>
+  <p>Cómo funciona el control de inventario de explosivos, desde la configuración inicial hasta las alertas automáticas.</p>
+</div>
+
+<div class="main">
+
+  <!-- TIMELINE -->
+  <div class="timeline">
+
+    <!-- 1. CONFIGURACIÓN -->
+    <div class="tl-item">
+      <div class="tl-dot c1">1</div>
+      <div class="tl-card c1">
+        <div class="card-head">
+          <div class="card-title-group">
+            <div class="card-icon">⚙️</div>
+            <div>
+              <div class="card-title">Configuración inicial</div>
+              <div class="card-subtitle">La estructura base del sistema — polvorín, categorías y tipos de explosivo</div>
+            </div>
+          </div>
+          <div class="tag tag-orange">Estructura base</div>
+        </div>
+        <div class="config-grid">
+          <div class="config-card">
+            <div class="config-card-title">Polvorín</div>
+            <div class="config-item">Nombre (ej: "Polvorín Catemu")</div>
+            <div class="config-item">Faena asignada (1 a 1)</div>
+            <div class="config-item">Responsable y teléfono</div>
+            <div class="config-item">Capacidad máxima en kg (opcional)</div>
+          </div>
+          <div class="config-card">
+            <div class="config-card-title">Categorías</div>
+            <div class="config-item">Explosivos de Voladura</div>
+            <div class="config-item">Iniciadores</div>
+            <div class="config-item">Accesorios</div>
+          </div>
+          <div class="config-card">
+            <div class="config-card-title">Tipos de explosivo</div>
+            <div class="config-item">ANFO → kg &nbsp;<span style="opacity:0.4;font-size:0.75rem">(Voladura)</span></div>
+            <div class="config-item">Dinamita → und &nbsp;<span style="opacity:0.4;font-size:0.75rem">(Voladura)</span></div>
+            <div class="config-item">Fulminante → und &nbsp;<span style="opacity:0.4;font-size:0.75rem">(Iniciadores)</span></div>
+            <div class="config-item">Carmex → und &nbsp;<span style="opacity:0.4;font-size:0.75rem">(Iniciadores)</span></div>
+            <div class="config-item">Guía → mts &nbsp;<span style="opacity:0.4;font-size:0.75rem">(Accesorios)</span></div>
+            <div class="config-item">Cordón → mts &nbsp;<span style="opacity:0.4;font-size:0.75rem">(Accesorios)</span></div>
+            <div class="config-item">Softron → und &nbsp;<span style="opacity:0.4;font-size:0.75rem">(Accesorios)</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. ENTRADA -->
+    <div class="tl-item">
+      <div class="tl-dot c2">2</div>
+      <div class="tl-card c2">
+        <div class="card-head">
+          <div class="card-title-group">
+            <div class="card-icon">📦</div>
+            <div>
+              <div class="card-title">Entrada</div>
+              <div class="card-subtitle">Recepción de material del proveedor</div>
+            </div>
+          </div>
+          <div class="tag tag-green">+ Stock</div>
+        </div>
+        <div class="steps">
+          <div class="step-row">
+            <div class="step-num">1</div>
+            <div class="step-content">Llega guía de despacho del proveedor al polvorín</div>
+          </div>
+          <div class="step-row">
+            <div class="step-num">2</div>
+            <div class="step-content">Se crea un <strong>Lote</strong> con: <span class="chip">nº lote</span> <span class="chip">proveedor</span> <span class="chip">guía</span> <span class="chip">fecha fabricación</span> <span class="chip">fecha vencimiento</span> <span class="chip">cantidad inicial</span></div>
+          </div>
+          <div class="step-row">
+            <div class="step-num">3</div>
+            <div class="step-content">Se registra automáticamente un <strong>movimiento tipo "entrada"</strong> en el historial</div>
+          </div>
+          <div class="step-row">
+            <div class="step-num">4</div>
+            <div class="step-content">El <span class="chip">stock_explosivos.cantidad</span> se <strong style="color:var(--green)">incrementa</strong> para ese tipo de explosivo en ese polvorín</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 3. SALIDA -->
+    <div class="tl-item">
+      <div class="tl-dot c3">3</div>
+      <div class="tl-card c3">
+        <div class="card-head">
+          <div class="card-title-group">
+            <div class="card-icon">💥</div>
+            <div>
+              <div class="card-title">Salida</div>
+              <div class="card-subtitle">Consumo en tronadura</div>
+            </div>
+          </div>
+          <div class="tag tag-red">− Stock</div>
+        </div>
+        <div class="steps">
+          <div class="step-row">
+            <div class="step-num">1</div>
+            <div class="step-content">Se va a tronar — se registra <strong>salida</strong> con: <span class="chip">tipo</span> <span class="chip">cantidad</span> <span class="chip">fecha</span> <span class="chip">autorizado por</span> <span class="chip">entregado por</span></div>
+          </div>
+          <div class="step-row">
+            <div class="step-num">2</div>
+            <div class="step-content">El <span class="chip">stock_explosivos.cantidad</span> se <strong style="color:var(--red)">decrementa</strong></div>
+          </div>
+          <div class="step-row">
+            <div class="step-num">3</div>
+            <div class="step-content">Si se especificó un lote: <span class="chip">lote.cantidad_actual</span> se descuenta → si llega a 0, el lote pasa a estado <strong style="color:var(--red)">"Agotado"</strong></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. STOCK -->
+    <div class="tl-item">
+      <div class="tl-dot c4">4</div>
+      <div class="tl-card c4">
+        <div class="card-head">
+          <div class="card-title-group">
+            <div class="card-icon">📊</div>
+            <div>
+              <div class="card-title">Stock en tiempo real</div>
+              <div class="card-subtitle">Calculado automáticamente con cada movimiento</div>
+            </div>
+          </div>
+          <div class="tag tag-blue">Live</div>
+        </div>
+        <div class="formula-row">
+          <div class="f-box total">
+            <div class="f-val">cantidad</div>
+            <div class="f-lbl">Total en polvorín</div>
+          </div>
+          <div class="f-op">−</div>
+          <div class="f-box reserv">
+            <div class="f-val">reservada</div>
+            <div class="f-lbl">Comprometida en tronadura</div>
+          </div>
+          <div class="f-op">=</div>
+          <div class="f-box result">
+            <div class="f-val">disponible</div>
+            <div class="f-lbl">Puede usarse ahora</div>
+          </div>
+        </div>
+        <div class="stock-note">
+          <span>📌</span>
+          <div>Una fila en <span class="chip">stock_explosivos</span> por cada combinación de <strong>polvorín + tipo de explosivo</strong></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5. ALERTAS -->
+    <div class="tl-item">
+      <div class="tl-dot c5">5</div>
+      <div class="tl-card c5">
+        <div class="card-head">
+          <div class="card-title-group">
+            <div class="card-icon">🔔</div>
+            <div>
+              <div class="card-title">Alertas automáticas</div>
+              <div class="card-subtitle">El sistema avisa sin que nadie tenga que revisar</div>
+            </div>
+          </div>
+          <div class="tag tag-yellow">Automático</div>
+        </div>
+        <div class="alert-list">
+          <div class="alert-pill red">
+            <div class="alert-orb">🔴</div>
+            <div class="alert-info">
+              <div class="alert-title">Stock bajo el mínimo</div>
+              <div class="alert-desc">Hay menos cantidad de la que se configuró como mínimo aceptable</div>
+            </div>
+            <div class="alert-badge">Crítico</div>
+          </div>
+          <div class="alert-pill yellow">
+            <div class="alert-orb">🟡</div>
+            <div class="alert-info">
+              <div class="alert-title">Stock sobre el máximo</div>
+              <div class="alert-desc">Hay más cantidad de la permitida — puede ser un riesgo de seguridad</div>
+            </div>
+            <div class="alert-badge">Advertencia</div>
+          </div>
+          <div class="alert-pill orange">
+            <div class="alert-orb">🟠</div>
+            <div class="alert-info">
+              <div class="alert-title">Lote próximo a vencer</div>
+              <div class="alert-desc">Un lote alcanzará su fecha de vencimiento según los días configurados por tipo</div>
+            </div>
+            <div class="alert-badge">Atención</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /timeline -->
+
+  <!-- PENDIENTE -->
+  <div class="missing-section">
+    <div class="missing-header">
+      <div class="missing-icon-wrap">🚧</div>
+      <div>
+        <div class="missing-title">Lo que falta / está incompleto</div>
+        <div class="missing-sub">Funciones que existen en el Excel pero no en el sistema</div>
+      </div>
+    </div>
+    <div class="missing-grid">
+      <div class="missing-card">
+        <div class="missing-card-icon">📋</div>
+        <div class="missing-card-text">
+          <div class="ttl">Vista Kardex diaria</div>
+          <div class="desc">No existe una vista día a día con Existencia → Entrada → Salida → Saldo por tipo de explosivo. Es exactamente lo que se hace hoy en el Excel y la información más útil para el polvorinero.</div>
+        </div>
+      </div>
+      <div class="missing-card">
+        <div class="missing-card-icon">🔗</div>
+        <div class="missing-card-text">
+          <div class="ttl">Salidas no ligadas a los tiros del día</div>
+          <div class="desc">En el Excel, cada salida corresponde a un día de tronadura con sus tiros registrados. En el sistema, la relación con el Reporte de Perforación es opcional y actualmente no se usa.</div>
+        </div>
+      </div>
+      <div class="missing-card">
+        <div class="missing-card-icon">📥</div>
+        <div class="missing-card-text">
+          <div class="ttl">Sin exportación a Excel</div>
+          <div class="desc">Todo queda solo en pantalla. No hay forma de descargar el historial de movimientos o el kardex en formato Excel para enviar, archivar o comparar con el documento actual.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /main -->
+
+<footer>Sistema de Producción Minera &nbsp;·&nbsp; Módulo Explosivos &nbsp;·&nbsp; 2026</footer>
+
+</body>
+</html>

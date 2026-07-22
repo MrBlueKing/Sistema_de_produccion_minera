@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { HiPlus, HiHome, HiPencil, HiTrash, HiTag } from 'react-icons/hi2';
+import { HiPlus, HiHome, HiPencil, HiTrash, HiTag, HiInformationCircle } from 'react-icons/hi2';
 import { useNavigate } from 'react-router-dom';
 import Header from '../../../shared/components/organisms/Header';
 import Button from '../../../shared/components/atoms/Button';
@@ -17,6 +17,7 @@ export default function TiposFrente() {
   const [tiposFrente, setTiposFrente] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [showInfo, setShowInfo] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [deleteModal, setDeleteModal] = useState({ show: false, id: null, nombre: '' });
 
@@ -163,13 +164,13 @@ export default function TiposFrente() {
     <div className="min-h-screen bg-gradient-to-br from-orange-50 via-white to-orange-50">
       <Header />
 
-      <main className="max-w-5xl mx-auto px-4 py-6">
+      <main className="max-w-7xl mx-auto px-4 py-6">
         {/* Breadcrumb */}
         <div className="mb-6">
           <Breadcrumb
             items={[
               {
-                label: 'Dashboard Central',
+                label: 'Portal M3H',
                 href: import.meta.env.VITE_CENTRAL_URL,
                 onClick: (e) => {
                   e.preventDefault();
@@ -178,11 +179,11 @@ export default function TiposFrente() {
                 icon: HiHome
               },
               {
-                label: 'Frentes de Trabajo',
-                href: '/ingenieria/frentes-trabajo',
+                label: 'Ingeniería',
+                href: '/ingenieria',
                 onClick: (e) => {
                   e.preventDefault();
-                  navigate('/ingenieria/frentes-trabajo');
+                  navigate('/ingenieria');
                 }
               },
               {
@@ -218,6 +219,19 @@ export default function TiposFrente() {
             </div>
 
             <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowInfo((v) => !v)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold border transition-colors ${
+                  showInfo
+                    ? 'bg-blue-500 text-white border-blue-500'
+                    : 'bg-white text-blue-500 border-blue-200 hover:bg-blue-50'
+                }`}
+                title="Ver cómo funciona"
+              >
+                <HiInformationCircle className="w-4 h-4" />
+                <span className="hidden sm:inline">¿Cómo funciona?</span>
+              </button>
               <Button
                 variant="secondary"
                 onClick={() => navigate('/ingenieria/frentes-trabajo')}
@@ -236,6 +250,27 @@ export default function TiposFrente() {
             </div>
           </div>
         </div>
+
+        {/* Panel ¿Cómo funciona? */}
+        {showInfo && (
+          <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-xl">
+            <p className="text-xs font-bold text-blue-800 uppercase tracking-wide mb-2.5">¿Cómo funciona Tipos de Frente?</p>
+            <div className="space-y-2">
+              <div className="bg-white border border-orange-200 rounded-lg px-3 py-2">
+                <p className="text-xs font-bold text-orange-700">Qué es esta pantalla</p>
+                <p className="text-xs text-gray-500 mt-0.5">El catálogo de categorías que se pueden asignar a un Frente de Trabajo (ej: Desquinche, Rampa, Banco). Cada tipo tiene nombre y abreviatura.</p>
+              </div>
+              <div className="bg-white border border-orange-200 rounded-lg px-3 py-2">
+                <p className="text-xs font-bold text-orange-700">Relación con Frentes de Trabajo</p>
+                <p className="text-xs text-gray-500 mt-0.5">Al crear o editar un frente en "Frentes de Trabajo", se elige uno de estos tipos. Si necesitas un tipo que no existe, créalo primero acá.</p>
+              </div>
+              <div className="bg-white border border-orange-200 rounded-lg px-3 py-2">
+                <p className="text-xs font-bold text-orange-700">Cuidado al eliminar</p>
+                <p className="text-xs text-gray-500 mt-0.5">Un tipo con frentes asociados no se puede eliminar — hay que reasignar esos frentes a otro tipo primero.</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Formulario */}
         {showForm && (

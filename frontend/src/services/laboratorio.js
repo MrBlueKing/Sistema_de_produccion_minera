@@ -79,9 +79,9 @@ class LaboratorioService {
     return response.data;
   }
 
-  async deleteLote(id, opcion = 'dejar_huerfanas') {
+  async deleteLote(id, opcion = 'reasignar', loteDestinoId = null) {
     const response = await api.delete(`/dispatch/lotes/${id}`, {
-      params: { opcion }
+      params: { opcion, lote_destino_id: loteDestinoId }
     });
     return response.data;
   }
@@ -98,6 +98,11 @@ class LaboratorioService {
 
   async cerrarLote(id, datos = {}) {
     const response = await api.post(`/dispatch/lotes/${id}/cerrar`, datos);
+    return response.data;
+  }
+
+  async reabrirLote(id) {
+    const response = await api.post(`/dispatch/lotes/${id}/reabrir`);
     return response.data;
   }
 
@@ -156,6 +161,14 @@ class LaboratorioService {
     const response = await api.post('/dispatch/camionadas/reordenar', {
       camionada_id: camionadaId,
       direccion,
+    });
+    return response.data;
+  }
+
+  async moverCamionadas(camionadaIds, loteDestinoId) {
+    const response = await api.post('/dispatch/camionadas/mover', {
+      camionada_ids: camionadaIds,
+      lote_destino_id: loteDestinoId,
     });
     return response.data;
   }

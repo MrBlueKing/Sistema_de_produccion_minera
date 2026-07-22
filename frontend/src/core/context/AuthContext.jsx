@@ -128,7 +128,7 @@ export const AuthProvider = ({ children }) => {
                 <div className="text-center">
                     <div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-200 border-t-blue-600 mx-auto mb-4"></div>
                     <p className="text-blue-900 font-semibold text-lg">Validando sesión...</p>
-                    <p className="text-blue-600 text-sm mt-2">Sistema de Producción</p>
+                    <p className="text-blue-600 text-sm mt-2">Sistema Integrado de Gestión Minera</p>
                 </div>
             </div>
         );

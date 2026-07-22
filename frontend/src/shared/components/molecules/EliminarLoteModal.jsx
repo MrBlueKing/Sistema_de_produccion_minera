@@ -1,29 +1,34 @@
 import { useState } from 'react';
 import {
-   HiExclamationTriangle, HiArrowPath, HiTrash, HiExclamationCircle } from 'react-icons/hi2';
+   HiExclamationTriangle, HiArrowPath, HiTrash } from 'react-icons/hi2';
 import { HiX } from 'react-icons/hi';
 import Button from '../atoms/Button';
+import LoteSelector from '../../../modules/dispatch/components/LoteSelector';
 
 /**
  * Modal para eliminar un lote con opciones para las camionadas
  *
  * @param {boolean} show - Si se muestra el modal
- * @param {object} lote - Objeto del lote a eliminar {id, numero_lote, camionadas: [...]}
- * @param {function} onConfirm - Función que recibe la opción seleccionada
+ * @param {object} lote - Objeto del lote a eliminar {id, numero_lote, planta_id, empresa_id, camionadas: [...]}
+ * @param {function} onConfirm - Función que recibe (opcion, loteDestinoId)
  * @param {function} onCancel - Función al cancelar
  */
 export default function EliminarLoteModal({ show, lote, onConfirm, onCancel }) {
   const esCerrado = lote?.estado === 'Cerrado' || lote?.estado === 'CERRADO';
   const [opcionSeleccionada, setOpcionSeleccionada] = useState(esCerrado ? 'eliminar_camionadas' : 'reasignar');
+  const [loteDestinoId, setLoteDestinoId] = useState(null);
   const [loading, setLoading] = useState(false);
 
   if (!show || !lote) return null;
 
   const cantidadCamionadas = lote.camionadas?.length || lote.numero_camionadas || 0;
 
+  const puedeConfirmar = opcionSeleccionada !== 'reasignar' || !!loteDestinoId;
+
   const handleConfirm = async () => {
+    if (!puedeConfirmar) return;
     setLoading(true);
-    await onConfirm(opcionSeleccionada);
+    await onConfirm(opcionSeleccionada, loteDestinoId);
     setLoading(false);
   };
 
@@ -33,7 +38,7 @@ export default function EliminarLoteModal({ show, lote, onConfirm, onCancel }) {
       label: 'Reasignar a otro lote',
       icon: HiArrowPath,
       color: 'blue',
-      description: `Las ${cantidadCamionadas} camionada(s) se reasignarán a otro lote ABIERTO de la misma planta y empresa. Si no existe, se creará uno nuevo.`,
+      description: `Elegí a qué lote ABIERTO se mueven las ${cantidadCamionadas} camionada(s).`,
       recommended: true
     }] : []),
     {
@@ -43,14 +48,6 @@ export default function EliminarLoteModal({ show, lote, onConfirm, onCancel }) {
       color: 'red',
       description: `Las ${cantidadCamionadas} camionada(s) se eliminarán y sus toneladas se restaurarán a las mezclas de origen. ⚠️ Esta acción no se puede deshacer.`,
       recommended: esCerrado
-    },
-    {
-      value: 'dejar_huerfanas',
-      label: 'Dejar sin lote (no recomendado)',
-      icon: HiExclamationCircle,
-      color: 'yellow',
-      description: `Las ${cantidadCamionadas} camionada(s) quedarán sin lote asignado (huérfanas). Deberás reasignarlas manualmente después.`,
-      recommended: false
     }
   ];
 
@@ -163,6 +160,18 @@ export default function EliminarLoteModal({ show, lote, onConfirm, onCancel }) {
                     </label>
                   );
                 })}
+
+                {opcionSeleccionada === 'reasignar' && (
+                  <div className="pl-8">
+                    <LoteSelector
+                      loteId={loteDestinoId}
+                      onChange={setLoteDestinoId}
+                      excludeId={lote.id}
+                      allowCrearNuevo={false}
+                      requierePlantaEmpresa={false}
+                    />
+                  </div>
+                )}
               </div>
             )}
 
@@ -186,7 +195,7 @@ export default function EliminarLoteModal({ show, lote, onConfirm, onCancel }) {
             <Button
               variant="danger"
               onClick={handleConfirm}
-              disabled={loading}
+              disabled={loading || !puedeConfirmar}
             >
               {loading ? 'Eliminando...' : 'Eliminar Lote'}
             </Button>

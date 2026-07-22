@@ -28,6 +28,7 @@ import Button from '../../../shared/components/atoms/Button';
 import Loader from '../../../shared/components/atoms/Loader';
 import ConfirmModal from '../../../shared/components/molecules/ConfirmModal';
 import EliminarLoteModal from '../../../shared/components/molecules/EliminarLoteModal';
+import LoteSelector from './LoteSelector';
 import CamionadaFormMejorado from './CamionadaFormMejorado';
 import CamionadasMultiplesForm from './CamionadasMultiplesForm';
 import CerrarLoteModal from './CerrarLoteModal';
@@ -105,9 +106,21 @@ const DespachosView = () => {
   const [expandidosCam, setExpandidosCam] = useState({});
   const [mostrarModalCerrarLote, setMostrarModalCerrarLote] = useState(false);
   const [loteACerrar, setLoteACerrar] = useState(null);
-  const [deleteModal, setDeleteModal] = useState({ show: false, id: null, nombre: '', tipo: '' });
+  const [deleteModal, setDeleteModal] = useState({ show: false, id: null, ids: null, nombre: '', tipo: '' });
   const [mostrarModalEliminarLote, setMostrarModalEliminarLote] = useState(false);
   const [loteAEliminar, setLoteAEliminar] = useState(null);
+
+  // Modal mover camionada(s) a otro lote (soporta selección múltiple)
+  const [camionadasAMover, setCamionadasAMover] = useState([]);
+  const [loteOrigenMover, setLoteOrigenMover] = useState(null);
+  const [loteDestinoMoverId, setLoteDestinoMoverId] = useState(null);
+  const [moviendoCamionada, setMoviendoCamionada] = useState(false);
+
+  // Selección de camionadas en las cards de "Resumen General" (para mover varias a la vez)
+  const [seleccionMoverCard, setSeleccionMoverCard] = useState({ loteId: null, ids: [] });
+
+  // Resaltado momentáneo de la camionada que se acaba de reordenar (subir/bajar)
+  const [camionadaResaltada, setCamionadaResaltada] = useState(null);
 
   // Modal editar lote
   const [modalEditarFecha, setModalEditarFecha] = useState({ show: false, lote: null, numero_lote: '', fecha_creacion: '', observaciones: '', confirmando: false });
@@ -283,7 +296,19 @@ const DespachosView = () => {
   };
 
   const handleEliminarCamionada = (id) => {
-    setDeleteModal({ show: true, id, nombre: `camionada #${id}`, tipo: 'camionada' });
+    setDeleteModal({ show: true, id, ids: null, nombre: `camionada #${id}`, tipo: 'camionada' });
+  };
+
+  const handleEliminarSeleccionadas = () => {
+    const ids = seleccionMoverCard.ids;
+    if (!ids.length) return;
+    setDeleteModal({
+      show: true,
+      id: null,
+      ids,
+      nombre: `${ids.length} camionada${ids.length > 1 ? 's' : ''}`,
+      tipo: 'camionadas_multiple'
+    });
   };
 
   // ============== FUNCIONES HELPER PARA FORMULARIOS ==============
@@ -404,9 +429,15 @@ const DespachosView = () => {
         await laboratorioService.deleteCamionada(deleteModal.id);
         toast.success('Camionada eliminada');
         cargarDatos();
+      } else if (deleteModal.tipo === 'camionadas_multiple') {
+        for (const id of deleteModal.ids) {
+          await laboratorioService.deleteCamionada(id);
+        }
+        toast.success(`${deleteModal.ids.length} camionadas eliminadas`);
+        setSeleccionMoverCard({ loteId: null, ids: [] });
       }
 
-      setDeleteModal({ show: false, id: null, nombre: '', tipo: '' });
+      setDeleteModal({ show: false, id: null, ids: null, nombre: '', tipo: '' });
       await cargarDatos();
     } catch (error) {
       console.error('Error al eliminar:', error);
@@ -420,11 +451,11 @@ const DespachosView = () => {
   };
 
   // Manejar eliminación de lote con opción
-  const handleEliminarLote = async (opcion) => {
+  const handleEliminarLote = async (opcion, loteDestinoId) => {
     if (!loteAEliminar) return;
 
     try {
-      const response = await laboratorioService.deleteLote(loteAEliminar.id, opcion);
+      const response = await laboratorioService.deleteLote(loteAEliminar.id, opcion, loteDestinoId);
       toast.success('Lote eliminado', response.mensaje || 'Lote eliminado exitosamente');
       setMostrarModalEliminarLote(false);
       setLoteAEliminar(null);
@@ -815,6 +846,12 @@ const DespachosView = () => {
       // Recargar cards
       const lotesAbRes = await laboratorioService.getLotesAbiertosConCamionadas();
       setLotesAbiertosCards(lotesAbRes || []);
+      toast.success('Camionada movida', direccion === 'subir' ? 'Subió una posición' : 'Bajó una posición');
+      // Resaltar momentáneamente la fila movida para dar feedback visual
+      setCamionadaResaltada(camionadaId);
+      setTimeout(() => {
+        setCamionadaResaltada(prev => (prev === camionadaId ? null : prev));
+      }, 1500);
     } catch (error) {
       console.error('Error al reordenar:', error);
       toast.error('Error', error.response?.data?.mensaje || error.message);
@@ -877,6 +914,64 @@ const DespachosView = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleReabrirLote = async (lote) => {
+    setLoading(true);
+    try {
+      const response = await laboratorioService.reabrirLote(lote.id);
+      toast.success('Lote reabierto', response.mensaje || 'Lote reabierto exitosamente');
+      setLoteSeleccionado(null);
+      cargarDatos();
+      cargarLotes(paginacionLotes.page);
+    } catch (error) {
+      console.error('Error al reabrir lote:', error);
+      toast.error('Error al reabrir lote', error.response?.data?.mensaje || error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleConfirmarMoverCamionada = async () => {
+    if (camionadasAMover.length === 0 || !loteDestinoMoverId) return;
+
+    setMoviendoCamionada(true);
+    try {
+      const ids = camionadasAMover.map(c => c.id);
+      await laboratorioService.moverCamionadas(ids, loteDestinoMoverId);
+      toast.success(
+        camionadasAMover.length > 1 ? 'Camionadas movidas' : 'Camionada movida',
+        camionadasAMover.length > 1
+          ? `${camionadasAMover.length} camionadas movidas al nuevo lote`
+          : `Camionada #${camionadasAMover[0].numero_camionada} movida al nuevo lote`
+      );
+      setCamionadasAMover([]);
+      setLoteOrigenMover(null);
+      setLoteDestinoMoverId(null);
+      setSeleccionMoverCard({ loteId: null, ids: [] });
+
+      // Refrescar el detalle si estaba abierto
+      if (loteSeleccionado) {
+        const loteActualizado = await laboratorioService.getLote(loteSeleccionado.id);
+        setLoteSeleccionado(loteActualizado);
+      }
+      // Recargar cards de lotes abiertos (origen y/o destino pueden haber cambiado)
+      const lotesAbRes = await laboratorioService.getLotesAbiertosConCamionadas();
+      setLotesAbiertosCards(lotesAbRes || []);
+    } catch (error) {
+      console.error('Error al mover camionada:', error);
+      toast.error('Error al mover camionada(s)', error.response?.data?.mensaje || error.message);
+    } finally {
+      setMoviendoCamionada(false);
+    }
+  };
+
+  const formatFechaCorta = (fecha) => {
+    const d = new Date(fecha);
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const yy = String(d.getFullYear()).slice(2);
+    return `${dd}-${mm}-${yy}`;
   };
 
   const getEstadoColor = (estado) => {
@@ -1007,6 +1102,10 @@ const DespachosView = () => {
             <div className="bg-white border border-indigo-200 rounded-lg px-3 py-2">
               <p className="text-xs font-bold text-indigo-700">Número de lote</p>
               <p className="text-xs text-gray-500 mt-0.5">El número de lote se genera automáticamente según la planta de destino. El prefijo utilizado para la numeración es configurable por planta — contactar al administrador del sistema.</p>
+            </div>
+            <div className="bg-white border border-indigo-200 rounded-lg px-3 py-2">
+              <p className="text-xs font-bold text-indigo-700">Remanente al cerrar un lote</p>
+              <p className="text-xs text-gray-500 mt-0.5">Al cerrar un lote se pregunta si quedó <strong>material recogido del suelo</strong> (derramado durante la carga y juntado con pala cargadora). Si lo registrás — por número de paladas o toneladas directas — el sistema crea una <strong>mezcla nueva</strong> con la misma ley que la mezcla más usada del lote, disponible para despachar a futuro. Es opcional: si no hubo nada, se cierra el lote sin más.</p>
             </div>
           </div>
         </div>
@@ -1931,6 +2030,16 @@ const DespachosView = () => {
                           <Badge color={todasRecepcionadas ? 'green' : 'blue'} size="sm">
                             {todasRecepcionadas ? 'Listo para cerrar' : 'Abierto'}
                           </Badge>
+                          <button
+                            onClick={() => {
+                              setLoteAEliminar(lote);
+                              setMostrarModalEliminarLote(true);
+                            }}
+                            className="text-red-400 hover:text-red-600 hover:bg-red-50 rounded-md p-1 transition-colors"
+                            title="Eliminar lote completo"
+                          >
+                            <HiTrash className="w-4 h-4" />
+                          </button>
                         </div>
                       </div>
 
@@ -1980,112 +2089,190 @@ const DespachosView = () => {
                         </div>
                       )}
 
-                      {/* Camionadas con recepción inline */}
+                      {/* Camionadas: tabla con recepción inline */}
                       {lote.camionadas && lote.camionadas.length > 0 ? (
-                        <div className="space-y-1.5 mb-3">
-                          {lote.camionadas.map((cam) => {
-                            const esDespachado = cam.estado === 'Despachado';
-                            const isRecepcionando = recepcionandoId === cam.id;
-                            const yaRecepcionado = cam.peso_real !== null && cam.peso_real !== undefined;
-                            const loteNecesitaNombre = !lote.numero_lote;
+                        <div className="mb-3 border border-gray-200 rounded-lg">
+                          <table className="w-full text-xs table-fixed">
+                            <thead className="bg-gray-50 border-b border-gray-200">
+                              <tr>
+                                {lote.estado === 'Abierto' && <th className="w-6 py-1.5"></th>}
+                                <th className="w-12 px-1 py-1.5 text-left text-[9px] font-semibold text-gray-500 uppercase">Orden</th>
+                                <th className="w-16 px-1 py-1.5 text-left text-[9px] font-semibold text-gray-500 uppercase">Patente</th>
+                                <th className="w-28 px-1 py-1.5 text-left text-[9px] font-semibold text-gray-500 uppercase">Mezcla</th>
+                                <th className="w-12 px-1 py-1.5 text-left text-[9px] font-semibold text-gray-500 uppercase">Peso</th>
+                                <th className="w-14 px-1 py-1.5 text-left text-[9px] font-semibold text-gray-500 uppercase">Fecha</th>
+                                <th className="px-1 py-1.5 text-right text-[9px] font-semibold text-gray-500 uppercase">Acciones</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                              {lote.camionadas.map((cam) => {
+                                const esDespachado = cam.estado === 'Despachado';
+                                const isRecepcionando = recepcionandoId === cam.id;
+                                const yaRecepcionado = cam.peso_real !== null && cam.peso_real !== undefined;
+                                const fueReordenada = camionadaResaltada === cam.id;
 
-                            return (
-                              <div
-                                key={cam.id}
-                                className={`rounded-lg border p-2.5 transition-all ${
-                                  isRecepcionando
-                                    ? 'border-green-400 bg-green-50 shadow-sm'
-                                    : yaRecepcionado
-                                      ? 'border-green-200 bg-green-50/50'
-                                      : 'border-gray-200 bg-white hover:bg-gray-50'
-                                }`}
-                              >
-                                <div className="flex items-center justify-between gap-2">
-                                  {/* Info camionada */}
-                                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                                    {/* Orden + flechas */}
-                                    <div className="flex items-center gap-0.5 flex-shrink-0">
-                                      <div className="flex flex-col">
-                                        <button
-                                          onClick={() => handleReordenarCamionada(cam.id, 'subir')}
-                                          className="text-gray-300 hover:text-blue-600 transition-colors p-0 leading-none"
-                                          title="Subir"
-                                        >
-                                          <HiChevronUp className="w-4 h-4" />
-                                        </button>
-                                        <button
-                                          onClick={() => handleReordenarCamionada(cam.id, 'bajar')}
-                                          className="text-gray-300 hover:text-blue-600 transition-colors p-0 leading-none"
-                                          title="Bajar"
-                                        >
-                                          <HiChevronDown className="w-4 h-4" />
-                                        </button>
-                                      </div>
-                                      <div className="w-7 h-7 bg-gray-100 rounded-full flex items-center justify-center text-xs font-bold text-gray-600">
-                                        {cam.numero_camionada}
-                                      </div>
-                                    </div>
-                                    <span className="font-mono font-bold text-gray-900 text-sm">{cam.patente}</span>
-                                    <span className="text-xs text-gray-500 hidden sm:inline">
-                                      <HiScale className="inline text-gray-400 mr-0.5" />
-                                      {parseFloat(cam.peso).toFixed(2)} t
-                                    </span>
-                                    <span className="text-xs text-blue-600 font-mono hidden md:inline">{cam.mezclas?.[0]?.codigo || '-'}</span>
-                                    {cam.mezclas?.[0]?.ley_prom_lote != null && (
-                                      <span className="text-xs text-orange-600 font-semibold hidden sm:inline">
-                                        {parseFloat(cam.mezclas[0].ley_prom_lote).toFixed(2)}%
-                                      </span>
+                                return (
+                                  <tr
+                                    key={cam.id}
+                                    className={`transition-colors duration-1000 ${
+                                      fueReordenada
+                                        ? 'bg-amber-100 ring-2 ring-inset ring-amber-400'
+                                        : isRecepcionando
+                                          ? 'bg-green-50'
+                                          : yaRecepcionado
+                                            ? 'bg-green-100'
+                                            : 'bg-white hover:bg-gray-50'
+                                    }`}
+                                  >
+                                    {lote.estado === 'Abierto' && (
+                                      <td className="pl-1.5 py-1">
+                                        <input
+                                          type="checkbox"
+                                          checked={seleccionMoverCard.loteId === lote.id && seleccionMoverCard.ids.includes(cam.id)}
+                                          onChange={() => {
+                                            setSeleccionMoverCard(prev => {
+                                              if (prev.loteId !== lote.id) {
+                                                return { loteId: lote.id, ids: [cam.id] };
+                                              }
+                                              const yaEsta = prev.ids.includes(cam.id);
+                                              const ids = yaEsta
+                                                ? prev.ids.filter(id => id !== cam.id)
+                                                : [...prev.ids, cam.id];
+                                              return { loteId: lote.id, ids };
+                                            });
+                                          }}
+                                          className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                                          title="Seleccionar para mover"
+                                        />
+                                      </td>
                                     )}
-                                    {yaRecepcionado && (
-                                      <span className="text-xs font-bold text-green-600">
-                                        <HiCheckCircle className="inline mr-0.5" />
-                                        {parseFloat(cam.peso_real).toFixed(2)} t
-                                      </span>
-                                    )}
-                                  </div>
-
-                                  {/* Estado o acciones de recepción */}
-                                  <div className="flex items-center gap-1 flex-shrink-0">
-                                    {!esDespachado ? (
-                                      <>
-                                        <span className={`${getEstadoColor(cam.estado)} text-white px-2 py-0.5 rounded-full text-[10px] font-bold`}>
-                                          {cam.estado}
-                                        </span>
-                                        {yaRecepcionado && (
+                                    <td className="px-1 py-1">
+                                      <div className="flex items-center gap-0.5">
+                                        <div className="flex flex-col">
                                           <button
-                                            onClick={() => handleAnularRecepcion(cam)}
-                                            className="text-amber-500 hover:text-amber-700"
-                                            title="Anular recepción"
+                                            onClick={() => handleReordenarCamionada(cam.id, 'subir')}
+                                            className="text-gray-300 hover:text-blue-600 transition-colors p-0 leading-none"
+                                            title="Subir"
                                           >
-                                            <HiXCircle className="w-4 h-4" />
+                                            <HiChevronUp className="w-3.5 h-3.5" />
+                                          </button>
+                                          <button
+                                            onClick={() => handleReordenarCamionada(cam.id, 'bajar')}
+                                            className="text-gray-300 hover:text-blue-600 transition-colors p-0 leading-none"
+                                            title="Bajar"
+                                          >
+                                            <HiChevronDown className="w-3.5 h-3.5" />
+                                          </button>
+                                        </div>
+                                        <div className="w-5 h-5 bg-gray-100 rounded-full flex items-center justify-center text-[10px] font-bold text-gray-600 flex-shrink-0">
+                                          {cam.numero_camionada}
+                                        </div>
+                                      </div>
+                                    </td>
+                                    <td className="px-1 py-1 font-mono font-bold text-gray-900 truncate">{cam.patente}</td>
+                                    <td className="px-1 py-1 truncate">
+                                      <span className="font-mono text-blue-600">{cam.mezclas?.[0]?.codigo || '-'}</span>
+                                      {cam.mezclas?.[0]?.ley_prom_lote != null && (
+                                        <span className="text-orange-600 font-semibold ml-1">{parseFloat(cam.mezclas[0].ley_prom_lote).toFixed(2)}%</span>
+                                      )}
+                                    </td>
+                                    <td className="px-1 py-1 whitespace-nowrap">
+                                      {yaRecepcionado ? (
+                                        <span className="font-bold text-green-800">{parseFloat(cam.peso_real).toFixed(2)}t</span>
+                                      ) : (
+                                        <span className="text-gray-500">{parseFloat(cam.peso).toFixed(2)}t</span>
+                                      )}
+                                    </td>
+                                    <td className="px-1 py-1 text-gray-500 whitespace-nowrap">
+                                      {yaRecepcionado
+                                        ? (cam.fecha_recepcion ? formatFechaCorta(cam.fecha_recepcion) : '—')
+                                        : (cam.fecha_despacho ? formatFechaCorta(cam.fecha_despacho) : '—')}
+                                    </td>
+                                    <td className="px-1 py-1">
+                                      <div className="flex items-center justify-end gap-1 whitespace-nowrap">
+                                        {!esDespachado ? (
+                                          <>
+                                            {!yaRecepcionado && (
+                                              <span className={`${getEstadoColor(cam.estado)} text-white px-1.5 py-0.5 rounded-full text-[9px] font-bold`}>
+                                                {cam.estado}
+                                              </span>
+                                            )}
+                                            {yaRecepcionado && (
+                                              <button
+                                                onClick={() => handleAnularRecepcion(cam)}
+                                                className="flex items-center gap-1 px-1.5 py-1 bg-amber-100 hover:bg-amber-200 text-amber-700 text-[11px] font-bold rounded-md transition-colors"
+                                                title="Anular recepción"
+                                              >
+                                                <HiXCircle className="w-3.5 h-3.5" />
+                                                Anular
+                                              </button>
+                                            )}
+                                          </>
+                                        ) : (
+                                          <button
+                                            onClick={() => handleRecepcionModal({ ...cam, lote })}
+                                            className="flex items-center gap-1 px-1.5 py-1 bg-green-500 hover:bg-green-600 text-white text-[11px] font-bold rounded-md transition-colors"
+                                          >
+                                            <HiCheckCircle className="w-3.5 h-3.5" />
+                                            Recepcionar
                                           </button>
                                         )}
-                                      </>
-                                    ) : (
-                                      <button
-                                        onClick={() => handleRecepcionModal({ ...cam, lote })}
-                                        className="flex items-center gap-1 px-2.5 py-1 bg-green-500 hover:bg-green-600 text-white text-xs font-bold rounded-md transition-colors"
-                                      >
-                                        <HiCheckCircle className="w-3.5 h-3.5" />
-                                        Recepcionar
-                                      </button>
-                                    )}
-                                    <button
-                                      onClick={() => handleEliminarCamionada(cam.id)}
-                                      className="text-red-400 hover:text-red-600 transition-colors"
-                                      title="Eliminar camionada"
-                                    >
-                                      <HiTrash className="w-4 h-4" />
-                                    </button>
-                                  </div>
-                                </div>
-                              </div>
-                            );
-                          })}
+                                        <button
+                                          onClick={() => handleEliminarCamionada(cam.id)}
+                                          className="text-red-400 hover:text-red-600 hover:bg-red-50 rounded-md p-1 transition-colors"
+                                          title="Eliminar camionada"
+                                        >
+                                          <HiTrash className="w-4 h-4" />
+                                        </button>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
                         </div>
                       ) : (
                         <div className="text-center py-4 text-gray-400 text-sm border border-dashed border-gray-300 rounded-lg mb-3">
                           Sin camionadas
+                        </div>
+                      )}
+
+                      {/* Barra de selección: solo aparece si hay camionadas tildadas en esta card */}
+                      {seleccionMoverCard.loteId === lote.id && seleccionMoverCard.ids.length > 0 && (
+                        <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 mb-3">
+                          <span className="text-sm font-semibold text-blue-700">
+                            {seleccionMoverCard.ids.length} camionada{seleccionMoverCard.ids.length > 1 ? 's' : ''} seleccionada{seleccionMoverCard.ids.length > 1 ? 's' : ''}
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              icon={HiRefresh}
+                              onClick={() => {
+                                setCamionadasAMover(lote.camionadas.filter(c => seleccionMoverCard.ids.includes(c.id)));
+                                setLoteOrigenMover(lote);
+                                setLoteDestinoMoverId(null);
+                              }}
+                            >
+                              Mover
+                            </Button>
+                            <Button
+                              variant="warning"
+                              size="sm"
+                              icon={HiTrash}
+                              onClick={handleEliminarSeleccionadas}
+                            >
+                              Eliminar
+                            </Button>
+                            <button
+                              onClick={() => setSeleccionMoverCard({ loteId: null, ids: [] })}
+                              className="text-blue-400 hover:text-blue-700 rounded-md p-1 transition-colors"
+                              title="Cancelar selección"
+                            >
+                              <HiX className="w-4 h-4" />
+                            </button>
+                          </div>
                         </div>
                       )}
 
@@ -2116,17 +2303,6 @@ const DespachosView = () => {
                           title={!todasRecepcionadas ? 'Debes recepcionar todas las camionadas' : 'Cerrar lote'}
                         >
                           Cerrar
-                        </Button>
-                        <Button
-                          variant="danger"
-                          size="sm"
-                          icon={HiTrash}
-                          onClick={() => {
-                            setLoteAEliminar(lote);
-                            setMostrarModalEliminarLote(true);
-                          }}
-                        >
-                          Eliminar
                         </Button>
                       </div>
                     </Card>
@@ -2274,6 +2450,14 @@ const DespachosView = () => {
                                     title="Editar fecha del lote"
                                   >
                                     <HiCalendar className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleReabrirLote(lote)}
+                                    disabled={loading}
+                                    className="p-1.5 rounded-lg text-amber-400 hover:text-amber-700 hover:bg-amber-50 transition-colors disabled:opacity-50"
+                                    title="Reabrir lote (vuelve a Abierto)"
+                                  >
+                                    <HiRefresh className="w-3.5 h-3.5" />
                                   </button>
                                   <button
                                     onClick={() => {
@@ -2580,17 +2764,32 @@ const DespachosView = () => {
                                           </button>
                                         </div>
                                       ) : (
-                                        <button
-                                          onClick={() => setCamionadaEditando({
-                                            id: camionada.id,
-                                            peso_real: camionada.peso_real ?? camionada.peso ?? '',
-                                            fecha_recepcion: camionada.fecha_recepcion?.split('T')[0] ?? camionada.fecha_recepcion ?? '',
-                                          })}
-                                          className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold text-orange-600 bg-orange-50 hover:bg-orange-100 transition-colors border border-orange-200"
-                                          title="Editar peso real y fecha recepción"
-                                        >
-                                          <HiPencil className="w-3 h-3" /> Editar
-                                        </button>
+                                        <div className="flex items-center justify-center gap-1">
+                                          <button
+                                            onClick={() => setCamionadaEditando({
+                                              id: camionada.id,
+                                              peso_real: camionada.peso_real ?? camionada.peso ?? '',
+                                              fecha_recepcion: camionada.fecha_recepcion?.split('T')[0] ?? camionada.fecha_recepcion ?? '',
+                                            })}
+                                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold text-orange-600 bg-orange-50 hover:bg-orange-100 transition-colors border border-orange-200"
+                                            title="Editar peso real y fecha recepción"
+                                          >
+                                            <HiPencil className="w-3 h-3" /> Editar
+                                          </button>
+                                          {loteSeleccionado.estado === 'Abierto' && (
+                                            <button
+                                              onClick={() => {
+                                                setCamionadasAMover([camionada]);
+                                                setLoteOrigenMover(loteSeleccionado);
+                                                setLoteDestinoMoverId(null);
+                                              }}
+                                              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 transition-colors border border-blue-200"
+                                              title="Mover a otro lote"
+                                            >
+                                              <HiRefresh className="w-3 h-3" />
+                                            </button>
+                                          )}
+                                        </div>
                                       )}
                                     </td>
                                   </tr>
@@ -2706,6 +2905,22 @@ const DespachosView = () => {
                           ⚠️ Recepciona todas las camionadas antes de cerrar.
                         </p>
                       )}
+                    </div>
+                  )}
+
+                  {loteSeleccionado.estado === 'Completado' && (
+                    <div className="mt-6 pt-4 border-t border-gray-200">
+                      <Button
+                        variant="secondary"
+                        onClick={() => handleReabrirLote(loteSeleccionado)}
+                        disabled={loading}
+                        icon={HiRefresh}
+                      >
+                        Reabrir Lote
+                      </Button>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Vuelve el lote a Abierto para poder agregar o mover camionadas.
+                      </p>
                     </div>
                   )}
                 </>
@@ -3540,12 +3755,22 @@ const DespachosView = () => {
       {/* Modal de Confirmación de Eliminación */}
       <ConfirmModal
         show={deleteModal.show}
-        title={`Eliminar ${deleteModal.tipo === 'planta' ? 'Planta' : deleteModal.tipo === 'empresa' ? 'Empresa' : deleteModal.tipo === 'camionada' ? 'Camionada' : 'Camión'}`}
-        message={`¿Está seguro que desea eliminar "${deleteModal.nombre}"? Esta acción no se puede deshacer.`}
+        title={
+          deleteModal.tipo === 'planta' ? 'Eliminar Planta'
+            : deleteModal.tipo === 'empresa' ? 'Eliminar Empresa'
+            : deleteModal.tipo === 'camionada' ? 'Eliminar Camionada'
+            : deleteModal.tipo === 'camionadas_multiple' ? 'Eliminar Camionadas'
+            : 'Eliminar Camión'
+        }
+        message={
+          deleteModal.tipo === 'camionadas_multiple'
+            ? `¿Está seguro que desea eliminar ${deleteModal.nombre}? Esta acción no se puede deshacer.`
+            : `¿Está seguro que desea eliminar "${deleteModal.nombre}"? Esta acción no se puede deshacer.`
+        }
         confirmText="Eliminar"
         cancelText="Cancelar"
         onConfirm={handleConfirmDelete}
-        onCancel={() => setDeleteModal({ show: false, id: null, nombre: '', tipo: '' })}
+        onCancel={() => setDeleteModal({ show: false, id: null, ids: null, nombre: '', tipo: '' })}
         variant="danger"
       />
 
@@ -3571,6 +3796,57 @@ const DespachosView = () => {
           setLoteAEliminar(null);
         }}
       />
+
+      {/* Modal para mover una o varias camionadas a otro lote */}
+      {camionadasAMover.length > 0 && loteOrigenMover && (
+        <div className="fixed inset-0 bg-gray-900/25 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <Card className="max-w-md w-full">
+            <div className="p-6">
+              <h3 className="text-lg font-bold text-gray-900 mb-1">
+                Mover {camionadasAMover.length > 1 ? `${camionadasAMover.length} camionadas` : 'camionada'}
+              </h3>
+              <p className="text-sm text-gray-600 mb-3">
+                Se {camionadasAMover.length > 1 ? 'renumerarán' : 'renumerará'} automáticamente en el lote destino.
+              </p>
+
+              <ul className="text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded-lg p-2 mb-4 max-h-28 overflow-y-auto">
+                {camionadasAMover.map(c => (
+                  <li key={c.id}>#{c.numero_camionada} — {c.patente}</li>
+                ))}
+              </ul>
+
+              <LoteSelector
+                loteId={loteDestinoMoverId}
+                onChange={setLoteDestinoMoverId}
+                excludeId={loteOrigenMover.id}
+                allowCrearNuevo={false}
+                requierePlantaEmpresa={false}
+              />
+
+              <div className="flex gap-3 justify-end mt-6">
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setCamionadasAMover([]);
+                    setLoteOrigenMover(null);
+                    setLoteDestinoMoverId(null);
+                  }}
+                  disabled={moviendoCamionada}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={handleConfirmarMoverCamionada}
+                  disabled={moviendoCamionada || !loteDestinoMoverId}
+                >
+                  {moviendoCamionada ? 'Moviendo...' : 'Mover'}
+                </Button>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
 
       {/* Modal de Recepción Completa */}
       {showModalRecepcion && camionadaParaRecepcion && (
