@@ -20,13 +20,13 @@ class PetroleController extends Controller
     {
         try {
             Log::info('🔍 Intentando obtener camiones tolva', [
-                'url_petroleo' => env('SISTEMA_PETROLEO_API'),
-                'endpoint_completo' => env('SISTEMA_PETROLEO_API') . '/camiones-tolva'
+                'url_petroleo' => config('services.petroleo_api'),
+                'endpoint_completo' => config('services.petroleo_api') . '/camiones-tolva'
             ]);
 
             // ✅ Endpoint público - NO requiere token
             $response = Http::timeout(10)
-                ->get(env('SISTEMA_PETROLEO_API') . '/camiones-tolva');
+                ->get(config('services.petroleo_api') . '/camiones-tolva');
 
             Log::info('📡 Respuesta del sistema de petróleo', [
                 'status' => $response->status(),
