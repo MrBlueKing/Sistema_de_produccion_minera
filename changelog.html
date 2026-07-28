@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Changelog — Sistema Integrado de Gestión Minera</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; color: #1a1a2e; }
+
+    header {
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+      color: white;
+      padding: 40px;
+      text-align: center;
+    }
+    header h1 { font-size: 2rem; margin-bottom: 8px; }
+    header p { opacity: 0.75; font-size: 0.95rem; }
+    .badge {
+      display: inline-block;
+      background: #2980b9;
+      color: white;
+      padding: 4px 14px;
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      margin-top: 12px;
+      letter-spacing: 1px;
+    }
+
+    .container { max-width: 960px; margin: 40px auto; padding: 0 20px 60px; }
+
+    .filtro {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 28px;
+    }
+    .filtro button {
+      border: 1px solid #dde;
+      background: white;
+      color: #566573;
+      padding: 7px 16px;
+      border-radius: 20px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .filtro button:hover { border-color: #0f3460; color: #0f3460; }
+    .filtro button.activo { background: #0f3460; border-color: #0f3460; color: white; }
+
+    .fecha-separador {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 34px 0 16px;
+      color: #7f8c8d;
+      font-size: 0.85rem;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .fecha-separador::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: #dde;
+    }
+
+    .entrada {
+      background: white;
+      border-radius: 12px;
+      padding: 24px 28px;
+      margin-bottom: 18px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.07);
+      border-left: 5px solid #0f3460;
+    }
+    .entrada.bug     { border-left-color: #e74c3c; }
+    .entrada.fix     { border-left-color: #27ae60; }
+    .entrada.mejora  { border-left-color: #2980b9; }
+
+    .entrada-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+    .entrada h2 {
+      font-size: 1.05rem;
+      color: #0f3460;
+      line-height: 1.4;
+    }
+    .tag {
+      display: inline-block;
+      padding: 3px 12px;
+      border-radius: 12px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    .tag-bug      { background: #fdecea; color: #c0392b; }
+    .tag-fix      { background: #d5f5e3; color: #1e8449; }
+    .tag-mejora   { background: #eaf2fb; color: #2166a8; }
+    .tag-prod     { background: #fdebd0; color: #a04000; }
+    .tag-local    { background: #eaecee; color: #566573; }
+
+    .entrada-meta {
+      font-size: 0.78rem;
+      color: #999;
+      margin-bottom: 14px;
+    }
+
+    .entrada h3 {
+      font-size: 0.78rem;
+      color: #7f8c8d;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-top: 14px;
+      margin-bottom: 6px;
+    }
+    .entrada h3:first-of-type { margin-top: 4px; }
+
+    p { line-height: 1.65; margin-bottom: 6px; font-size: 0.93rem; }
+    ul, ol { margin-left: 20px; margin-bottom: 6px; }
+    li { line-height: 1.7; font-size: 0.93rem; }
+
+    code {
+      background: #f4f4f8;
+      border: 1px solid #dde;
+      padding: 2px 7px;
+      border-radius: 4px;
+      font-family: 'Consolas', monospace;
+      font-size: 0.85rem;
+      color: #c0392b;
+    }
+    pre {
+      background: #1e1e2e;
+      color: #cdd6f4;
+      padding: 16px 18px;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-size: 0.82rem;
+      line-height: 1.6;
+      margin: 8px 0;
+      font-family: 'Consolas', monospace;
+    }
+
+    .comparativa {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin: 8px 0;
+    }
+    @media (max-width: 620px) { .comparativa { grid-template-columns: 1fr; } }
+    .comparativa .caja {
+      border-radius: 8px;
+      padding: 12px 14px;
+      font-family: 'Consolas', monospace;
+      font-size: 0.82rem;
+      word-break: break-word;
+    }
+    .caja.mal  { background: #fdecea; border: 1px solid #f5b7b1; color: #922b21; }
+    .caja.bien { background: #d5f5e3; border: 1px solid #a9dfbf; color: #1e8449; }
+    .caja span.label {
+      display: block;
+      font-family: 'Segoe UI', sans-serif;
+      font-weight: 700;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 4px;
+      opacity: 0.75;
+    }
+
+    footer {
+      text-align: center;
+      padding: 30px 20px;
+      color: #999;
+      font-size: 0.8rem;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>📋 Changelog — Sistema Integrado de Gestión Minera</h1>
+    <p>Registro de errores encontrados y soluciones aplicadas en producción</p>
+    <span class="badge" id="contador-badge">4 entradas registradas</span>
+  </header>
+
+  <div class="container">
+
+    <div class="filtro">
+      <button class="activo" data-filtro="todos">Todos</button>
+      <button data-filtro="bug">🐞 Bugs</button>
+      <button data-filtro="fix">✅ Fixes</button>
+      <button data-filtro="mejora">🔧 Mejoras</button>
+    </div>
+
+    <div class="fecha-separador">24 de julio de 2026</div>
+
+    <div class="entrada bug" data-tipo="bug">
+      <div class="entrada-top">
+        <h2>Ley Visual y Ley Lote intercambiadas en mezclas importadas (Catemu insoluble/soluble)</h2>
+        <span class="tag tag-bug">Bug</span>
+      </div>
+      <div class="entrada-meta">Módulo Dispatch — Mezclas · Producción y BD local · Detectado comparando mezcla EN188 contra el Excel real</div>
+
+      <h3>Problema</h3>
+      <p>En la vista de una mezcla, la columna "Ley Lote" salía igual para todos los componentes (ej. 1.50% en las 9 filas de la mezcla <code>EN188</code>), cuando debería variar por dumpada porque se calcula desde el laboratorio. La columna "Ley Visual" en cambio sí variaba fila a fila, cuando en la realidad la ley visual es un estimado a ojo que se asigna igual para todo un frente/turno (por eso debería ser la que sale constante). Los totales de la mezcla tampoco calzaban con el Excel de origen que usa el laboratorio para llevar el control paralelo.</p>
+
+      <div class="comparativa">
+        <div class="caja mal">
+          <span class="label">Guardado en BD (antes)</span>
+          Ley Visual: 1.26%, 0.75%, 1.52%... (varía)<br/>
+          Ley Lote: 1.50% en las 9 filas (constante)<br/>
+          Total Ley Lab mostrado: 1.85%
+        </div>
+        <div class="caja bien">
+          <span class="label">Excel real (columnas N y O)</span>
+          LEY VISUAL: 1.50% en las 9 filas (constante)<br/>
+          LEY LOTE Insoluble: 1.26%, 0.75%, 1.51%... (varía)<br/>
+          Fila "Ley Lab" del Excel: 1.42%
+        </div>
+      </div>
+
+      <h3>Causa</h3>
+      <p>Se abrió el Excel real del usuario (<code>Planilla Julio InsolubleCatemu.xlsx</code>, hoja "Mezcla") con un script de Node usando la librería <code>xlsx</code> para ver el orden exacto de columnas en la cabecera de la mezcla EN188 (fila 4207): <code>L=LEY DUMP insoluble, M=LEY DUMP Soluble, N=LEY VISUAL, O=LEY LOTE Insoluble, P=LEY LOTE Soluble</code>.</p>
+      <p>En <code>ImportarMezclasView.jsx</code>, función <code>detectarMapeoLeyes()</code>, el mapeo de columnas para el formato Catemu tenía "Ley Visual" y "Ley Lote" invertidas:</p>
+      <pre>// ANTES (columnas 13 y 14 cruzadas)
+if (sumInsol >= sumSol) {
+  return { ley_dump: 11, ley_lote: 13, ley_visual: 14, formato: 'catemu-insoluble' };
+} else {
+  return { ley_dump: 12, ley_lote: 13, ley_visual: 15, formato: 'catemu-soluble' };
+}
+
+// DESPUÉS
+if (sumInsol >= sumSol) {
+  return { ley_dump: 11, ley_visual: 13, ley_lote: 14, formato: 'catemu-insoluble' };
+} else {
+  return { ley_dump: 12, ley_visual: 13, ley_lote: 15, formato: 'catemu-soluble' };
+}</pre>
+      <p>El importador (<code>ImportarMezclasController::confirmar</code>, backend) copia estos valores tal cual del Excel a las columnas <code>ley_visual</code>/<code>ley_lote</code> de <code>mezcla_dumpada</code>, así que el swap de columnas en el frontend se propagaba directo a la base de datos. El bug no afectaba mezclas armadas manualmente con "Agregar Dumpadas" (esas usan <code>MezclaDumpada::desdeDumpada()</code>, que sí calcula bien lab×0.9 / lab×0.81).</p>
+
+      <h3>Solución</h3>
+      <ul>
+        <li>Se corrigió el mapeo de columnas en <code>detectarMapeoLeyes()</code> para las próximas importaciones.</li>
+        <li>Se creó la migración <code>2026_07_24_000001_fix_mezcla_dumpada_visual_lote_swap.php</code>, que:
+          <ol>
+            <li>Detecta filas de <code>mezcla_dumpada</code> donde <code>ley_visual</code> calza (con tolerancia de ±0.01, por redondeos previos) con el valor que debería tener <code>ley_lote</code> según la ley de laboratorio real de la dumpada (<code>cu_insoluble</code>/<code>cu_soluble</code>/<code>ley</code> según el <code>ley_base</code> de la mezcla, con capping y ×0.81).</li>
+            <li>Intercambia <code>ley_visual</code> ↔ <code>ley_lote</code> en esas filas (no se pierde información, solo estaba en la columna equivocada).</li>
+            <li>Recalcula los promedios de cada mezcla afectada con <code>Mezcla::calcularTotales()</code>, el mismo método que ya usa el resto del sistema.</li>
+          </ol>
+        </li>
+      </ul>
+      <p>Probado primero en BD local (copia de producción, 2026-07-24): <strong>1.292 filas corregidas en 198 mezclas</strong> (dos pasadas: 1.154 filas / 105 mezclas en la primera detección exacta, 138 filas / 93 mezclas adicionales tras ajustar la tolerancia de redondeo). Verificación en <code>EN188</code>: Ley Dump 1.28%, Ley Lote 1.15%, Ley Lab 1.42% — los tres calzan exacto con el Excel de origen.</p>
+
+      <h3>Estado</h3>
+      <p><span class="tag tag-fix">Corregido</span> <span class="tag tag-local">Validado en BD local</span> <span class="tag tag-prod">Pendiente ejecutar en producción</span></p>
+    </div>
+
+    <div class="entrada bug" data-tipo="bug">
+      <div class="entrada-top">
+        <h2>Código de dumpadas importadas desde Excel no incluía el número de jornada</h2>
+        <span class="tag tag-bug">Bug</span>
+      </div>
+      <div class="entrada-meta">Módulo Dispatch / Laboratorio · Producción y BD local</div>
+
+      <h3>Problema</h3>
+      <p>En el listado de dumpadas, las creadas manualmente mostraban un código bien formado (ej. <code>NIVEL975 AM 4 3328 24.07.2026</code>), pero las que venían de una importación de Excel salían sin el número de jornada y con la fecha en otro formato (ej. <code>NIVEL 974 M4 6N L33 AM 3323 16-07-2026</code>). El campo "Jornada" de la tabla sí mostraba el número correcto (se lee en vivo desde la base de datos), lo que hacía parecer que el problema era la numeración cuando en realidad era solo el texto guardado.</p>
+
+      <div class="comparativa">
+        <div class="caja mal">
+          <span class="label">Importado (antes)</span>
+          NIVEL 974 M4 6N L33 AM 3323 16-07-2026
+        </div>
+        <div class="caja bien">
+          <span class="label">Manual / esperado</span>
+          NIVEL974M46NL33 AM 2 3323 16.07.2026
+        </div>
+      </div>
+
+      <h3>Causa</h3>
+      <p>El ingreso manual (<code>DumpadaController::store</code>) arma el campo <code>acopios</code> (el "Código" que se muestra) combinando frente + jornada + número de jornada + número de dumpada + fecha. El importador (<code>ImportarDumpadasController::confirmar</code>) en cambio copiaba tal cual el texto que traía la columna "acopios" del Excel de origen, sin reconstruirlo con el número de jornada calculado por el sistema.</p>
+
+      <h3>Solución</h3>
+      <ul>
+        <li>Se corrigió <code>ImportarDumpadasController.php</code> para que arme el código igual que el ingreso manual.</li>
+        <li>Se corrieron ~9.650 registros existentes con un <code>UPDATE</code> que regeneró el campo <code>acopios</code> usando los datos ya correctos en base de datos (frente, jornada, número de jornada, número de dumpada, fecha). No tocó numeración ni ningún otro campo.</li>
+      </ul>
+      <pre>UPDATE dumpadas d
+JOIN frentes_trabajo ft ON ft.id = d.id_frente_trabajo
+SET d.acopios = TRIM(CONCAT(
+  ft.codigo_completo, ' ', d.jornada, ' ', d.numero_jornada, ' ', d.numero_dumpada, ' ', DATE_FORMAT(d.fecha, '%d.%m.%Y')
+))
+WHERE d.acopios != TRIM(CONCAT(
+  ft.codigo_completo, ' ', d.jornada, ' ', d.numero_jornada, ' ', d.numero_dumpada, ' ', DATE_FORMAT(d.fecha, '%d.%m.%Y')
+));</pre>
+
+      <h3>Estado</h3>
+      <p><span class="tag tag-fix">Corregido</span> <span class="tag tag-prod">Ejecutado en producción</span></p>
+    </div>
+
+    <div class="entrada bug" data-tipo="bug">
+      <div class="entrada-top">
+        <h2>Error 500 al completar análisis de laboratorio (columna faltante)</h2>
+        <span class="tag tag-bug">Bug</span>
+      </div>
+      <div class="entrada-meta">Módulo Laboratorio · Producción</div>
+
+      <h3>Problema</h3>
+      <p><code>POST /api/laboratorio/dumpadas/completar-multiples</code> devolvía error 500 al intentar completar análisis de laboratorio en producción.</p>
+
+      <h3>Causa</h3>
+      <p>La migración <code>2026_07_21_000001_add_fecha_analisis_completado_to_dumpadas_table.php</code> (que agrega la columna <code>fecha_analisis_completado</code> a <code>dumpadas</code>) se subió con el código pero nunca se corrió en el servidor de producción. El controlador intentaba guardar esa columna y MySQL respondía "Unknown column".</p>
+
+      <h3>Solución</h3>
+      <p>Se corrió la migración pendiente en el servidor, usando el binario de PHP 8.2 (el <code>php</code> del PATH por defecto resuelve a 8.1.34, que no cumple el mínimo del proyecto):</p>
+      <pre>/opt/cpanel/ea-php82/root/usr/bin/php artisan migrate --force</pre>
+
+      <h3>Estado</h3>
+      <p><span class="tag tag-fix">Corregido</span> <span class="tag tag-prod">Ejecutado en producción</span></p>
+    </div>
+
+    <div class="fecha-separador">22 de julio de 2026</div>
+
+    <div class="entrada fix" data-tipo="fix">
+      <div class="entrada-top">
+        <h2>Integración con Sistema de Petróleo rota tras <code>config:cache</code></h2>
+        <span class="tag tag-fix">Fix</span>
+      </div>
+      <div class="entrada-meta">Módulo Dispatch (camiones tolva) · Producción</div>
+
+      <h3>Problema</h3>
+      <p>El endpoint de camiones tolva (<code>PetroleController::maquinas</code>) dejaba de encontrar la URL del Sistema de Petróleo en producción.</p>
+
+      <h3>Causa</h3>
+      <p><code>env('SISTEMA_PETROLEO_API')</code> se usaba directo en el controlador. <code>env()</code> deja de funcionar fuera de archivos de configuración después de correr <code>config:cache</code> (que el deploy de este repo ejecuta), devolviendo <code>null</code>.</p>
+
+      <h3>Solución</h3>
+      <p>Se reemplazó por <code>config('services.petroleo_api')</code>, que ya existía definido en <code>config/services.php</code> pero no se estaba usando.</p>
+
+      <h3>Estado</h3>
+      <p><span class="tag tag-fix">Corregido</span> <span class="tag tag-prod">En producción</span></p>
+    </div>
+
+  </div>
+
+  <footer>
+    Sistema Integrado de Gestión Minera · Documento vivo, se agregan entradas a medida que se detectan y corrigen errores.
+  </footer>
+
+  <script>
+    const botones = document.querySelectorAll('.filtro button');
+    const entradas = document.querySelectorAll('.entrada');
+    botones.forEach(btn => {
+      btn.addEventListener('click', () => {
+        botones.forEach(b => b.classList.remove('activo'));
+        btn.classList.add('activo');
+        const filtro = btn.dataset.filtro;
+        entradas.forEach(e => {
+          e.style.display = (filtro === 'todos' || e.dataset.tipo === filtro) ? '' : 'none';
+        });
+      });
+    });
+  </script>
+
+</body>
+</html>

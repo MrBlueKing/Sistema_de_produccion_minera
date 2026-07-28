@@ -49,9 +49,9 @@ function detectarMapeoLeyes(rows) {
   }
 
   if (sumInsol >= sumSol) {
-    return { ley_dump: 11, ley_lote: 13, ley_visual: 14, formato: 'catemu-insoluble' };
+    return { ley_dump: 11, ley_visual: 13, ley_lote: 14, formato: 'catemu-insoluble' };
   } else {
-    return { ley_dump: 12, ley_lote: 13, ley_visual: 15, formato: 'catemu-soluble' };
+    return { ley_dump: 12, ley_visual: 13, ley_lote: 15, formato: 'catemu-soluble' };
   }
 }
 

@@ -202,6 +202,10 @@ class ImportarDumpadasController extends Controller
                 $jornadaCounter[$counterKey]++;
                 $numeroJornada = $jornadaCounter[$counterKey];
 
+                // Código de acopio (mismo formato que el ingreso manual, no el texto crudo del Excel)
+                $fechaFormateada = $fecha ? Carbon::parse($fecha)->format('d.m.Y') : '';
+                $acopiosGenerado = trim("{$frente->codigo_completo} {$jornada} {$numeroJornada} {$numeroDumpada} {$fechaFormateada}");
+
                 // Ley (ya viene como porcentaje desde el frontend, ej: 2.64)
                 $ley      = isset($d['ley'])      ? (float) $d['ley']      : null;
                 $leyCup   = isset($d['ley_cup'])  ? (float) $d['ley_cup']  : $ley;
@@ -245,7 +249,7 @@ class ImportarDumpadasController extends Controller
                     'id_faena'          => $faenaId,
                     'faena'             => $nombreFaena,
                     'numero_dumpada'    => $numeroDumpada,
-                    'acopios'           => $d['acopios'] ?? '',
+                    'acopios'           => $acopiosGenerado,
                     'jornada'           => $jornada,
                     'numero_jornada'    => $numeroJornada,
                     'fecha'             => $fecha,
