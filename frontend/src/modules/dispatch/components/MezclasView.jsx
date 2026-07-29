@@ -2914,7 +2914,7 @@ export default function MezclasView({
                             {detalle.ley_dump_ajustada ? `${parseFloat(detalle.ley_dump_ajustada).toFixed(2)}%` : '-'}
                           </td>
                           <td className="py-2 px-3 text-xs text-right tabular-nums">
-                            {detalle.ley_visual ? `${(parseFloat(detalle.ley_visual) * factorAjusteLey).toFixed(2)}%` : '-'}
+                            {detalle.ley_visual ? `${parseFloat(detalle.ley_visual).toFixed(2)}%` : '-'}
                           </td>
                           <td className="py-2 px-3 text-xs text-right tabular-nums">
                             {detalle.ley_lote ? `${parseFloat(detalle.ley_lote).toFixed(2)}%` : '-'}

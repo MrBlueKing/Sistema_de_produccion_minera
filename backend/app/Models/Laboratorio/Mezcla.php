@@ -202,7 +202,7 @@ class Mezcla extends Model
      * IMPORTANTE:
      * - ley_dump_ajustada ya viene CON factor aplicado (lab×0.9, visual directo)
      * - ley_lote ya viene CON factor aplicado (lab×0.81, visual×0.9)
-     * - Solo ley_prom_visual se le aplica factor ×0.9 aquí
+     * - ley_prom_visual es un estimado a ojo, se guarda SIN descuento (valor original)
      */
     public function calcularTotales()
     {
@@ -276,12 +276,12 @@ class Mezcla extends Model
         // Calcular promedios ponderados
         // IMPORTANTE:
         // - ley_prom_dump: los detalles ya tienen el factor aplicado (lab×0.9, visual directo), NO aplicar de nuevo
-        // - ley_prom_visual: se aplica factor 0.9 al promedio
+        // - ley_prom_visual: es un estimado a ojo, se guarda SIN descuento (valor original)
         // - ley_prom_lote: los detalles ya tienen factor aplicado (lab×0.81, visual×0.9), NO aplicar de nuevo
         $factor = MezclaConfig::getFactorAjusteLey();
 
         $this->ley_prom_dump = $totalTon > 0 ? round($sumaDumpPonderada / $totalTon, 2) : null;
-        $this->ley_prom_visual = $totalTon > 0 ? round(($sumaVisualPonderada / $totalTon) * $factor, 2) : null;
+        $this->ley_prom_visual = $totalTon > 0 ? round($sumaVisualPonderada / $totalTon, 2) : null;
         $this->ley_prom_lote = $totalTon > 0 ? round($sumaLotePonderada / $totalTon, 2) : null;
 
         // Calcular ley_lab = ley_prom_lote / (factor * factor) → inversa del camino lab
