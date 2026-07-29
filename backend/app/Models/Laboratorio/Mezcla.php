@@ -241,8 +241,22 @@ class Mezcla extends Model
         }
 
         // Promedios ponderados por toneladas (ley_dump y ley_lote ya tienen factores aplicados)
-        $sumaDumpPonderada = $detalles->sum(function ($detalle) {
-            return $detalle->toneladas * ($detalle->ley_dump_ajustada ?? 0);
+        $factor = MezclaConfig::getFactorAjusteLey();
+
+        // ley_dump_ajustada puede venir NULL o con un valor inconsistente en remanentes
+        // importados con error de fórmula en el Excel origen (#¡REF! u otro dato suelto).
+        // Por diseño ley_lote_i siempre debe ser ley_dump_ajustada_i × factor; si esa relación
+        // no se cumple (o el dato falta), se deriva desde ley_lote —que sí viene siempre
+        // completo y confiable— en vez de usar un valor ausente (tratado como 0) o corrupto.
+        $sumaDumpPonderada = $detalles->sum(function ($detalle) use ($factor) {
+            $leyDump = $detalle->ley_dump_ajustada;
+            $leyLote = $detalle->ley_lote;
+            $inconsistente = $leyDump !== null && $leyLote !== null
+                && abs($leyLote - ($leyDump * $factor)) > 0.05;
+            if (($leyDump === null || $inconsistente) && $leyLote !== null && $factor > 0) {
+                $leyDump = $leyLote / $factor;
+            }
+            return $detalle->toneladas * ($leyDump ?? 0);
         });
 
         $sumaVisualPonderada = $detalles->sum(function ($detalle) {
@@ -278,8 +292,6 @@ class Mezcla extends Model
         // - ley_prom_dump: los detalles ya tienen el factor aplicado (lab×0.9, visual directo), NO aplicar de nuevo
         // - ley_prom_visual: es un estimado a ojo, se guarda SIN descuento (valor original)
         // - ley_prom_lote: los detalles ya tienen factor aplicado (lab×0.81, visual×0.9), NO aplicar de nuevo
-        $factor = MezclaConfig::getFactorAjusteLey();
-
         $this->ley_prom_dump = $totalTon > 0 ? round($sumaDumpPonderada / $totalTon, 2) : null;
         $this->ley_prom_visual = $totalTon > 0 ? round($sumaVisualPonderada / $totalTon, 2) : null;
         $this->ley_prom_lote = $totalTon > 0 ? round($sumaLotePonderada / $totalTon, 2) : null;
