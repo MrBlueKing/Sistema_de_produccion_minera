@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { HiArrowLeft, HiHome, HiArrowPath, HiTrash } from 'react-icons/hi2';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Navigate } from 'react-router-dom';
 import Header from '../../../shared/components/organisms/Header';
 import Button from '../../../shared/components/atoms/Button';
 import Card from '../../../shared/components/atoms/Card';
@@ -8,9 +8,14 @@ import Breadcrumb from '../../../shared/components/atoms/Breadcrumb';
 import ConfirmModal from '../../../shared/components/molecules/ConfirmModal';
 import AlertMessage from '../../../shared/components/molecules/AlertMessage';
 import ingenieriaService from '../../ingenieria/services/ingenieria';
+import { useAuth } from '../../../core/context/AuthContext';
+
+// Roles con acceso directo SOLO a Reportes P&T — no deben poder navegar al resto del hub
+const ROLES_SOLO_REPORTES_PYT = ['admin_explosivos', 'jefe_mina'];
 
 export default function FrentesTrabajoHistorial() {
   const navigate = useNavigate();
+  const { getRolActivo } = useAuth();
   const [frentesEliminados, setFrentesEliminados] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -21,6 +26,12 @@ export default function FrentesTrabajoHistorial() {
   useEffect(() => {
     loadDeletedFrente();
   }, []);
+
+  // Bloquear esta página a roles que solo deben ver Reportes P&T
+  // (después de todos los hooks, para no romper las Reglas de los Hooks)
+  if (ROLES_SOLO_REPORTES_PYT.includes(getRolActivo())) {
+    return <Navigate to="/ingenieria/reportes-perforacion" replace />;
+  }
 
   const loadDeletedFrente = async () => {
     setLoading(true);

@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\Explosivos\PersonalAutorizadoController;
 use App\Http\Controllers\Api\Explosivos\FormulaExplosivoController;
 use App\Http\Controllers\Api\Explosivos\ReportePerforacionController;
 use App\Http\Controllers\Api\Explosivos\ProveedorExplosivoController;
+use App\Http\Controllers\Api\Explosivos\AutoridadFiscalizadoraController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -32,6 +33,7 @@ Route::prefix('categorias')->group(function () {
 Route::prefix('tipos')->group(function () {
     Route::get('/', [TipoExplosivoController::class, 'index']);
     Route::post('/', [TipoExplosivoController::class, 'store']);
+    Route::get('/{id}/stock-minimo-sugerido', [TipoExplosivoController::class, 'stockMinimoSugerido']);
     Route::get('/{id}', [TipoExplosivoController::class, 'show']);
     Route::put('/{id}', [TipoExplosivoController::class, 'update']);
     Route::delete('/{id}', [TipoExplosivoController::class, 'destroy']);
@@ -69,6 +71,7 @@ Route::prefix('stock')->group(function () {
 Route::prefix('movimientos')->group(function () {
     Route::get('/', [MovimientoExplosivoController::class, 'index']);
     Route::get('/reporte', [MovimientoExplosivoController::class, 'reporte']);
+    Route::get('/kardex', [MovimientoExplosivoController::class, 'kardex']);
     Route::get('/por-tronadura/{idTronadura}', [MovimientoExplosivoController::class, 'porTronadura']);
     Route::post('/entrada', [MovimientoExplosivoController::class, 'registrarEntrada']);
     Route::post('/entrada-guia', [MovimientoExplosivoController::class, 'registrarEntradaGuia']);
@@ -119,4 +122,12 @@ Route::prefix('proveedores')->group(function () {
     Route::get('/{id}', [ProveedorExplosivoController::class, 'show']);
     Route::put('/{id}', [ProveedorExplosivoController::class, 'update']);
     Route::delete('/{id}', [ProveedorExplosivoController::class, 'destroy']);
+});
+
+// AUTORIDADES FISCALIZADORAS (DGMN) — catálogo para el código F/A del libro de control
+Route::prefix('autoridades-fiscalizadoras')->group(function () {
+    Route::get('/', [AutoridadFiscalizadoraController::class, 'index']);
+    Route::post('/', [AutoridadFiscalizadoraController::class, 'store']);
+    Route::put('/{id}', [AutoridadFiscalizadoraController::class, 'update']);
+    Route::delete('/{id}', [AutoridadFiscalizadoraController::class, 'destroy']);
 });

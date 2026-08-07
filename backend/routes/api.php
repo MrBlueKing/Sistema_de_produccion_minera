@@ -29,11 +29,13 @@ Route::middleware(['validate.token'])->group(function () {
         Route::get('/lotes/{id}/reconstruccion', [GerencialController::class, 'reconstruccionLote']);
         Route::get('/analisis-lotes', [GerencialController::class, 'analisisLotes']);
         Route::get('/dumpadas-diarias', [GerencialController::class, 'dumpadasDiarias']);
+        Route::get('/produccion-turno', [GerencialController::class, 'produccionPorTurno']);
         Route::get('/plantas', [GerencialController::class, 'plantas']);
         Route::get('/empresas', [GerencialController::class, 'empresas']);
         Route::get('/certificados-resumen', [GerencialController::class, 'certificadosResumen']);
         // Listado y detalle de certificados (solo lectura, sin generar/descargar PDF)
-        Route::get('/certificados', [CertificadoController::class, 'certificadosGenerados']);
+        // Solo Aprobados: los Pendientes/Rechazados no deben verse en Gerencial.
+        Route::get('/certificados', [CertificadoController::class, 'certificadosAprobados']);
         Route::get('/certificados/{numeroCertificado}', [CertificadoController::class, 'dumpadasPorCertificado']);
         Route::get('/certificados/{numeroCertificado}/previsualizar', [CertificadoController::class, 'previsualizarPorNumero']);
     });

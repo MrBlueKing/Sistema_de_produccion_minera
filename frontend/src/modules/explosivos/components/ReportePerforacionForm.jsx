@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   HiArrowLeft,
   HiPlus,
@@ -11,8 +11,6 @@ import {
   HiDocumentText,
   HiXCircle,
   HiClock,
-  HiDocumentArrowDown,
-  HiPrinter,
 } from 'react-icons/hi2';
 import Card from '../../../shared/components/atoms/Card';
 import Button from '../../../shared/components/atoms/Button';
@@ -23,7 +21,7 @@ import explosivosService from '../services/explosivos';
 import ingenieriaService from '../../ingenieria/services/ingenieria';
 import useToast from '../../../hooks/useToast';
 
-const BARRAS_OPCIONES = [0.8, 1.2, 1.4, 1.8, 2.4, 3.2];
+const BARRAS_OPCIONES = [0.8, 1.2, 1.6, 1.8, 2.4, 3.2];
 const MATERIALES = [
   { value: 'oxido', label: 'Oxido' },
   { value: 'sulfuro', label: 'Sulfuro' },
@@ -62,6 +60,10 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
 
   // Columnas de explosivos (tipos que tienen formulas configuradas)
   const [columnasExplosivos, setColumnasExplosivos] = useState([]);
+
+  // Debounce por línea del cálculo automático al escribir N° Tiros (una entrada por índice
+  // de línea, para no mezclar el tecleo de una fila con el de otra).
+  const debounceTirosRef = useRef({});
 
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -247,14 +249,22 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
 
   // Calcular explosivos para una linea cuando cambian tiros o tipo frente
   const calcularExplosivosLinea = useCallback(
-    async (lineaIndex) => {
+    // `overrides` permite pasar el valor recién tecleado/elegido directamente en vez de
+    // releerlo desde `lineas`: como esta función es un useCallback memoizado con `lineas`
+    // como dependencia, y se llamaba desde un setTimeout, el closure quedaba "atrasado" un
+    // tecleo — al escribir "35" calculaba con "3" (el valor previo al último tecleo), nunca
+    // con el valor final. Bug real que descontaba mal el stock.
+    async (lineaIndex, overrides = {}) => {
       const linea = lineas[lineaIndex];
-      if (!linea.numero_tiros || !linea.id_tipo_frente) return;
+      if (!linea) return;
+      const numeroTiros = overrides.numero_tiros ?? linea.numero_tiros;
+      const idTipoFrente = overrides.id_tipo_frente ?? linea.id_tipo_frente;
+      if (!numeroTiros || !idTipoFrente) return;
 
       try {
         const resultado = await explosivosService.calcularExplosivos({
-          numero_tiros: parseInt(linea.numero_tiros),
-          id_tipo_frente: linea.id_tipo_frente,
+          numero_tiros: parseInt(numeroTiros),
+          id_tipo_frente: idTipoFrente,
         });
 
         setLineas((prev) => {
@@ -525,6 +535,10 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
     return totales;
   };
 
+  const calcularTotalTiros = () => {
+    return lineas.reduce((suma, linea) => suma + (parseInt(linea.numero_tiros) || 0), 0);
+  };
+
   const getExplosivoLinea = (linea, idTipoExplosivo) => {
     return (linea.explosivos || []).find((e) => e.id_tipo_explosivo === idTipoExplosivo);
   };
@@ -556,23 +570,8 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
   const esConfirmado = estado === 'confirmado';
   const esCerrado = estado === 'cerrado';
   const totales = calcularTotales();
+  const totalTiros = calcularTotalTiros();
   const devLocales = devoluciones.filter((d) => d._local);
-
-  // PDF generation
-  const handleExportPDF = async () => {
-    try {
-      const { generarReportePDF } = await import('../utils/reportePDF.js');
-      const detalle = await explosivosService.getReporte(reporteId);
-      generarReportePDF(detalle, polvorinSeleccionado || polvorin, columnasExplosivos);
-    } catch (error) {
-      toast.error('Error', 'No se pudo generar el PDF');
-    }
-  };
-
-  // Print
-  const handlePrint = () => {
-    window.print();
-  };
 
   if (loading) {
     return (
@@ -600,12 +599,6 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" icon={HiClock} onClick={() => setShowHistorial(true)}>
               Historial
-            </Button>
-            <Button variant="outline" size="sm" icon={HiDocumentArrowDown} onClick={handleExportPDF}>
-              PDF
-            </Button>
-            <Button variant="outline" size="sm" icon={HiPrinter} onClick={handlePrint}>
-              Imprimir
             </Button>
           </div>
         )}
@@ -774,8 +767,9 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
                             <select
                               value={linea.id_tipo_frente || ''}
                               onChange={(e) => {
-                                actualizarLineaLocal(index, 'id_tipo_frente', e.target.value);
-                                setTimeout(() => calcularExplosivosLinea(index), 100);
+                                const valor = e.target.value;
+                                actualizarLineaLocal(index, 'id_tipo_frente', valor);
+                                calcularExplosivosLinea(index, { id_tipo_frente: valor });
                               }}
                               className="w-full px-1 py-1 border border-gray-300 rounded text-xs focus:ring-1 focus:ring-red-500"
                             >
@@ -827,9 +821,13 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
                               min="1"
                               value={linea.numero_tiros || ''}
                               onChange={(e) => {
-                                actualizarLineaLocal(index, 'numero_tiros', e.target.value);
+                                const valor = e.target.value;
+                                actualizarLineaLocal(index, 'numero_tiros', valor);
                                 actualizarLineaLocal(index, 'valores_editados', false);
-                                setTimeout(() => calcularExplosivosLinea(index), 100);
+                                clearTimeout(debounceTirosRef.current[index]);
+                                debounceTirosRef.current[index] = setTimeout(() => {
+                                  calcularExplosivosLinea(index, { numero_tiros: valor });
+                                }, 300);
                               }}
                               placeholder="0"
                               className="w-16 px-1 py-1 text-center border border-gray-300 rounded text-xs focus:ring-1 focus:ring-red-500"
@@ -984,9 +982,13 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
                 {lineas.length > 0 && (
                   <tfoot>
                     <tr className="border-t-2 bg-gray-100 font-semibold">
-                      <td colSpan={9} className="px-2 py-2 text-right text-xs text-gray-700">
+                      <td colSpan={5} className="px-2 py-2 text-right text-xs text-gray-700">
                         TOTALES
                       </td>
+                      <td className="px-2 py-2 text-center text-xs text-gray-900">
+                        {totalTiros || '-'}
+                      </td>
+                      <td colSpan={3}></td>
                       {columnasExplosivos.map((te) => (
                         <td key={te.id} className="px-2 py-2 text-center text-xs text-gray-900">
                           {totales[te.id] ? parseFloat(totales[te.id]).toLocaleString('es-CL', { maximumFractionDigits: 2 }) : '-'}

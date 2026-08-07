@@ -5,6 +5,7 @@ const Ingenieria            = lazy(() => import('../modules/ingenieria/pages/Ing
 const FrentesTrabajo        = lazy(() => import('../modules/ingenieria/pages/FrentesTrabajo'));
 const FrentesTrabajoHistorial = lazy(() => import('../modules/ingenieria/pages/FrentesTrabajoHistorial'));
 const TiposFrente           = lazy(() => import('../modules/ingenieria/pages/TiposFrente'));
+const ReportesPerforacion   = lazy(() => import('../modules/ingenieria/pages/ReportesPerforacion'));
 const Dumpadas              = lazy(() => import('../modules/dispatch/pages/Dispatch'));
 const Laboratorio           = lazy(() => import('../modules/laboratorio/pages/Laboratorio'));
 const Muestreo              = lazy(() => import('../modules/laboratorio/pages/Muestreo'));
@@ -39,6 +40,12 @@ export const routesConfig = [
     path: '/ingenieria/tipos-frente',
     component: TiposFrente,
     label: 'Tipos de Frente',
+    module: 'ingenieria',
+  },
+  {
+    path: '/ingenieria/reportes-perforacion',
+    component: ReportesPerforacion,
+    label: 'Reportes de Perforación y Tronadura',
     module: 'ingenieria',
   },
 

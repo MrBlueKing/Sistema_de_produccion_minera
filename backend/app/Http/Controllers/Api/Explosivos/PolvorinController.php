@@ -19,7 +19,7 @@ class PolvorinController extends Controller
      */
     public function index(Request $request)
     {
-        $query = Polvorin::query();
+        $query = Polvorin::with('autoridadFiscalizadora:id,codigo,nombre');
 
         $this->aplicarFiltroFaena($query, $request);
 
@@ -49,6 +49,7 @@ class PolvorinController extends Controller
             'responsable' => 'nullable|string|max:150',
             'telefono_responsable' => 'nullable|string|max:50',
             'id_faena' => 'required|integer',
+            'id_autoridad_fiscalizadora' => 'nullable|integer|exists:autoridades_fiscalizadoras,id',
             'observaciones' => 'nullable|string',
         ]);
 
@@ -77,6 +78,7 @@ class PolvorinController extends Controller
                 'responsable' => $request->responsable,
                 'telefono_responsable' => $request->telefono_responsable,
                 'id_faena' => $request->id_faena,
+                'id_autoridad_fiscalizadora' => $request->id_autoridad_fiscalizadora,
                 'observaciones' => $request->observaciones,
                 'activo' => true,
             ]);
@@ -101,7 +103,8 @@ class PolvorinController extends Controller
     {
         $polvorin = Polvorin::with([
             'stocks.tipoExplosivo:id,codigo,nombre,unidad_medida',
-            'lotesActivos:id,numero_lote,id_tipo_explosivo,id_polvorin,cantidad_actual,fecha_vencimiento'
+            'lotesActivos:id,numero_lote,id_tipo_explosivo,id_polvorin,cantidad_actual,fecha_vencimiento',
+            'autoridadFiscalizadora:id,codigo,nombre',
         ])->find($id);
 
         if (!$polvorin) {
@@ -132,6 +135,7 @@ class PolvorinController extends Controller
             'capacidad_maxima_kg' => 'nullable|numeric|min:0',
             'responsable' => 'nullable|string|max:150',
             'telefono_responsable' => 'nullable|string|max:50',
+            'id_autoridad_fiscalizadora' => 'nullable|integer|exists:autoridades_fiscalizadoras,id',
             'observaciones' => 'nullable|string',
             'activo' => 'sometimes|boolean',
         ]);
@@ -146,7 +150,8 @@ class PolvorinController extends Controller
         try {
             $polvorin->update($request->only([
                 'nombre', 'ubicacion', 'capacidad_maxima_kg',
-                'responsable', 'telefono_responsable', 'observaciones', 'activo'
+                'responsable', 'telefono_responsable', 'id_autoridad_fiscalizadora',
+                'observaciones', 'activo'
             ]));
 
             return response()->json([
@@ -169,7 +174,7 @@ class PolvorinController extends Controller
     public function porFaena($idFaena)
     {
         $polvorin = Polvorin::where('id_faena', $idFaena)
-            ->with('stocks.tipoExplosivo:id,codigo,nombre,unidad_medida')
+            ->with(['stocks.tipoExplosivo:id,codigo,nombre,unidad_medida', 'autoridadFiscalizadora:id,codigo,nombre'])
             ->first();
 
         if (!$polvorin) {

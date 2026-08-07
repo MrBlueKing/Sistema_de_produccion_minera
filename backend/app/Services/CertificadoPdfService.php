@@ -4,8 +4,10 @@ namespace App\Services;
 
 use App\Models\Dispatch\Dumpada;
 use App\Models\Dispatch\MuestraLibre;
+use App\Models\Laboratorio\Certificado;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class CertificadoPdfService
 {
@@ -21,7 +23,7 @@ class CertificadoPdfService
      * Generar PDF de certificado.
      * Acepta dumpadas, muestras específicas, o ambos tipos mezclados.
      */
-    public function generarCertificado(array $dumpadaIds, ?string $numeroCertificado = null, bool $guardarNumero = true, array $muestraLibreIds = [], ?string $para = null)
+    public function generarCertificado(array $dumpadaIds, ?string $numeroCertificado = null, bool $guardarNumero = true, array $muestraLibreIds = [], ?string $para = null, ?string $generadoPor = null)
     {
         $dumpadas = empty($dumpadaIds) ? collect() : Dumpada::with('frenteTrabajo')
             ->whereIn('id', $dumpadaIds)
@@ -49,10 +51,16 @@ class CertificadoPdfService
 
         if ($guardarNumero) {
             $ahora = Carbon::now();
-            $this->asignarCertificadoADumpadas($dumpadas, $numeroCertificado, $ahora);
-            foreach ($muestrasLibres as $m) {
-                $m->update(['certificado' => $numeroCertificado]);
-            }
+            DB::transaction(function () use ($dumpadas, $muestrasLibres, $numeroCertificado, $ahora, $generadoPor) {
+                $this->asignarCertificadoADumpadas($dumpadas, $numeroCertificado, $ahora);
+                foreach ($muestrasLibres as $m) {
+                    $m->update(['certificado' => $numeroCertificado]);
+                }
+                Certificado::firstOrCreate(
+                    ['numero_certificado' => $numeroCertificado],
+                    ['estado' => Certificado::ESTADO_PENDIENTE, 'generado_por' => $generadoPor]
+                );
+            });
         }
 
         $muestrasData = array_merge(
@@ -292,7 +300,7 @@ class CertificadoPdfService
      * Genera el próximo número de certificado como correlativo plano (ej: 289002),
      * continuando la numeración histórica importada desde Excel — sin prefijo de año.
      */
-    private function generarNumeroCertificado()
+    public function generarNumeroCertificado()
     {
         $ultimoDumpada = Dumpada::whereNotNull('certificado')
             ->where('certificado', 'REGEXP', '^[0-9]+$')
@@ -329,8 +337,39 @@ class CertificadoPdfService
         ?string $fechaInicio = null,
         ?string $fechaFin = null,
         ?int $muestrasMin = null,
-        ?int $muestrasMax = null
+        ?int $muestrasMax = null,
+        bool $soloAprobados = false
     ) {
+        // Si hay término de búsqueda, primero se determina QUÉ certificados calzan
+        // (por su propio número, o porque alguna dumpada/muestra libre incluida
+        // coincide en número de dumpada, acopio o frente de trabajo). Así el listado
+        // sigue mostrando el certificado completo (todas sus muestras), no solo la
+        // fila que hizo match.
+        $numerosCoincidentes = null;
+        if ($search) {
+            $porCertificado = Dumpada::whereNotNull('certificado')
+                ->where('certificado', 'like', "%{$search}%")
+                ->pluck('certificado');
+
+            $porDumpada = Dumpada::whereNotNull('certificado')
+                ->where(function ($q) use ($search) {
+                    $q->where('numero_dumpada', 'like', "%{$search}%")
+                      ->orWhere('acopios', 'like', "%{$search}%")
+                      ->orWhereHas('frenteTrabajo', fn($fq) => $fq->where('codigo_completo', 'like', "%{$search}%"));
+                })
+                ->pluck('certificado');
+
+            $porMuestraLibre = MuestraLibre::whereNotNull('certificado')
+                ->where(function ($q) use ($search) {
+                    $q->where('certificado', 'like', "%{$search}%")
+                      ->orWhere('nombre', 'like', "%{$search}%")
+                      ->orWhereHas('frenteTrabajo', fn($fq) => $fq->where('codigo_completo', 'like', "%{$search}%"));
+                })
+                ->pluck('certificado');
+
+            $numerosCoincidentes = $porCertificado->concat($porDumpada)->concat($porMuestraLibre)->unique()->values();
+        }
+
         // fecha_certificado_pdf es la fecha real de generación (desde el fix de fechas del certificado);
         // updated_at queda como respaldo para certificados históricos que no la tienen guardada.
         $queryDumpadas = Dumpada::whereNotNull('certificado')
@@ -342,8 +381,8 @@ class CertificadoPdfService
         if ($idFaena) {
             $queryDumpadas->where('id_faena', $idFaena);
         }
-        if ($search) {
-            $queryDumpadas->where('certificado', 'like', "%{$search}%");
+        if ($numerosCoincidentes !== null) {
+            $queryDumpadas->whereIn('certificado', $numerosCoincidentes);
         }
 
         $queryMuestrasLibres = MuestraLibre::whereNotNull('certificado')
@@ -355,8 +394,8 @@ class CertificadoPdfService
         if ($idFaena) {
             $queryMuestrasLibres->where('id_faena', $idFaena);
         }
-        if ($search) {
-            $queryMuestrasLibres->where('certificado', 'like', "%{$search}%");
+        if ($numerosCoincidentes !== null) {
+            $queryMuestrasLibres->whereIn('certificado', $numerosCoincidentes);
         }
 
         // Se combinan ambas fuentes en PHP (no UNION en SQL) porque un mismo número de
@@ -390,6 +429,24 @@ class CertificadoPdfService
         }
         if ($muestrasMax !== null) {
             $resultado = $resultado->filter(fn($c) => $c['total_muestras'] <= $muestrasMax);
+        }
+
+        // Mergear estado de aprobación. Un número sin fila en `certificados` es un
+        // certificado histórico (previo a este control) y se considera Aprobado.
+        $numeros = $resultado->pluck('certificado')->all();
+        $estados = Certificado::mapaParaNumeros($numeros);
+
+        $resultado = $resultado->map(function ($c) use ($estados) {
+            $cert = $estados->get($c['certificado']);
+            $c['estado_aprobacion'] = $cert->estado ?? Certificado::ESTADO_APROBADO;
+            $c['motivo_rechazo'] = $cert->motivo_rechazo ?? null;
+            $c['aprobado_por'] = $cert->aprobado_por ?? null;
+            $c['fecha_aprobacion'] = $cert->fecha_aprobacion ?? null;
+            return $c;
+        });
+
+        if ($soloAprobados) {
+            $resultado = $resultado->filter(fn($c) => $c['estado_aprobacion'] === Certificado::ESTADO_APROBADO);
         }
 
         return $resultado->sortByDesc('certificado')->values();

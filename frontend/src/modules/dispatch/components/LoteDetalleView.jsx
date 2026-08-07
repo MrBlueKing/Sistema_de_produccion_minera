@@ -189,9 +189,9 @@ const LoteDetalleView = ({ lote, onBack }) => {
                         <span className="text-xs font-bold text-gray-800">{detalles.length}</span>
                         <span className="text-[10px] text-gray-400 uppercase tracking-wide">dump.</span>
                       </div>
-                      {mezcla.ley_prom_dump != null && (
+                      {mezcla.ley_lab != null && (
                         <div className="flex-1 flex flex-col items-center bg-orange-50 rounded-lg py-1.5">
-                          <span className="text-xs font-bold text-orange-600">{fmtPct(mezcla.ley_prom_dump)}</span>
+                          <span className="text-xs font-bold text-orange-600">{fmtPct(mezcla.ley_lab)}</span>
                           <span className="text-[10px] text-orange-400 uppercase tracking-wide">ley</span>
                         </div>
                       )}
@@ -229,7 +229,6 @@ const LoteDetalleView = ({ lote, onBack }) => {
                             <th className="text-left py-2 px-3 font-semibold text-gray-600">Dump#</th>
                             <th className="text-left py-2 px-3 font-semibold text-gray-600">Acopio</th>
                             <th className="text-right py-2 px-3 font-semibold text-gray-600">TON</th>
-                            <th className="text-right py-2 px-3 font-semibold text-gray-600">Ley Dump</th>
                             <th className="text-right py-2 px-3 font-semibold text-gray-600">Ley Visual</th>
                             <th className="text-right py-2 px-3 font-semibold text-gray-600">Ley Lote</th>
                           </tr>
@@ -247,7 +246,6 @@ const LoteDetalleView = ({ lote, onBack }) => {
                               </td>
                               <td className="py-1.5 px-3 text-gray-600">{det.origen || '-'}</td>
                               <td className="py-1.5 px-3 text-right">{fmt(det.toneladas)}</td>
-                              <td className="py-1.5 px-3 text-right">{fmtPct(det.ley_dump_ajustada)}</td>
                               <td className="py-1.5 px-3 text-right text-gray-400">
                                 {det.ley_visual ? fmtPct(det.ley_visual) : '0.00%'}
                               </td>
@@ -262,9 +260,6 @@ const LoteDetalleView = ({ lote, onBack }) => {
                             <td colSpan="2" className="py-2 px-3 text-indigo-900">TOTAL</td>
                             <td className="py-2 px-3 text-right text-indigo-900">{fmt(tonTotal)}</td>
                             <td className="py-2 px-3 text-right text-indigo-900">
-                              {fmtPct(mezcla.ley_prom_dump)}
-                            </td>
-                            <td className="py-2 px-3 text-right text-indigo-900">
                               {fmtPct(mezcla.ley_prom_visual)}
                             </td>
                             <td className="py-2 px-3 text-right text-indigo-900">
@@ -273,7 +268,7 @@ const LoteDetalleView = ({ lote, onBack }) => {
                           </tr>
                           {mezcla.ley_lab != null && (
                             <tr className="bg-green-50 border-t border-green-200">
-                              <td colSpan="5" className="py-1.5 px-3 text-green-800 font-semibold">
+                              <td colSpan="4" className="py-1.5 px-3 text-green-800 font-semibold">
                                 Ley Laboratorio
                               </td>
                               <td className="py-1.5 px-3 text-right font-bold text-green-800">

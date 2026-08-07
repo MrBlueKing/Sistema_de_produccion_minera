@@ -144,7 +144,7 @@ export default function ListaCertificados({ idFaena }) {
 
       <TableFilters
         searchValue={searchTerm}
-        searchPlaceholder="Buscar por N° de certificado..."
+        searchPlaceholder="Buscar por N° certificado, N° dumpada, acopio o frente..."
         onSearchChange={handleSearchChange}
         filters={[
           { name: 'fecha_inicio', label: 'Fecha Desde', type: 'date' },

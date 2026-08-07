@@ -56,7 +56,7 @@ const CamionadaForm = ({ loteVentaId, onSuccess, onCancel, camionadaEditar = nul
       if (lote && lote.mezcla && !formData.ley_mezcla) {
         setFormData(prev => ({
           ...prev,
-          ley_mezcla: lote.mezcla.ley_prom_dump || ''
+          ley_mezcla: lote.mezcla.ley_prom_lote || lote.mezcla.ley_lab || ''
         }));
       }
     }
@@ -129,7 +129,7 @@ const CamionadaForm = ({ loteVentaId, onSuccess, onCancel, camionadaEditar = nul
             hora_despacho: '',
             peso: '',
             ticket: '',
-            ley_mezcla: loteSeleccionado?.mezcla?.ley_prom_dump || '',
+            ley_mezcla: loteSeleccionado?.mezcla?.ley_prom_lote || loteSeleccionado?.mezcla?.ley_lab || '',
             ley_visual: '',
             ley_lab_camion: '',
             fecha_recepcion: '',

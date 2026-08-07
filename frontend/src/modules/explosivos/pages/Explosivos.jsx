@@ -14,9 +14,9 @@ import {
   HiXMark,
   HiCheckCircle,
   HiClock,
-  HiDocumentText,
   HiClipboardDocumentList,
-  HiChartBar,
+  HiTableCells,
+  HiInformationCircle,
 } from 'react-icons/hi2';
 import Header from '../../../shared/components/organisms/Header';
 import Button from '../../../shared/components/atoms/Button';
@@ -35,14 +35,22 @@ import StockView from '../components/StockView';
 import MovimientosView from '../components/MovimientosView';
 import LotesView from '../components/LotesView';
 import ConfiguracionView from '../components/ConfiguracionView';
-import ReportesPerforacionView from '../components/ReportesPerforacionView';
-import DashboardPerforacion from '../components/DashboardPerforacion';
 import SolicitudesView from '../components/SolicitudesView';
+import KardexView from '../components/KardexView';
 
-// Roles que ven la vista de Jefe de Mina (Reportes P&T)
-const ROLES_JEFE_MINA = ['jefe_mina', 'supervisor_tronadura'];
 // Roles admin que ven TODAS las tabs
 const ROLES_ADMIN = ['admin_explosivos'];
+
+// Descripción corta de cada pestaña — en lenguaje simple, no términos técnicos
+// (ej. "Kardex" se explica como "libro", no se asume que el usuario conoce la jerga contable).
+const TAB_DESCRIPTIONS = {
+  stock: 'Inventario actual del polvorín por tipo de explosivo, con alertas de stock mínimo y máximo.',
+  solicitudes: 'Reportes confirmados por el Jefe de Mina, pendientes de preparación y despacho.',
+  movimientos: 'Historial de entradas y salidas del polvorín. Incluye el registro de recepciones nuevas (Guía de Despacho).',
+  kardex: 'Existencia, entrada, salida y saldo por tipo de explosivo — equivalente digital del libro de control.',
+  lotes: 'Trazabilidad de lotes del fabricante y sus fechas de vencimiento.',
+  configuracion: 'Catálogos del módulo: Polvorín, Categorías, Tipos de Explosivo, Personal Autorizado, Proveedores, Autoridad Fiscalizadora y Fórmulas.',
+};
 
 export default function Explosivos() {
   const toast = useToast();
@@ -51,13 +59,12 @@ export default function Explosivos() {
 
   const rolActivo = getRolActivo();
   const esAdmin = ROLES_ADMIN.includes(rolActivo);
-  const esJefeMina = ROLES_JEFE_MINA.includes(rolActivo) || esAdmin;
 
   // Obtener objeto faena actual
   const faenaActual = faenas.find(f => f.id === faenaSeleccionada) || { id: faenaSeleccionada };
 
-  // Vista actual: depende del rol
-  const [vistaActual, setVistaActual] = useState(esJefeMina ? 'reportes' : 'stock');
+  // Vista actual
+  const [vistaActual, setVistaActual] = useState('stock');
 
   // Estado global del módulo
   const [loading, setLoading] = useState(true);
@@ -141,34 +148,19 @@ export default function Explosivos() {
     }
   };
 
-  // Pestañas según rol
-  const vistas = esAdmin
-    ? [
-        { id: 'reportes', label: 'Reportes P&T', icon: HiDocumentText },
-        { id: 'dashboard', label: 'Dashboard', icon: HiChartBar },
-        { id: 'stock', label: 'Stock Actual', icon: HiCube },
-        { id: 'solicitudes', label: 'Solicitudes', icon: HiClipboardDocumentList },
-        { id: 'movimientos', label: 'Movimientos', icon: HiArrowsRightLeft },
-        { id: 'lotes', label: 'Lotes', icon: HiArchiveBox },
-        { id: 'configuracion', label: 'Configuración', icon: HiCog6Tooth },
-      ]
-    : esJefeMina
-    ? [
-        { id: 'reportes', label: 'Reportes P&T', icon: HiDocumentText },
-        { id: 'dashboard', label: 'Dashboard', icon: HiChartBar },
-        { id: 'configuracion', label: 'Fórmulas', icon: HiCog6Tooth },
-      ]
-    : [
-        { id: 'stock', label: 'Stock Actual', icon: HiCube },
-        { id: 'solicitudes', label: 'Solicitudes', icon: HiClipboardDocumentList },
-        { id: 'movimientos', label: 'Movimientos', icon: HiArrowsRightLeft },
-        { id: 'lotes', label: 'Lotes', icon: HiArchiveBox },
-        { id: 'configuracion', label: 'Configuración', icon: HiCog6Tooth },
-      ];
+  // Pestañas (mismas para polvorinero y admin)
+  const vistas = [
+    { id: 'stock', label: 'Stock Actual', icon: HiCube },
+    { id: 'solicitudes', label: 'Solicitudes', icon: HiClipboardDocumentList },
+    { id: 'movimientos', label: 'Movimientos', icon: HiArrowsRightLeft },
+    { id: 'kardex', label: 'Libro de Explosivos', icon: HiTableCells },
+    { id: 'lotes', label: 'Lotes', icon: HiArchiveBox },
+    { id: 'configuracion', label: 'Configuración', icon: HiCog6Tooth },
+  ];
 
   const renderVista = () => {
-    // El jefe de mina y admin no necesitan polvorín para crear reportes
-    if (!esJefeMina && !polvorin && vistaActual !== 'configuracion') {
+    // El admin no necesita polvorín para todas las vistas
+    if (!esAdmin && !polvorin && vistaActual !== 'configuracion') {
       return (
         <Card className="text-center py-12">
           <HiExclamationTriangle className="w-16 h-16 text-yellow-500 mx-auto mb-4" />
@@ -200,22 +192,6 @@ export default function Explosivos() {
             onRefresh={loadDatosIniciales}
           />
         );
-      case 'reportes':
-        return (
-          <ReportesPerforacionView
-            polvorin={polvorin}
-            polvorines={esAdmin ? polvorines : []}
-            tipos={tipos}
-            faenaActual={faenaActual}
-            onRefresh={loadDatosIniciales}
-          />
-        );
-      case 'dashboard':
-        return (
-          <DashboardPerforacion
-            faenaActual={faenaActual}
-          />
-        );
       case 'solicitudes':
         return (
           <SolicitudesView
@@ -232,6 +208,15 @@ export default function Explosivos() {
             tipos={tipos}
             faenaActual={faenaActual}
             onRefresh={loadDatosIniciales}
+          />
+        );
+      case 'kardex':
+        return (
+          <KardexView
+            polvorin={polvorin}
+            polvorines={esAdmin ? polvorines : []}
+            esAdmin={esAdmin}
+            tipos={tipos}
           />
         );
       case 'lotes':
@@ -266,14 +251,10 @@ export default function Explosivos() {
 
   const bgGradient = esAdmin
     ? 'min-h-screen bg-gradient-to-br from-purple-50 via-white to-orange-50'
-    : esJefeMina
-    ? 'min-h-screen bg-gradient-to-br from-orange-50 via-white to-yellow-50'
     : 'min-h-screen bg-gradient-to-br from-red-50 via-white to-orange-50';
 
   const spinnerColor = esAdmin
     ? 'border-purple-200 border-t-purple-600'
-    : esJefeMina
-    ? 'border-orange-200 border-t-orange-600'
     : 'border-red-200 border-t-red-600';
 
   if (loading) {
@@ -333,23 +314,21 @@ export default function Explosivos() {
           <Breadcrumb
             items={[
               { label: 'Portal M3H', href: import.meta.env.VITE_CENTRAL_URL, icon: HiHome },
-              { label: esAdmin ? 'Explosivos - Admin' : esJefeMina ? 'Perforación y Tronadura' : 'Explosivos - Polvorín' }
+              { label: esAdmin ? 'Explosivos - Admin' : 'Explosivos - Polvorín' }
             ]}
           />
         </div>
 
         {/* Header con estadísticas */}
-        <Card className={`mb-6 border-l-4 ${esJefeMina ? 'border-orange-500' : 'border-red-500'}`}>
+        <Card className={`mb-6 border-l-4 ${esAdmin ? 'border-orange-500' : 'border-red-500'}`}>
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
             <div>
-              <h2 className={`text-3xl font-bold mb-2 ${esJefeMina ? 'text-orange-600' : 'text-red-600'}`}>
-                {esAdmin ? 'Administración de Explosivos' : esJefeMina ? 'Reporte de Perforación y Tronadura' : 'Inventario de Explosivos'}
+              <h2 className={`text-3xl font-bold mb-2 ${esAdmin ? 'text-orange-600' : 'text-red-600'}`}>
+                {esAdmin ? 'Administración de Explosivos' : 'Inventario de Explosivos'}
               </h2>
               <p className="text-gray-600">
                 {esAdmin ? (
                   <>Vista completa — <span className="font-semibold">{faenaActual?.nombre || 'Todas las faenas'}</span></>
-                ) : esJefeMina ? (
-                  <>Planificación de explosivos por jornada — <span className="font-semibold">{faenaActual?.nombre || 'Faena actual'}</span></>
                 ) : polvorin ? (
                   <>Polvorín: <span className="font-semibold">{polvorin.nombre}</span> ({polvorin.codigo})</>
                 ) : (
@@ -358,8 +337,8 @@ export default function Explosivos() {
               </p>
             </div>
 
-            {/* Estadísticas - para polvorinero y admin */}
-            {(!esJefeMina || esAdmin) && polvorin && (
+            {/* Estadísticas */}
+            {polvorin && (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="bg-blue-50 rounded-lg p-3 text-center border-b-[3px] border-blue-500 hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 cursor-default">
                   <HiCube className="w-6 h-6 text-blue-600 mx-auto mb-1" />
@@ -387,8 +366,8 @@ export default function Explosivos() {
             )}
           </div>
 
-          {/* Alertas rápidas - para polvorinero y admin */}
-          {(!esJefeMina || esAdmin) && alertas.bajo_minimo?.length > 0 && (
+          {/* Alertas rápidas */}
+          {alertas.bajo_minimo?.length > 0 && (
             <div className="mt-4 p-3 bg-red-100 border border-red-200 rounded-lg">
               <div className="flex items-center gap-2 text-red-700">
                 <span className="relative flex h-5 w-5">
@@ -418,8 +397,8 @@ export default function Explosivos() {
                   className={`
                     flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all
                     ${isActive
-                      ? esJefeMina ? 'bg-orange-600 text-white shadow-md' : 'bg-red-600 text-white shadow-md'
-                      : esJefeMina ? 'text-gray-600 hover:bg-orange-50 hover:text-orange-600' : 'text-gray-600 hover:bg-red-50 hover:text-red-600'
+                      ? esAdmin ? 'bg-orange-600 text-white shadow-md' : 'bg-red-600 text-white shadow-md'
+                      : esAdmin ? 'text-gray-600 hover:bg-orange-50 hover:text-orange-600' : 'text-gray-600 hover:bg-red-50 hover:text-red-600'
                     }
                   `}
                 >
@@ -437,6 +416,12 @@ export default function Explosivos() {
               );
             })}
           </div>
+          {TAB_DESCRIPTIONS[vistaActual] && (
+            <p className="mt-2 px-1 flex items-center gap-1.5 text-xs text-gray-400">
+              <HiInformationCircle className="w-3.5 h-3.5 flex-shrink-0" />
+              {TAB_DESCRIPTIONS[vistaActual]}
+            </p>
+          )}
         </div>
 
         {/* Contenido de la vista */}

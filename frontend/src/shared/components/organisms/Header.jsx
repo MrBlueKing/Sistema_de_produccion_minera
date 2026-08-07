@@ -4,7 +4,7 @@ import { useAuth } from '../../../core/context/AuthContext';
 import logo from '../../../assets/logo.png';
 
 export default function Header() {
-  const { getUser, getUserInfo, logout } = useAuth();
+  const { getUser, getUserInfo, logout, getRolActivo } = useAuth();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef(null);
 
@@ -37,6 +37,12 @@ export default function Header() {
     }
     return user.roles[0];
   };
+
+  // Rol con el que se entró realmente (viene de la tarjeta del Portal M3H que se usó para
+  // ingresar). Solo los roles "externos" (jefe_mina, admin_explosivos, ingeniero, etc.) traen
+  // este dato — los roles internos (Laboratorio, Encargado Dispatch, etc.) no lo traen, así que
+  // para esos se mantiene el cálculo anterior (getRolPrincipal) como respaldo.
+  const getRolMostrado = () => getRolActivo() || getRolPrincipal();
 
   return (
     <header className="relative bg-gradient-to-r from-orange-500 to-orange-600 shadow-xl">
@@ -87,7 +93,7 @@ export default function Header() {
                 {userInfo.nombreCompleto || 'Usuario'}
               </p>
               <p className="text-white/60 text-[11px] leading-tight mt-0.5">
-                {getRolPrincipal()}
+                {getRolMostrado()}
               </p>
             </div>
 

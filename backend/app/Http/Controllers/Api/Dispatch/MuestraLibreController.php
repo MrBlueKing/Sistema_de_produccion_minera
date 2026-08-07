@@ -189,6 +189,42 @@ class MuestraLibreController extends Controller
     }
 
     /**
+     * Revertir un análisis completado de vuelta a Pendiente.
+     * Solo permitido si la muestra aún no pertenece a un certificado generado.
+     * PUT /api/laboratorio/muestras-libres/{id}/revertir
+     */
+    public function revertirAnalisis($id)
+    {
+        $muestra = MuestraLibre::find($id);
+
+        if (!$muestra) {
+            return response()->json(['success' => false, 'message' => 'Muestra no encontrada'], 404);
+        }
+
+        if ($muestra->certificado) {
+            return response()->json([
+                'success' => false,
+                'message' => "No se puede revertir: esta muestra ya pertenece al certificado {$muestra->certificado}. Edítala en vez de revertirla."
+            ], 400);
+        }
+
+        $muestra->update([
+            'ley'          => null,
+            'ley_cup'      => null,
+            'cu_soluble'   => null,
+            'cu_insoluble' => null,
+            'rango'        => null,
+            'estado'       => MuestraLibre::ESTADO_INGRESADO,
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Análisis revertido a Pendiente',
+            'data'    => $muestra,
+        ]);
+    }
+
+    /**
      * Completar análisis de una muestra libre
      * PUT /api/dispatch/muestras-libres/{id}/completar
      */

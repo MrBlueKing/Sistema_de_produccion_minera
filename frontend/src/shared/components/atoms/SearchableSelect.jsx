@@ -26,13 +26,18 @@ export default function SearchableSelect({
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [coords, setCoords] = useState({ top: 0, left: 0, width: 0 });
   const dropdownRef = useRef(null);
+  const triggerRef = useRef(null);
   const searchInputRef = useRef(null);
 
   // Cerrar dropdown al hacer click fuera
   useEffect(() => {
     const handleClickOutside = (event) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+      if (
+        dropdownRef.current && !dropdownRef.current.contains(event.target) &&
+        triggerRef.current && !triggerRef.current.contains(event.target)
+      ) {
         setIsOpen(false);
         setSearchTerm('');
       }
@@ -41,6 +46,25 @@ export default function SearchableSelect({
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // El dropdown usa position:fixed (ver más abajo) para no quedar recortado cuando este
+  // select vive dentro de un contenedor con scroll (ej. tabla de líneas de reportes con
+  // overflow-x-auto) — por eso hay que recalcular su posición contra el viewport al abrir,
+  // y cerrarlo si la página/tabla se mueve para no dejarlo "flotando" en el lugar viejo.
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const cerrarPorScroll = () => {
+      setIsOpen(false);
+      setSearchTerm('');
+    };
+    window.addEventListener('scroll', cerrarPorScroll, true);
+    window.addEventListener('resize', cerrarPorScroll);
+    return () => {
+      window.removeEventListener('scroll', cerrarPorScroll, true);
+      window.removeEventListener('resize', cerrarPorScroll);
+    };
+  }, [isOpen]);
 
   // Focus en input al abrir
   useEffect(() => {
@@ -68,8 +92,17 @@ export default function SearchableSelect({
     onChange('');
   };
 
+  const toggleOpen = () => {
+    if (disabled) return;
+    if (!isOpen && triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      setCoords({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+    }
+    setIsOpen((prev) => !prev);
+  };
+
   return (
-    <div className="relative" ref={dropdownRef}>
+    <div className="relative">
       {label && (
         <label className="block text-sm font-semibold text-gray-700 mb-2">
           {label}
@@ -79,8 +112,9 @@ export default function SearchableSelect({
 
       {/* Trigger Button */}
       <button
+        ref={triggerRef}
         type="button"
-        onClick={() => !disabled && setIsOpen(!isOpen)}
+        onClick={toggleOpen}
         disabled={disabled}
         className={`w-full text-left bg-white border rounded-lg flex items-center justify-between transition-all ${
           size === 'sm' ? 'px-2 py-1 text-xs' : 'px-3 py-2.5 text-sm'
@@ -111,9 +145,13 @@ export default function SearchableSelect({
         </div>
       </button>
 
-      {/* Dropdown */}
+      {/* Dropdown — position:fixed calculado desde el trigger (ver toggleOpen) para no
+          quedar recortado por contenedores con scroll (ej. tablas con overflow-x-auto) */}
       {isOpen && (
-        <div className="absolute z-50 w-full mt-2 bg-white border border-gray-300 rounded-lg shadow-lg max-h-80 overflow-hidden">
+        <div
+          ref={dropdownRef}
+          style={{ top: coords.top, left: coords.left, width: coords.width }}
+          className="fixed z-50 bg-white border border-gray-300 rounded-lg shadow-lg max-h-80 overflow-hidden">
           {/* Search Input */}
           <div className="p-3 border-b border-gray-200 bg-gray-50">
             <div className="relative">

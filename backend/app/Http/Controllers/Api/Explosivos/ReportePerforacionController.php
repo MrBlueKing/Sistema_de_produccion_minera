@@ -111,7 +111,7 @@ class ReportePerforacionController extends Controller
             }
 
             $reporte = ReportePerforacion::create([
-                'codigo' => ReportePerforacion::generarCodigo(),
+                'codigo' => ReportePerforacion::generarCodigo($request->fecha, $request->turno, $polvorinObj->nombre),
                 'fecha' => $request->fecha,
                 'turno' => $request->turno,
                 'estado' => ReportePerforacion::ESTADO_BORRADOR,

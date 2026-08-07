@@ -20,6 +20,7 @@ class Polvorin extends Model
         'responsable',
         'telefono_responsable',
         'id_faena',
+        'id_autoridad_fiscalizadora',
         'observaciones',
         'activo',
     ];
@@ -46,6 +47,11 @@ class Polvorin extends Model
     public function stocks()
     {
         return $this->hasMany(StockExplosivo::class, 'id_polvorin');
+    }
+
+    public function autoridadFiscalizadora()
+    {
+        return $this->belongsTo(AutoridadFiscalizadora::class, 'id_autoridad_fiscalizadora');
     }
 
     public function movimientosOrigen()

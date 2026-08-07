@@ -38,6 +38,14 @@ const ConfiguracionView = ({ onTonelajeMaquinaUpdated, onConfigDefaultUpdated })
   const [tieneConfigCapping, setTieneConfigCapping] = useState(false);
   const [configsCappingPorFaena, setConfigsCappingPorFaena] = useState([]);
 
+  // Estados para Factor de Ley Lote
+  const [savingLeyLote, setSavingLeyLote] = useState(false);
+  const [leyLoteActual, setLeyLoteActual] = useState(1.235);
+  const [leyLoteGlobal, setLeyLoteGlobal] = useState(1.235);
+  const [leyLoteInput, setLeyLoteInput] = useState('1.235');
+  const [tieneConfigLeyLote, setTieneConfigLeyLote] = useState(false);
+  const [configsLeyLotePorFaena, setConfigsLeyLotePorFaena] = useState([]);
+
   // Estados para Peso de Palada
   const [savingPalada, setSavingPalada] = useState(false);
   const [paladaGlobal, setPaladaGlobal] = useState(1.82);
@@ -74,6 +82,12 @@ const ConfiguracionView = ({ onTonelajeMaquinaUpdated, onConfigDefaultUpdated })
       const responseCapping = await configuracionService.getByKeyAllFaenas('ley_capping_maximo');
       setConfigsCappingPorFaena(responseCapping.configuraciones || []);
 
+      setLeyLoteGlobal(dataGlobal.factor_ley_lote || 1.235);
+
+      // Cargar configs de factor_ley_lote por faena
+      const responseLeyLote = await configuracionService.getByKeyAllFaenas('factor_ley_lote');
+      setConfigsLeyLotePorFaena(responseLeyLote.configuraciones || []);
+
       if (esUsuarioGlobal) {
         // Encargado: cargar todas las configuraciones por faena
         const response = await configuracionService.getByKeyAllFaenas('tonelaje_dumpada_default');
@@ -100,14 +114,26 @@ const ConfiguracionView = ({ onTonelajeMaquinaUpdated, onConfigDefaultUpdated })
             c => c.id_faena === faenaSeleccionadaConfig
           );
           setTieneConfigCapping(!!configCapping);
+
+          const valorLeyLote = dataFaena.factor_ley_lote || 1.235;
+          setLeyLoteActual(valorLeyLote);
+          setLeyLoteInput(valorLeyLote.toString());
+
+          const configLeyLote = (responseLeyLote.configuraciones || []).find(
+            c => c.id_faena === faenaSeleccionadaConfig
+          );
+          setTieneConfigLeyLote(!!configLeyLote);
         } else {
           // Sin faena seleccionada: mostrar global
           setTonelajeActual(dataGlobal.tonelaje_dumpada_default || 4.6);
           setTonelajeInput((dataGlobal.tonelaje_dumpada_default || 4.6).toString());
           setCappingActual(dataGlobal.ley_capping_maximo || 3);
           setCappingInput((dataGlobal.ley_capping_maximo || 3).toString());
+          setLeyLoteActual(dataGlobal.factor_ley_lote || 1.235);
+          setLeyLoteInput((dataGlobal.factor_ley_lote || 1.235).toString());
           setTieneConfigEspecifica(false);
           setTieneConfigCapping(false);
+          setTieneConfigLeyLote(false);
         }
       } else {
         // Operador: cargar config de su faena
@@ -120,6 +146,10 @@ const ConfiguracionView = ({ onTonelajeMaquinaUpdated, onConfigDefaultUpdated })
         setCappingActual(valorCapping);
         setCappingInput(valorCapping.toString());
 
+        const valorLeyLote = dataFaena.factor_ley_lote || 1.235;
+        setLeyLoteActual(valorLeyLote);
+        setLeyLoteInput(valorLeyLote.toString());
+
         // Verificar si tiene config especifica
         const response = await configuracionService.getByKeyAllFaenas('tonelaje_dumpada_default');
         const configEspecifica = (response.configuraciones || []).find(
@@ -131,6 +161,11 @@ const ConfiguracionView = ({ onTonelajeMaquinaUpdated, onConfigDefaultUpdated })
           c => c.id_faena === faenaUsuario
         );
         setTieneConfigCapping(!!configCapping);
+
+        const configLeyLote = (responseLeyLote.configuraciones || []).find(
+          c => c.id_faena === faenaUsuario
+        );
+        setTieneConfigLeyLote(!!configLeyLote);
       }
     } catch (error) {
       console.error('Error cargando configuraciones:', error);
@@ -218,6 +253,42 @@ const ConfiguracionView = ({ onTonelajeMaquinaUpdated, onConfigDefaultUpdated })
       toast.error('Error al guardar el capping');
     } finally {
       setSavingCapping(false);
+    }
+  };
+
+  // Guardar configuracion del factor de ley lote
+  const guardarLeyLote = async () => {
+    const valor = parseFloat(leyLoteInput);
+
+    if (isNaN(valor) || valor <= 0) {
+      toast.error('El factor debe ser un numero mayor a 0');
+      return;
+    }
+
+    if (valor > 5) {
+      toast.error('El factor parece demasiado alto. Maximo: 5');
+      return;
+    }
+
+    try {
+      setSavingLeyLote(true);
+      const idFaenaGuardar = faenaActiva;
+
+      await configuracionService.update('factor_ley_lote', valor, idFaenaGuardar);
+
+      toast.success(
+        idFaenaGuardar
+          ? `Factor de ley lote actualizado para la faena seleccionada: ${valor}`
+          : `Factor de ley lote global actualizado: ${valor}`
+      );
+
+      configuracionService.clearCache();
+      await cargarConfiguraciones();
+    } catch (error) {
+      console.error('Error guardando factor de ley lote:', error);
+      toast.error('Error al guardar el factor de ley lote');
+    } finally {
+      setSavingLeyLote(false);
     }
   };
 
@@ -681,6 +752,141 @@ const ConfiguracionView = ({ onTonelajeMaquinaUpdated, onConfigDefaultUpdated })
                     >
                       <span className="text-gray-700">{getNombreFaena(config.id_faena)}</span>
                       <span className="font-semibold text-orange-600">{config.valor}%</span>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+        </Card>
+      </div>
+
+      {/* =============================================
+          SECCION: FACTOR DE LEY LOTE
+          ============================================= */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <Card>
+          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+            <HiCog className="w-5 h-5 text-purple-500" />
+            Factor de Ley Lote
+          </h3>
+
+          {/* Info faena seleccionada */}
+          {esUsuarioGlobal && (
+            <div className="mb-3 p-2 bg-gray-50 rounded-lg text-sm text-gray-600">
+              Configurando para: <strong>{faenaSeleccionadaConfig ? getNombreFaena(faenaSeleccionadaConfig) : 'Global (todas las faenas)'}</strong>
+            </div>
+          )}
+
+          {!esUsuarioGlobal && (
+            <div className="mb-3 p-2 bg-purple-50 rounded-lg text-sm text-purple-700">
+              Faena: <strong>{getNombreFaena(faenaUsuario)}</strong>
+            </div>
+          )}
+
+          {/* Input de Factor */}
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Factor (divisor)
+            </label>
+            <div className="flex items-center gap-3">
+              <input
+                type="number"
+                step="0.001"
+                min="0.001"
+                max="5"
+                value={leyLoteInput}
+                onChange={(e) => setLeyLoteInput(e.target.value)}
+                className="flex-1 px-4 py-3 text-lg font-semibold border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                placeholder="Ej: 1.235"
+              />
+            </div>
+            <p className="mt-1 text-xs text-gray-500">
+              ley_lote = ley cupping (o ley visual si no hay lab) ÷ este factor. Reemplaza el antiguo esquema de "ley dumpada"
+            </p>
+          </div>
+
+          {/* Info del valor */}
+          <div className="mb-4 space-y-2">
+            {tieneConfigLeyLote ? (
+              <div className="flex items-center gap-2 text-green-600 text-sm">
+                <HiCheckCircle className="w-5 h-5" />
+                <span>Esta faena tiene factor especifico: {leyLoteActual}</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-yellow-600 text-sm">
+                <HiExclamationCircle className="w-5 h-5" />
+                <span>Usando valor global: {leyLoteGlobal}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Boton Guardar */}
+          <Button
+            variant="primary"
+            onClick={guardarLeyLote}
+            disabled={savingLeyLote}
+            className="w-full bg-purple-600 hover:bg-purple-700"
+          >
+            {savingLeyLote ? (
+              <>
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                Guardando...
+              </>
+            ) : (
+              <>
+                <HiSave className="w-5 h-5 mr-2" />
+                Guardar Factor
+              </>
+            )}
+          </Button>
+        </Card>
+
+        {/* Info Factor Ley Lote */}
+        <Card className="bg-gray-50">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+            <HiInformationCircle className="w-5 h-5 text-purple-500" />
+            Sobre el Factor de Ley Lote
+          </h3>
+
+          <div className="space-y-4 text-sm text-gray-600">
+            <div className="p-3 bg-white rounded-lg border border-gray-200">
+              <h4 className="font-medium text-gray-900 mb-1">Que es?</h4>
+              <p>
+                Es el factor que se usa para calcular la ley lote de una mezcla a partir de la ley cupping
+                (o la ley visual si la dumpada no tiene laboratorio). Ya no existe un paso intermedio de "ley dumpada".
+              </p>
+            </div>
+
+            <div className="p-3 bg-white rounded-lg border border-gray-200">
+              <h4 className="font-medium text-gray-900 mb-1">Ejemplo</h4>
+              <p>
+                Con factor <strong>{leyLoteGlobal}</strong>: una ley cupping de 3.7% da una ley lote de{' '}
+                {(3.7 / leyLoteGlobal).toFixed(3)}%.
+              </p>
+            </div>
+
+            <div className="p-3 bg-white rounded-lg border border-gray-200">
+              <h4 className="font-medium text-gray-900 mb-1">Valor Global</h4>
+              <p>
+                <strong>Valor actual:</strong> {leyLoteGlobal}
+              </p>
+            </div>
+          </div>
+
+          {/* Resumen de factores por faena */}
+          {esUsuarioGlobal && configsLeyLotePorFaena.length > 0 && (
+            <div className="mt-4">
+              <h4 className="font-medium text-gray-900 mb-2">Faenas con factor especifico:</h4>
+              <div className="space-y-1">
+                {configsLeyLotePorFaena
+                  .filter(c => c.id_faena !== null)
+                  .map(config => (
+                    <div
+                      key={config.id}
+                      className="flex items-center justify-between p-2 bg-white rounded border border-gray-200 text-sm"
+                    >
+                      <span className="text-gray-700">{getNombreFaena(config.id_faena)}</span>
+                      <span className="font-semibold text-purple-600">{config.valor}</span>
                     </div>
                   ))}
               </div>

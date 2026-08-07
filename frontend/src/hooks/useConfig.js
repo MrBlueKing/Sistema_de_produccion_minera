@@ -6,11 +6,12 @@ import configuracionService from '../services/configuracion';
  * Soporta configuraciones por faena con fallback a global
  *
  * @param {number|null} idFaena - ID de faena para obtener config específica (opcional)
- * @returns {Object} { factorAjusteLey, factorRemanenteVisual, toneladas_por_palada, tonelajeDumpadaDefault, usarSistemaAcopios, loading, error, recargar, actualizarTonelaje }
+ * @returns {Object} { factorAjusteLey, factorLeyLote, factorRemanenteVisual, toneladas_por_palada, tonelajeDumpadaDefault, usarSistemaAcopios, loading, error, recargar, actualizarTonelaje }
  */
 export function useConfig(idFaena = null) {
   const [config, setConfig] = useState({
     factorAjusteLey: 0.9, // Valor por defecto
+    factorLeyLote: 1.235, // Valor por defecto (divisor: ley_lote = base / factorLeyLote)
     factorRemanenteVisual: 1.11, // Valor por defecto
     toneladas_por_palada: 1.82, // Valor por defecto
     tonelajeDumpadaDefault: 4.6, // Valor por defecto
@@ -27,6 +28,7 @@ export function useConfig(idFaena = null) {
       const data = await configuracionService.getAll(idFaena);
       setConfig({
         factorAjusteLey: data.factor_ajuste_ley || 0.9,
+        factorLeyLote: data.factor_ley_lote || 1.235,
         factorRemanenteVisual: data.factor_remanente_visual || 1.11,
         toneladas_por_palada: data.toneladas_por_palada || 1.82,
         tonelajeDumpadaDefault: data.tonelaje_dumpada_default || 4.6,

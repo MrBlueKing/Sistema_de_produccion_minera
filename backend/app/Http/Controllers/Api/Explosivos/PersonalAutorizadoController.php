@@ -61,10 +61,18 @@ class PersonalAutorizadoController extends Controller
                 ->get(config('services.petroleo_api') . '/personal-interno-disponible');
 
             if (!$response->successful()) {
+                Log::warning('Fallo la conexión con el sistema de petroleo', [
+                    'status_petroleo' => $response->status(),
+                    'mensaje' => $response->json('message') ?? 'Error desconocido',
+                ]);
+
+                // 502, no el status crudo de Petróleo: si Petróleo devuelve 401/403 (ej. API key
+                // desincronizada) y lo reenviáramos tal cual, el interceptor del frontend lo
+                // confunde con "tu sesión expiró" y desloguea al usuario sin motivo.
                 return response()->json([
                     'error' => 'Error al conectar con el sistema de petroleo',
                     'mensaje' => $response->json('message') ?? 'Error desconocido'
-                ], $response->status());
+                ], 502);
             }
 
             $data = $response->json();

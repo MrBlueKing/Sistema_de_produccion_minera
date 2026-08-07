@@ -85,19 +85,22 @@ class GerencialController extends Controller
                 ->sum('camionadas.peso');
 
             // Estadísticas de despachos/camionadas (columnas reales: peso, estado: Despachado/Recibido/Completado)
+            // Filtra la faena a través del lote (fuente confiable) en vez de camionadas.id_faena
+            // directo, que históricamente quedaba NULL en camionadas creadas desde la app (no desde Excel).
             $queryCamionadas = DB::table('camionadas')
-                ->whereBetween('fecha_despacho', [$fechaInicio, $fechaFin]);
+                ->join('lotes', 'camionadas.lote_id', '=', 'lotes.id')
+                ->whereBetween('camionadas.fecha_despacho', [$fechaInicio, $fechaFin]);
 
             if ($idFaena) {
-                $queryCamionadas->where('id_faena', $idFaena);
+                $queryCamionadas->where('lotes.id_faena', $idFaena);
             }
 
             $statsCamionadas = $queryCamionadas
                 ->select(
                     DB::raw('COUNT(*) as total'),
-                    DB::raw('SUM(peso) as tonelaje_despachado'),
-                    DB::raw('COUNT(CASE WHEN estado = "Despachado" THEN 1 END) as despachadas'),
-                    DB::raw('COUNT(CASE WHEN estado IN ("Recibido", "Completado") THEN 1 END) as recibidas')
+                    DB::raw('SUM(camionadas.peso) as tonelaje_despachado'),
+                    DB::raw('COUNT(CASE WHEN camionadas.estado = "Despachado" THEN 1 END) as despachadas'),
+                    DB::raw('COUNT(CASE WHEN camionadas.estado IN ("Recibido", "Completado") THEN 1 END) as recibidas')
                 )
                 ->first();
 
@@ -563,7 +566,8 @@ class GerencialController extends Controller
                 'd.fecha',
                 DB::raw('COALESCE(f.codigo_completo, CONCAT(f.manto, "-", COALESCE(f.calle, ""), COALESCE(f.hebra, ""))) as frente'),
                 DB::raw('COUNT(d.id) as cantidad'),
-                DB::raw('COALESCE(SUM(d.ton), 0) as toneladas')
+                DB::raw('COALESCE(SUM(d.ton), 0) as toneladas'),
+                DB::raw('CASE WHEN SUM(d.ton) > 0 THEN SUM(d.ton * d.ley) / SUM(d.ton) ELSE NULL END as ley_promedio')
             )
             ->whereNotNull('d.fecha')
             ->whereBetween('d.fecha', [$fechaDesde, $fechaHasta]);
@@ -579,11 +583,72 @@ class GerencialController extends Controller
         return response()->json([
             'success' => true,
             'data'    => $rows->map(fn($r) => [
-                'fecha'     => $r->fecha,
-                'frente'    => $r->frente,
-                'cantidad'  => (int) $r->cantidad,
-                'toneladas' => (float) $r->toneladas,
+                'fecha'        => $r->fecha,
+                'frente'       => $r->frente,
+                'cantidad'     => (int) $r->cantidad,
+                'toneladas'    => (float) $r->toneladas,
+                'ley_promedio' => $r->ley_promedio !== null ? round((float) $r->ley_promedio, 3) : null,
             ]),
+        ]);
+    }
+
+    /**
+     * Producción agrupada por frente + fecha + jornada ("turno").
+     *
+     * No existe todavía el vínculo real dumpada→tronadura (tronadura_id) en los
+     * datos, así que "un disparo" no se puede reconstruir con certeza: un disparo
+     * real puede repartir sus dumpadas en más de un turno, o un turno puede
+     * mezclar dumpadas de más de un disparo. Por eso esto se expone como
+     * "producción por turno" (dato real y confiable: frente+fecha+jornada de cada
+     * dumpada), no como "por disparo".
+     *
+     * Regla de corte "día anterior": el turno más reciente puede seguir
+     * recibiendo dumpadas, así que la ventana nunca incluye el día de hoy —
+     * se recorta a ayer sin importar qué mande el frontend.
+     */
+    public function produccionPorTurno(Request $request)
+    {
+        $ayer = Carbon::yesterday()->format('Y-m-d');
+
+        $fechaHastaSolicitada = $request->get('fecha_hasta', $ayer);
+        $fechaHasta = min($fechaHastaSolicitada, $ayer);
+
+        $fechaDesde = $request->get('fecha_desde', Carbon::parse($fechaHasta)->subDays(6)->format('Y-m-d'));
+        $idFaena    = $request->get('id_faena');
+
+        $query = DB::table('dumpadas as d')
+            ->join('frentes_trabajo as f', 'f.id', '=', 'd.id_frente_trabajo')
+            ->select(
+                'd.fecha',
+                'd.jornada',
+                DB::raw('COALESCE(f.codigo_completo, CONCAT(f.manto, "-", COALESCE(f.calle, ""), COALESCE(f.hebra, ""))) as frente'),
+                DB::raw('COUNT(d.id) as n_dumpadas'),
+                DB::raw('COALESCE(SUM(d.ton), 0) as toneladas'),
+                DB::raw('CASE WHEN SUM(d.ton) > 0 THEN SUM(d.ton * d.ley) / SUM(d.ton) ELSE NULL END as ley_promedio')
+            )
+            ->whereNotNull('d.fecha')
+            ->whereNotNull('d.jornada')
+            ->whereBetween('d.fecha', [$fechaDesde, $fechaHasta]);
+
+        if ($idFaena) $query->where('d.id_faena', $idFaena);
+
+        $rows = $query
+            ->groupBy('d.fecha', 'd.jornada', 'frente')
+            ->orderBy('d.fecha', 'desc')
+            ->orderBy('frente')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'data'    => $rows->map(fn($r) => [
+                'fecha'        => $r->fecha,
+                'jornada'      => $r->jornada,
+                'frente'       => $r->frente,
+                'n_dumpadas'   => (int) $r->n_dumpadas,
+                'toneladas'    => round((float) $r->toneladas, 2),
+                'ley_promedio' => $r->ley_promedio !== null ? round((float) $r->ley_promedio, 3) : null,
+            ]),
+            'periodo' => ['fecha_desde' => $fechaDesde, 'fecha_hasta' => $fechaHasta],
         ]);
     }
 }

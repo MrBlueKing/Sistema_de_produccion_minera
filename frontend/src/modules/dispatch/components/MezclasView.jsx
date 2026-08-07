@@ -13,6 +13,7 @@ import mezclasService from '../services/mezclas';
 import acopiosService from '../../../services/acopios';
 import { useConfig } from '../../../hooks/useConfig';
 import { useFaena } from '../../../contexts/FaenaContext';
+import { useDebounce } from '../../../hooks/useDebounce';
 
 export default function MezclasView({
   loading,
@@ -28,7 +29,7 @@ export default function MezclasView({
   jornadas = ['AM', 'PM', 'Madrugada', 'Noche']
 }) {
   // Obtener configuraciones desde BD
-  const { factorAjusteLey, factorRemanenteVisual, leyCappingMaximo, usarSistemaAcopios, toneladas_por_palada } = useConfig();
+  const { factorAjusteLey, factorLeyLote, factorRemanenteVisual, leyCappingMaximo, usarSistemaAcopios, toneladas_por_palada } = useConfig();
   const { faenaUsuario } = useFaena();
   const [showInfo, setShowInfo] = useState(false);
   const [vistaTab, setVistaTab] = useState('crear'); // 'crear' | 'historial'
@@ -196,11 +197,20 @@ export default function MezclasView({
     }
   };
 
-  // Carga inicial del historial
-  useEffect(() => { cargarHistorial(1); }, []);
+  // Búsqueda automática: se dispara sola al escribir/cambiar filtros (con debounce
+  // en los campos de texto para no disparar una request por cada tecla)
+  const debouncedHistSearch = useDebounce(histSearch, 400);
+  const debouncedHistNumeroDumpada = useDebounce(histNumeroDumpada, 400);
+  useEffect(() => {
+    cargarHistorial(1, debouncedHistSearch, histPerPage, histEstado, histFechaDesde, histFechaHasta, debouncedHistNumeroDumpada);
+  }, [debouncedHistSearch, debouncedHistNumeroDumpada, histEstado, histFechaDesde, histFechaHasta]);
 
-  // Recargar historial cuando el padre actualiza mezclas (nueva creada/eliminada)
-  useEffect(() => { cargarHistorial(1, '', histPerPage); }, [mezclas]);
+  // Recargar historial cuando el padre actualiza mezclas (nueva creada/eliminada).
+  // IMPORTANTE: mantener los filtros activos del usuario — antes forzaba búsqueda
+  // vacía y "pisaba" cualquier filtro/búsqueda en curso.
+  useEffect(() => {
+    cargarHistorial(1, histSearch, histPerPage, histEstado, histFechaDesde, histFechaHasta, histNumeroDumpada);
+  }, [mezclas]);
   // ─────────────────────────────────────────────────────────────────────────
 
   const handleGuardarFecha = async () => {
@@ -509,11 +519,10 @@ export default function MezclasView({
     // Para compatibilidad con código existente
     const acopiosSel = usandoDumpadasDirectas ? [] : acopiosDisponibles.filter(a => acopiosSeleccionados.includes(a.id));
 
-    // ============ LEY LOTE y LEY DUMP AJUSTADA ============
-    // REGLA: ley_lab → ley_dump = lab×0.9, ley_lote = lab×0.81
-    //        ley_visual → ley_dump = visual (sin descuento), ley_lote = visual×0.9
+    // ============ LEY LOTE ============
+    // REGLA (desde 2026-08, "ley dumpada" retirada): ley_lote = base / factorLeyLote,
+    // unificado con o sin lab. Base = ley cupping (lab capado) si hay lab, ley_visual si no.
     let sumaPonderadaLoteOrigen = 0;
-    let sumaPonderadaDumpOrigen = 0;
 
     if (usandoDumpadasDirectas) {
       // DUMPADAS: calcular por cada dumpada según si tiene ley lab o visual
@@ -557,11 +566,9 @@ export default function MezclasView({
         const leyVisual = d.ley_visual ? parseFloat(d.ley_visual) : null;
 
         if (leyLab) {
-          sumaPonderadaDumpOrigen += ton * leyLab * factorAjusteLey;                    // lab × 0.9
-          sumaPonderadaLoteOrigen += ton * leyLab * factorAjusteLey * factorAjusteLey; // lab × 0.81
+          sumaPonderadaLoteOrigen += ton * (leyLab / factorLeyLote);
         } else if (leyVisual) {
-          sumaPonderadaDumpOrigen += ton * leyVisual;                      // visual directo
-          sumaPonderadaLoteOrigen += ton * leyVisual * factorAjusteLey;   // visual × 0.9
+          sumaPonderadaLoteOrigen += ton * (leyVisual / factorLeyLote);
         }
       });
     } else {
@@ -571,29 +578,21 @@ export default function MezclasView({
         const leyLote = parseFloat(a.ley_lote_promedio || 0);
         return sum + (ton * leyLote);
       }, 0);
-      // ley_dump para acopios: ley_lote / 0.9 sigue siendo válido como aproximación
-      // porque el acopio ya calcula ley_lote con los factores correctos por dumpada
-      sumaPonderadaDumpOrigen = sumaPonderadaLoteOrigen / factorAjusteLey;
     }
 
-    // REMANENTES: ley_prom_lote y ley_prom_dump ya vienen con factores correctos
+    // REMANENTES: ley_prom_lote ya viene con factores correctos
     let sumaPonderadaLoteRemanentes = 0;
-    let sumaPonderadaDumpRemanentes = 0;
     remanentesSeleccionados.forEach(rem => {
       const mezcla = remanentesDisponibles.find(m => m.id === rem.mezcla_id);
       if (mezcla) {
         const ton = parseFloat(rem.toneladas || 0);
         sumaPonderadaLoteRemanentes += ton * parseFloat(mezcla.ley_prom_lote || 0);
-        sumaPonderadaDumpRemanentes += ton * parseFloat(mezcla.ley_prom_dump || 0);
       }
     });
 
     // Combinar
     const sumaTotalLote = sumaPonderadaLoteOrigen + sumaPonderadaLoteRemanentes;
     const leyLote = totalTon > 0 ? (sumaTotalLote / totalTon) : 0;
-
-    const sumaTotalDump = sumaPonderadaDumpOrigen + sumaPonderadaDumpRemanentes;
-    const leyAjustada = totalTon > 0 ? (sumaTotalDump / totalTon) : 0;
 
 
     // ============ LEY VISUAL ============
@@ -632,15 +631,14 @@ export default function MezclasView({
     const leyVisualPromedio = totalTon > 0 ? (sumaTotalVisualOriginal / totalTon) : 0;
     const leyVisual = leyVisualPromedio * factorAjusteLey; // Aplicar factor 0.9 al final
 
-    // ============ LEY LAB ============
-    // Representa la ley original sin descuentos = ley_lote / 0.81
-    const leyLab = leyLote > 0 ? leyLote / (factorAjusteLey * factorAjusteLey) : 0;
+    // ============ LEY LAB (ley cupping reconstruida) ============
+    // Inversa de la división: ley_lote = leyLab / factorLeyLote → leyLab = leyLote * factorLeyLote
+    const leyLab = leyLote > 0 ? leyLote * factorLeyLote : 0;
 
     return {
       totalTon: totalTon.toFixed(2),
       cantidadDumpadas: cantidadDumpadas,
       cantidadRemanentes,
-      leyAjustada: leyAjustada.toFixed(2),
       leyVisual: leyVisual.toFixed(2),
       leyLote: leyLote.toFixed(2),
       leyLab: leyLab.toFixed(2),
@@ -1357,8 +1355,15 @@ export default function MezclasView({
                       <th className="py-2 px-3 text-left font-bold text-gray-700">Jornada</th>
                       <th className="py-2 px-3 text-left font-bold text-gray-700">Fecha</th>
                       <th className="py-2 px-3 text-right font-bold text-gray-700">Ton total</th>
-                      <th className="py-2 px-3 text-center font-bold text-gray-700">Paladas disp.</th>
-                      <th className="py-2 px-3 text-center font-bold text-gray-700">Paladas a usar</th>
+                      <th className="py-2 px-3 text-center font-bold text-gray-700" title="Cuánto de esta dumpada todavía no se ha usado en ninguna mezcla">
+                        Paladas disp.
+                      </th>
+                      <th
+                        className="py-2 px-3 text-center font-bold text-gray-700 cursor-help underline decoration-dotted decoration-gray-400"
+                        title={`Toma solo una parte de la dumpada en vez de completa. 1 palada = ${toneladas_por_palada} t (configurable). Vacío = "Todas" = usa el 100% de la dumpada. El resto no usado queda disponible para otra mezcla.`}
+                      >
+                        Paladas a usar
+                      </th>
                       <th className="py-2 px-3 text-right font-bold text-gray-700">Cu Total</th>
                       <th className="py-2 px-3 text-right font-bold text-blue-700">Cu Ins.</th>
                       <th className="py-2 px-3 text-right font-bold text-green-700">Cu Sol.</th>
@@ -1551,7 +1556,7 @@ export default function MezclasView({
                     <th className="text-left py-2 px-2 font-bold text-orange-900 text-xs">Código</th>
                     <th className="text-left py-2 px-2 font-bold text-orange-900 text-xs">Fecha</th>
                     <th className="text-left py-2 px-2 font-bold text-orange-900 text-xs">Disponibles</th>
-                    <th className="text-left py-2 px-2 font-bold text-orange-900 text-xs">Ley Dump</th>
+                    <th className="text-left py-2 px-2 font-bold text-orange-900 text-xs">Ley Laboratorio</th>
                     <th className="text-left py-2 px-2 font-bold text-orange-900 text-xs">Ley Visual</th>
                     <th className="text-left py-2 px-2 font-bold text-orange-900 text-xs">Ley Lote</th>
                     <th className="text-left py-2 px-2 font-bold text-orange-900 text-xs">Modo / Usar</th>
@@ -1608,7 +1613,7 @@ export default function MezclasView({
                           {parseFloat(mezcla.toneladas_disponibles).toFixed(2)} t
                         </td>
                         <td className="py-2 px-2 text-xs">
-                          {mezcla.ley_prom_dump ? `${parseFloat(mezcla.ley_prom_dump).toFixed(2)}%` : '-'}
+                          {mezcla.ley_lab ? `${parseFloat(mezcla.ley_lab).toFixed(2)}%` : '-'}
                         </td>
                         <td className="py-2 px-2 text-xs text-orange-700 font-semibold">
                           {(() => {
@@ -1988,9 +1993,9 @@ export default function MezclasView({
                 <p className="text-xs text-gray-500 uppercase font-medium">Toneladas</p>
                 <p className="text-2xl font-bold text-blue-700">{calcularTotalesMezcla().totalTon} t</p>
               </div>
-              <div className="bg-white rounded-xl p-3 border border-amber-200 text-center shadow-sm">
-                <p className="text-xs text-gray-500 uppercase font-medium">Ley Dumpada</p>
-                <p className="text-2xl font-bold text-amber-600">{calcularTotalesMezcla().leyAjustada}%</p>
+              <div className="bg-white rounded-xl p-3 border border-red-200 text-center shadow-sm">
+                <p className="text-xs text-gray-500 uppercase font-medium">Ley Laboratorio</p>
+                <p className="text-2xl font-bold text-red-700">{calcularTotalesMezcla().leyLab}%</p>
               </div>
               <div className="bg-white rounded-xl p-3 border border-green-200 text-center shadow-sm">
                 <p className="text-xs text-gray-500 uppercase font-medium">Ley Visual</p>
@@ -1999,10 +2004,6 @@ export default function MezclasView({
               <div className="bg-white rounded-xl p-3 border border-indigo-200 text-center shadow-sm">
                 <p className="text-xs text-gray-500 uppercase font-medium">Ley Lote</p>
                 <p className="text-2xl font-bold text-indigo-700">{calcularTotalesMezcla().leyLote}%</p>
-              </div>
-              <div className="bg-white rounded-xl p-3 border border-red-200 text-center shadow-sm">
-                <p className="text-xs text-gray-500 uppercase font-medium">Ley Lab</p>
-                <p className="text-2xl font-bold text-red-700">{calcularTotalesMezcla().leyLab}%</p>
               </div>
             </div>
 
@@ -2030,10 +2031,7 @@ export default function MezclasView({
                       <th className="text-right py-2 px-3 font-semibold text-gray-700">Ton</th>
                       <th className="text-right py-2 px-3 font-semibold text-gray-700">Ley Lab</th>
                       {!usarSistemaAcopios && (
-                        <>
-                          <th className="text-right py-2 px-3 font-semibold text-gray-700">Ley Dump</th>
-                          <th className="text-right py-2 px-3 font-semibold text-gray-700">Ley Lote</th>
-                        </>
+                        <th className="text-right py-2 px-3 font-semibold text-gray-700">Ley Lote</th>
                       )}
                       <th className="text-center py-2 px-3 font-semibold text-gray-700">Quitar</th>
                     </tr>
@@ -2112,23 +2110,16 @@ export default function MezclasView({
                             }
                             const leyLab = leyLabRaw ? Math.min(leyLabRaw, leyCappingMaximo) : null;
                             const leyVisual = dumpada.ley_visual ? parseFloat(dumpada.ley_visual) : null;
-                            let leyDump, leyLote;
+                            let leyLote;
                             if (leyLab) {
-                              leyDump = leyLab * factorAjusteLey;
-                              leyLote = leyLab * factorAjusteLey * factorAjusteLey;
+                              leyLote = leyLab / factorLeyLote;
                             } else if (leyVisual) {
-                              leyDump = leyVisual;
-                              leyLote = leyVisual * factorAjusteLey;
+                              leyLote = leyVisual / factorLeyLote;
                             }
                             return (
-                              <>
-                                <td className="py-2 px-3 text-right text-orange-600 font-medium">
-                                  {leyDump ? `${leyDump.toFixed(2)}%` : '-'}
-                                </td>
-                                <td className="py-2 px-3 text-right text-indigo-600 font-medium">
-                                  {leyLote ? `${leyLote.toFixed(2)}%` : '-'}
-                                </td>
-                              </>
+                              <td className="py-2 px-3 text-right text-indigo-600 font-medium">
+                                {leyLote ? `${leyLote.toFixed(2)}%` : '-'}
+                              </td>
                             );
                           })()}
                           <td className="py-2 px-3 text-center">
@@ -2191,7 +2182,7 @@ export default function MezclasView({
                                 parseFloat(rem.toneladas).toFixed(2)
                               )}
                             </td>
-                            <td className="py-2 px-3 text-right">{mezcla?.ley_prom_dump ? `${parseFloat(mezcla.ley_prom_dump).toFixed(2)}%` : '-'}</td>
+                            <td className="py-2 px-3 text-right">{mezcla?.ley_lab ? `${parseFloat(mezcla.ley_lab).toFixed(2)}%` : '-'}</td>
                             <td className="py-2 px-3 text-center">
                               <button
                                 onClick={() => {
@@ -2239,7 +2230,6 @@ export default function MezclasView({
         {/* Filtros */}
         {(() => {
           const hayFiltros = histSearch || histEstado || histFechaDesde || histFechaHasta || histNumeroDumpada;
-          const aplicar = () => cargarHistorial(1, histSearch, histPerPage, histEstado, histFechaDesde, histFechaHasta, histNumeroDumpada);
           const limpiar = () => {
             setHistSearch('');
             setHistEstado('');
@@ -2260,7 +2250,6 @@ export default function MezclasView({
                     type="text"
                     value={histSearch}
                     onChange={e => setHistSearch(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && aplicar()}
                     placeholder="Ej: MZ-001…"
                     className={inputCls}
                   />
@@ -2273,7 +2262,6 @@ export default function MezclasView({
                     type="number"
                     value={histNumeroDumpada}
                     onChange={e => setHistNumeroDumpada(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && aplicar()}
                     placeholder="Ej: 9730…"
                     className={inputCls}
                   />
@@ -2302,12 +2290,6 @@ export default function MezclasView({
 
                 {/* Botones */}
                 <div className="flex gap-2 shrink-0">
-                  <button
-                    onClick={aplicar}
-                    className="px-5 py-2 bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white text-sm font-bold rounded-lg shadow-sm hover:shadow-md transition-all"
-                  >
-                    Buscar
-                  </button>
                   {hayFiltros && (
                     <button
                       onClick={limpiar}
@@ -2388,7 +2370,7 @@ export default function MezclasView({
                     <th className="py-2.5 px-3 text-left font-semibold">Fecha</th>
                     <th className="py-2.5 px-3 text-right font-semibold">Total Ton</th>
                     <th className="py-2.5 px-3 text-right font-semibold">Ton. Disp.</th>
-                    <th className="py-2.5 px-3 text-center font-semibold">Ley Prom</th>
+                    <th className="py-2.5 px-3 text-center font-semibold">Ley Laboratorio</th>
                     <th className="py-2.5 px-3 text-center font-semibold">Estado</th>
                     <th className="py-2.5 px-3 text-center font-semibold">Acciones</th>
                   </tr>
@@ -2436,8 +2418,8 @@ export default function MezclasView({
                           <span className="text-gray-300 ml-1">({dispPct}%)</span>
                         </td>
                         <td className="py-2 px-3 text-center">
-                          {mezcla.ley_prom_dump
-                            ? <span className="font-semibold text-orange-700 tabular-nums">{parseFloat(mezcla.ley_prom_dump).toFixed(3)}%</span>
+                          {mezcla.ley_lab
+                            ? <span className="font-semibold text-orange-700 tabular-nums">{parseFloat(mezcla.ley_lab).toFixed(3)}%</span>
                             : <span className="text-gray-300">—</span>}
                         </td>
                         <td className="py-2 px-3 text-center">
@@ -2825,9 +2807,9 @@ export default function MezclasView({
               {/* Tarjetas de leyes */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div className="bg-white rounded-lg shadow p-3">
-                  <p className="text-xs text-gray-500 uppercase font-semibold">Ley Dump</p>
-                  <p className="text-xl font-bold text-amber-600 mt-1">
-                    {mezclaSeleccionada.ley_prom_dump ? `${parseFloat(mezclaSeleccionada.ley_prom_dump).toFixed(2)}%` : '-'}
+                  <p className="text-xs text-gray-500 uppercase font-semibold">Ley Laboratorio</p>
+                  <p className="text-xl font-bold text-rose-600 mt-1">
+                    {mezclaSeleccionada.ley_lab ? `${parseFloat(mezclaSeleccionada.ley_lab).toFixed(2)}%` : '-'}
                   </p>
                 </div>
                 <div className="bg-white rounded-lg shadow p-3">
@@ -2840,14 +2822,6 @@ export default function MezclasView({
                   <p className="text-xs text-gray-500 uppercase font-semibold">Ley Lote</p>
                   <p className="text-xl font-bold text-indigo-600 mt-1">
                     {mezclaSeleccionada.ley_prom_lote ? `${parseFloat(mezclaSeleccionada.ley_prom_lote).toFixed(2)}%` : '-'}
-                  </p>
-                </div>
-                <div className="bg-white rounded-lg shadow p-3">
-                  <p className="text-xs text-gray-500 uppercase font-semibold">Ley Lab</p>
-                  <p className="text-xl font-bold text-rose-600 mt-1">
-                    {mezclaSeleccionada.ley_prom_lote
-                      ? `${(parseFloat(mezclaSeleccionada.ley_prom_lote) / (factorAjusteLey * factorAjusteLey)).toFixed(2)}%`
-                      : '-'}
                   </p>
                 </div>
               </div>
@@ -2900,7 +2874,7 @@ export default function MezclasView({
                         porFecha.get(k).push(d);
                       }
 
-                      const colCount = mezclaSeleccionada.estado !== 'Despachado' ? 8 : 7;
+                      const colCount = mezclaSeleccionada.estado !== 'Despachado' ? 7 : 6;
 
                       const FilaDetalle = ({ detalle, bg }) => (
                         <tr className={`border-b border-gray-200 ${bg}`}>
@@ -2911,20 +2885,26 @@ export default function MezclasView({
                             {parseFloat(detalle.toneladas).toFixed(2)} t
                           </td>
                           <td className="py-2 px-3 text-xs text-right tabular-nums">
-                            {detalle.ley_dump_ajustada ? `${parseFloat(detalle.ley_dump_ajustada).toFixed(2)}%` : '-'}
-                          </td>
-                          <td className="py-2 px-3 text-xs text-right tabular-nums">
                             {detalle.ley_visual ? `${parseFloat(detalle.ley_visual).toFixed(2)}%` : '-'}
                           </td>
                           <td className="py-2 px-3 text-xs text-right tabular-nums">
-                            {detalle.ley_lote ? `${parseFloat(detalle.ley_lote).toFixed(2)}%` : '-'}
+                            {(() => {
+                              // Fórmula nueva: ley_lab_capado viene guardado tal cual (sin
+                              // reconstruir desde ley_lote, evita el error de redondeo).
+                              // Fórmula vieja/legada: sigue reconstruyéndose desde ley_lote.
+                              if (detalle.ley_dump_ajustada === null) {
+                                return detalle.ley_lab_capado != null
+                                  ? `${parseFloat(detalle.ley_lab_capado).toFixed(2)}%`
+                                  : '-';
+                              }
+                              const leyLote = parseFloat(detalle.ley_lote || 0);
+                              if (leyLote <= 0) return '-';
+                              const leyLab = leyLote / (factorAjusteLey * factorAjusteLey);
+                              return `${leyLab.toFixed(2)}%`;
+                            })()}
                           </td>
                           <td className="py-2 px-3 text-xs text-right tabular-nums">
-                            {(() => {
-                              const leyLote = parseFloat(detalle.ley_lote || 0);
-                              const leyLab = leyLote / (factorAjusteLey * factorAjusteLey);
-                              return leyLote > 0 ? `${leyLab.toFixed(2)}%` : '-';
-                            })()}
+                            {detalle.ley_lote ? `${parseFloat(detalle.ley_lote).toFixed(2)}%` : '-'}
                           </td>
                           {mezclaSeleccionada.estado !== 'Despachado' && (
                             <td className="py-2 px-3 text-center">
@@ -2947,10 +2927,9 @@ export default function MezclasView({
                             <tr className="bg-indigo-100 shadow-sm">
                               <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs">Acopios / Origen</th>
                               <th className="text-right py-3 px-3 font-bold text-blue-900 text-xs">Toneladas</th>
-                              <th className="text-right py-3 px-3 font-bold text-blue-900 text-xs">Ley Dump</th>
                               <th className="text-right py-3 px-3 font-bold text-blue-900 text-xs">Ley Visual</th>
-                              <th className="text-right py-3 px-3 font-bold text-blue-900 text-xs">Ley Lote</th>
                               <th className="text-right py-3 px-3 font-bold text-blue-900 text-xs">Ley Lab</th>
+                              <th className="text-right py-3 px-3 font-bold text-blue-900 text-xs">Ley Lote</th>
                               {mezclaSeleccionada.estado !== 'Despachado' && (
                                 <th className="text-center py-3 px-3 font-bold text-blue-900 text-xs">Eliminar</th>
                               )}
@@ -3012,18 +2991,13 @@ export default function MezclasView({
                                 {mezclaSeleccionada.detalles.reduce((sum, d) => sum + parseFloat(d.toneladas || 0), 0).toFixed(2)} t
                               </td>
                               <td className="py-4 px-4 text-sm text-indigo-900 text-right font-bold">
-                                {mezclaSeleccionada.ley_prom_dump ? `${parseFloat(mezclaSeleccionada.ley_prom_dump).toFixed(2)}%` : '-'}
-                              </td>
-                              <td className="py-4 px-4 text-sm text-indigo-900 text-right font-bold">
                                 {mezclaSeleccionada.ley_prom_visual ? `${parseFloat(mezclaSeleccionada.ley_prom_visual).toFixed(2)}%` : '-'}
                               </td>
                               <td className="py-4 px-4 text-sm text-indigo-900 text-right font-bold">
-                                {mezclaSeleccionada.ley_prom_lote ? `${parseFloat(mezclaSeleccionada.ley_prom_lote).toFixed(2)}%` : '-'}
+                                {mezclaSeleccionada.ley_lab ? `${parseFloat(mezclaSeleccionada.ley_lab).toFixed(2)}%` : '-'}
                               </td>
                               <td className="py-4 px-4 text-sm text-indigo-900 text-right font-bold">
-                                {mezclaSeleccionada.ley_prom_lote
-                                  ? `${(parseFloat(mezclaSeleccionada.ley_prom_lote) / (factorAjusteLey * factorAjusteLey)).toFixed(2)}%`
-                                  : '-'}
+                                {mezclaSeleccionada.ley_prom_lote ? `${parseFloat(mezclaSeleccionada.ley_prom_lote).toFixed(2)}%` : '-'}
                               </td>
                             </tr>
                           </tbody>
@@ -3161,8 +3135,15 @@ export default function MezclasView({
                               <th className="text-left py-2 px-2 font-bold text-green-900 text-xs">Frente</th>
                               <th className="text-left py-2 px-2 font-bold text-green-900 text-xs">Fecha</th>
                               <th className="text-right py-2 px-2 font-bold text-green-900 text-xs">Ton total</th>
-                              <th className="text-center py-2 px-2 font-bold text-green-900 text-xs">Paladas disp.</th>
-                              <th className="text-center py-2 px-2 font-bold text-green-900 text-xs">Paladas a usar</th>
+                              <th className="text-center py-2 px-2 font-bold text-green-900 text-xs" title="Cuánto de esta dumpada todavía no se ha usado en ninguna mezcla">
+                                Paladas disp.
+                              </th>
+                              <th
+                                className="text-center py-2 px-2 font-bold text-green-900 text-xs cursor-help underline decoration-dotted decoration-green-400"
+                                title={`Toma solo una parte de la dumpada en vez de completa. 1 palada = ${toneladas_por_palada} t (configurable). Vacío = "Todas" = usa el 100% de la dumpada. El resto no usado queda disponible para otra mezcla.`}
+                              >
+                                Paladas a usar
+                              </th>
                               <th className="text-right py-2 px-2 font-bold text-green-900 text-xs">Ton a usar</th>
                               <th className="text-right py-2 px-2 font-bold text-green-900 text-xs">Ley</th>
                             </tr>
@@ -3654,8 +3635,8 @@ export default function MezclasView({
                   <div className="w-px h-6 bg-orange-700 flex-shrink-0" />
 
                   <div className="flex-shrink-0 text-center">
-                    <p className="text-[10px] text-orange-300 uppercase font-semibold leading-none">Ley Dump</p>
-                    <p className="text-sm sm:text-base font-bold text-amber-300 leading-tight">{totales.leyAjustada}%</p>
+                    <p className="text-[10px] text-orange-300 uppercase font-semibold leading-none">Ley Laboratorio</p>
+                    <p className="text-sm sm:text-base font-bold text-amber-300 leading-tight">{totales.leyLab}%</p>
                   </div>
 
                   <div className="hidden sm:block w-px h-6 bg-orange-700 flex-shrink-0" />

@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Capturas — Flujo Dispatch y Laboratorio | Minera 3H</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: Segoe UI, Arial, sans-serif;
+    color: #1c2430;
+    background: #eef1f4;
+    margin: 0;
+  }
+  .page {
+    max-width: 900px;
+    margin: 0 auto;
+    background: #fff;
+    padding: 0 0 40px 0;
+  }
+  header.cover {
+    background: linear-gradient(135deg,#F0821A,#C24E00);
+    color: #fff;
+    padding: 42px 40px 34px 40px;
+  }
+  header.cover .tag {
+    font-size: 12px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    opacity: .85;
+    font-weight: 700;
+  }
+  header.cover h1 {
+    font-size: 30px;
+    margin: 10px 0 6px 0;
+    font-weight: 800;
+  }
+  header.cover p {
+    font-size: 14.5px;
+    margin: 0;
+    opacity: .95;
+    max-width: 640px;
+    line-height: 1.5;
+  }
+  .meta-bar {
+    display: flex;
+    gap: 24px;
+    padding: 14px 40px;
+    background: #fff4ec;
+    border-bottom: 1px solid #f0d9c6;
+    font-size: 12.5px;
+    color: #7a4a1f;
+    flex-wrap: wrap;
+  }
+  .meta-bar b { color: #C24E00; }
+  section {
+    padding: 26px 40px 4px 40px;
+  }
+  .intro {
+    font-size: 13.5px;
+    line-height: 1.6;
+    color: #414d5c;
+    background: #f7f9fb;
+    border-left: 4px solid #F0821A;
+    padding: 14px 18px;
+    border-radius: 6px;
+    margin-bottom: 8px;
+  }
+  .step {
+    margin: 30px 0;
+    page-break-inside: avoid;
+  }
+  .step .step-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+  .step .num {
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    background: linear-gradient(135deg,#E8720F,#D45A08);
+    color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800;
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  .step h2 {
+    font-size: 17px;
+    margin: 0;
+    color: #1c2430;
+  }
+  .step .badge {
+    font-size: 10.5px;
+    font-weight: 700;
+    padding: 2px 9px;
+    border-radius: 20px;
+    margin-left: 6px;
+    vertical-align: middle;
+  }
+  .badge.dispatch { background: #FFE3CC; color: #B5490A; }
+  .badge.lab { background: #D6F0E1; color: #146c43; }
+  .step p.desc {
+    font-size: 13px;
+    color: #4a5563;
+    line-height: 1.55;
+    margin: 0 0 12px 0;
+  }
+  .shot {
+    border: 1px solid #e2e6ea;
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0,0,0,.06);
+  }
+  .shot img {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+  .caption {
+    font-size: 11.5px;
+    color: #8a94a0;
+    font-style: italic;
+    margin-top: 6px;
+    text-align: center;
+  }
+  .divider {
+    height: 1px;
+    background: #eceff2;
+    margin: 26px 40px;
+  }
+  footer {
+    padding: 20px 40px 30px 40px;
+    font-size: 11px;
+    color: #99a2ac;
+    text-align: center;
+    border-top: 1px solid #eceff2;
+    margin-top: 20px;
+  }
+  @media print {
+    body { background: #fff; }
+    .page { box-shadow: none; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="cover">
+    <div class="tag">Minera 3H · Sistema de Producción</div>
+    <h1>Flujo Dispatch y Laboratorio</h1>
+    <p>Capturas de pantalla del ciclo completo del dato: ingreso de dumpada, envío y análisis de laboratorio, creación de mezcla, apertura de lote, despacho de camionadas, recepción y cierre de venta.</p>
+  </header>
+
+  <div class="meta-bar">
+    <div><b>Ejemplo:</b> 4 dumpadas → mezcla CM8 → lote 70099</div>
+    <div><b>Faena:</b> Catemu</div>
+    <div><b>Fecha:</b> 04-08-2026</div>
+  </div>
+
+  <section>
+    <div class="intro">
+      Estas capturas muestran, paso a paso, el mismo flujo descrito en el documento técnico
+      "Flujo de Datos — Dispatch y Laboratorio": desde el ingreso del material en el frente
+      de trabajo hasta el cierre del lote de venta. Cada pantalla corresponde a una acción real
+      ejecutada en el sistema, con datos de ejemplo para fines de presentación.
+    </div>
+  </section>
+
+  <section class="step">
+    <div class="step-head">
+      <div class="num">1</div>
+      <h2>Hub Dispatch <span class="badge dispatch">Dispatch</span></h2>
+    </div>
+    <p class="desc">Vista general del módulo Dispatch: resumen de dumpadas y toneladas del mes, con acceso directo a Ingreso, Envío de Muestras, Historial, Mezclas y Despachos.</p>
+    <div class="shot"><img src="01_hub_dispatch.jpg"></div>
+  </section>
+
+  <section class="step">
+    <div class="step-head">
+      <div class="num">2</div>
+      <h2>Ingreso de Dumpadas <span class="badge dispatch">Dispatch</span></h2>
+    </div>
+    <p class="desc">Registro de 4 dumpadas extraídas desde distintos frentes de trabajo, con su ley visual, jornada y dumper. El tonelaje se autocompleta según la capacidad del equipo.</p>
+    <div class="shot"><img src="02_ingreso_dumpadas.jpg"></div>
+  </section>
+
+  <section class="step">
+    <div class="step-head">
+      <div class="num">3</div>
+      <h2>Envío de Muestras <span class="badge dispatch">Dispatch</span></h2>
+    </div>
+    <p class="desc">Las 4 dumpadas se seleccionan y se envían al laboratorio para su análisis químico.</p>
+    <div class="shot"><img src="03_envio_muestras.jpg"></div>
+  </section>
+
+  <section class="step">
+    <div class="step-head">
+      <div class="num">4</div>
+      <h2>Laboratorio — Muestras Pendientes <span class="badge lab">Laboratorio</span></h2>
+    </div>
+    <p class="desc">Las muestras enviadas aparecen automáticamente en el módulo de Laboratorio, listas para ser analizadas.</p>
+    <div class="shot"><img src="04_laboratorio_pendientes.jpg"></div>
+  </section>
+
+  <section class="step">
+    <div class="step-head">
+      <div class="num">5</div>
+      <h2>Análisis de Laboratorio <span class="badge lab">Laboratorio</span></h2>
+    </div>
+    <p class="desc">El analista ingresa Cu Total y Cu Soluble para las 4 muestras; el sistema calcula el Cu Insoluble automáticamente.</p>
+    <div class="shot"><img src="05_laboratorio_analisis.jpg"></div>
+  </section>
+
+  <section class="step">
+    <div class="step-head">
+      <div class="num">6</div>
+      <h2>Creación de Mezcla — Selección <span class="badge dispatch">Dispatch</span></h2>
+    </div>
+    <p class="desc">Se seleccionan las 4 dumpadas ya analizadas para conformar la mezcla. El sistema calcula en tiempo real el tonelaje total y las leyes de laboratorio, visual y lote.</p>
+    <div class="shot"><img src="06_mezclas_seleccion.jpg"></div>
+  </section>
+
+  <section class="step">
+    <div class="step-head">
+      <div class="num">7</div>
+      <h2>Mezcla Creada <span class="badge dispatch">Dispatch</span></h2>
+    </div>
+    <p class="desc">Con la planta de destino "Cemin" seleccionada, el sistema genera el código de mezcla automáticamente, con 14 toneladas y ley lote 1.73%. Debajo se detalla la composición: cada dumpada con su tonelaje, ley de laboratorio y ley lote individual.</p>
+    <div class="shot"><img src="07_mezcla_creada.jpg"></div>
+  </section>
+
+  <section class="step">
+    <div class="step-head">
+      <div class="num">8</div>
+      <h2>Apertura de Lote <span class="badge dispatch">Dispatch</span></h2>
+    </div>
+    <p class="desc">Se abre un nuevo lote indicando planta y empresa compradora. El número del lote se asignará al recepcionar la primera camionada.</p>
+    <div class="shot"><img src="08_abrir_lote.jpg"></div>
+  </section>
+
+  <section class="step">
+    <div class="step-head">
+      <div class="num">9</div>
+      <h2>Despacho de Camionadas <span class="badge dispatch">Dispatch</span></h2>
+    </div>
+    <p class="desc">Se despachan 2 camiones (8.40 t y 5.08 t) desde la mezcla CM8, sumando 13.48 toneladas hacia el lote recién creado.</p>
+    <div class="shot"><img src="09_crear_camionadas.jpg"></div>
+  </section>
+
+  <section class="step">
+    <div class="step-head">
+      <div class="num">10</div>
+      <h2>Recepción de Camionada <span class="badge dispatch">Dispatch</span></h2>
+    </div>
+    <p class="desc">Al recepcionar la primera camionada se asigna el número de lote (70099) y el peso real recibido en planta.</p>
+    <div class="shot"><img src="10_recepcionar_camionada.jpg"></div>
+  </section>
+
+  <section class="step">
+    <div class="step-head">
+      <div class="num">11</div>
+      <h2>Lote Recepcionado al 100% <span class="badge dispatch">Dispatch</span></h2>
+    </div>
+    <p class="desc">Ambas camionadas quedan recepcionadas: 13.48 toneladas reales, ley mezcla 1.73%. El lote queda listo para cerrarse.</p>
+    <div class="shot"><img src="11_lote_recepcionado.jpg"></div>
+  </section>
+
+  <section class="step">
+    <div class="step-head">
+      <div class="num">12</div>
+      <h2>Cierre de Lote <span class="badge dispatch">Dispatch</span></h2>
+    </div>
+    <p class="desc">Se cierra el lote 70099; el sistema pregunta por remanente de material recogido del suelo durante el despacho.</p>
+    <div class="shot"><img src="12_cerrar_lote.jpg"></div>
+  </section>
+
+  <section class="step">
+    <div class="step-head">
+      <div class="num">13</div>
+      <h2>Vista Final de Venta <span class="badge dispatch">Dispatch</span></h2>
+    </div>
+    <p class="desc">Resumen final del ciclo completo: lote 70099, planta Cemin, 2 camionadas, 13.48 toneladas, ley mezcla 1.730%.</p>
+    <div class="shot"><img src="13_venta_lote_final.jpg"></div>
+  </section>
+
+  <section class="step">
+    <div class="step-head">
+      <div class="num">14</div>
+      <h2>Detalle del Lote (Venta) <span class="badge dispatch">Dispatch</span></h2>
+    </div>
+    <p class="desc">Al hacer clic en "Ver" sobre el lote 70099 se abre el detalle completo: camionadas, patentes, pesos reales, ley lote, ley visual y los totales del lote.</p>
+    <div class="shot"><img src="14_lote_venta_detalle.jpg"></div>
+  </section>
+
+  <footer>
+    Minera 3H · Sistema de Producción · Capturas generadas 04-08-2026 · Uso interno
+  </footer>
+
+</div>
+</body>
+</html>

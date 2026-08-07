@@ -77,6 +77,7 @@ class CamionadaService
             // Crear la camionada
             $camionada = Camionada::create([
                 'lote_id'          => $lote->id,
+                'id_faena'         => $lote->id_faena,
                 'numero_camionada' => $numeroCamionada,
                 'patente'          => $datos['patente'],
                 'cliente'          => $datos['cliente'] ?? $lote->empresa->nombre,

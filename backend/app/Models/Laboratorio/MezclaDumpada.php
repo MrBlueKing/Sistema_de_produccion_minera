@@ -22,6 +22,7 @@ class MezclaDumpada extends Model
         'numero_paladas',
         'toneladas_reales_origen',
         'ley_dump_ajustada',
+        'ley_lab_capado',
         'ley_visual',
         'ley_lote',
     ];
@@ -31,6 +32,7 @@ class MezclaDumpada extends Model
         'numero_paladas' => 'decimal:2',
         'toneladas_reales_origen' => 'decimal:2',
         'ley_dump_ajustada' => 'decimal:2',
+        'ley_lab_capado' => 'decimal:3',
         'ley_visual' => 'decimal:2',
         'ley_lote' => 'decimal:2',
     ];
@@ -74,13 +76,13 @@ class MezclaDumpada extends Model
     /**
      * Método estático para crear un detalle desde una dumpada.
      *
-     * REGLA DE NEGOCIO para ley_dump_ajustada:
-     *   - Si tiene ley lab: ley_lab × factor (0.9)
-     *   - Si solo tiene ley visual: ley_visual SIN descuento
+     * REGLA DE NEGOCIO (vigente desde 2026-08): "ley dumpada" ya no existe como concepto
+     * intermedio. ley_dump_ajustada queda SIEMPRE null para mezclas nuevas (se conserva la
+     * columna solo por compatibilidad con mezclas viejas).
      *
-     * REGLA DE NEGOCIO para ley_lote (siempre se aplica descuento):
-     *   - Si tiene ley lab: ley_lab × factor × factor (0.81)
-     *   - Si solo tiene ley visual: ley_visual × factor (0.9)
+     * REGLA DE NEGOCIO para ley_lote (un solo paso, por DIVISIÓN, unificado):
+     *   - Si tiene ley lab: ley_lab_capado ("ley cupping") ÷ factor_ley_lote
+     *   - Si solo tiene ley visual: ley_visual ÷ factor_ley_lote (misma división que con lab)
      *
      * @param Dumpada $dumpada
      * @param int $mezclaId
@@ -144,21 +146,16 @@ class MezclaDumpada extends Model
             $leyLab = Dumpada::calcularCapping($leyLab, $dumpada->id_faena);
         }
         $leyVisual = $dumpada->ley_visual;
-        $factor = \App\Config\MezclaConfig::getFactorAjusteLey();
+        $factorLeyLote = \App\Config\MezclaConfig::getFactorLeyLote();
 
-        // ley_dump_ajustada: lab se descuenta, visual NO se descuenta
-        if ($leyLab) {
-            $leyDumpAjustada = round($leyLab * $factor, 2);
-        } else {
-            $leyDumpAjustada = $leyVisual; // sin descuento
-        }
+        // ley_dump_ajustada: concepto retirado, ya no se calcula para mezclas nuevas
+        $leyDumpAjustada = null;
 
-        // ley_lote: siempre se aplica descuento
-        // lab pasa por dos descuentos (×0.9×0.9 = ×0.81), visual por uno (×0.9)
+        // ley_lote: un solo paso, por división, unificado (con o sin lab)
         if ($leyLab) {
-            $leyLote = round($leyLab * $factor * $factor, 2);
+            $leyLote = round($leyLab / $factorLeyLote, 2);
         } elseif ($leyVisual) {
-            $leyLote = round($leyVisual * $factor, 2);
+            $leyLote = round($leyVisual / $factorLeyLote, 2);
         } else {
             $leyLote = null;
         }
@@ -185,9 +182,10 @@ class MezclaDumpada extends Model
             'origen' => $dumpada->acopios ?? "Dumpada #{$dumpada->numero_dumpada}",
             'toneladas' => $toneladas,
             'numero_paladas' => $numeroPaladas,
-            'ley_dump_ajustada' => $leyDumpAjustada, // lab×0.9 o visual directo
+            'ley_dump_ajustada' => $leyDumpAjustada, // retirado: siempre null en mezclas nuevas
+            'ley_lab_capado' => $leyLab ?: null, // ley cupping real, guardada tal cual (evita reconstruirla desde ley_lote)
             'ley_visual' => $leyVisual,
-            'ley_lote' => $leyLote, // lab×0.81 o visual×0.9
+            'ley_lote' => $leyLote, // (lab capado o visual) / factor_ley_lote
         ]);
     }
 

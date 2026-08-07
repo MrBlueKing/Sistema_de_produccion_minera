@@ -3,31 +3,22 @@ import gerencialService from '../../services/gerencialService';
 import { FAENA_COLORS, DEFAULT_FAENA_COLORS } from '../../../../contexts/faenaColor';
 import SelectorFaenasGrid from '../../../../shared/components/molecules/SelectorFaenasGrid';
 import {
-  BarChart, Bar, PieChart, Pie, Cell,
+  BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  Area, AreaChart, ComposedChart, Line,
+  ComposedChart, Line, ReferenceLine, LabelList,
 } from 'recharts';
 import {
   FiTruck, FiBox, FiLayers, FiPackage, FiTrendingUp,
-  FiBarChart2, FiAlertCircle, FiCheckCircle, FiClock, FiRefreshCw
+  FiBarChart2, FiAlertCircle, FiCheckCircle, FiClock, FiRefreshCw, FiZap
 } from 'react-icons/fi';
 import { FaIndustry, FaMountain } from 'react-icons/fa';
 import ReconstruccionLote from './ReconstruccionLote';
+import { CATEGORICAL, crearAsignadorDeFrentes } from '../../utils/chartColors';
 
-const CHART_COLORS = {
-  emerald: '#059669',
-  emeraldLight: '#34d399',
-  blue: '#2563eb',
-  blueLight: '#60a5fa',
-  purple: '#7c3aed',
-  amber: '#d97706',
-  orange: '#ea580c',
-  green: '#16a34a',
-  gray: '#6b7280',
-  red: '#dc2626',
-};
-
-const PIE_COLORS = ['#059669', '#d97706', '#6b7280', '#dc2626'];
+// Un solo color por serie (magnitud) — la ley usa el siguiente slot de la
+// paleta categórica cuando aparece junto al tonelaje en el mismo tablero.
+const COLOR_TONELAJE = CATEGORICAL[0]; // azul
+const COLOR_ACUMULADO = CATEGORICAL[1]; // naranjo
 
 // Helpers de formato
 const formatNumber = (num) => {
@@ -133,14 +124,6 @@ const useProduccionData = () => {
 
 // Preparar datos para gráficos
 const usePreparedData = (datos) => {
-  const produccionDiaria = (datos?.produccion_diaria || []).slice().reverse().map((dia) => ({
-    ...dia,
-    fecha: dia.fecha?.substring(5) || dia.fecha,
-    tonelaje: Number(dia.tonelaje) || 0,
-    cantidad: Number(dia.cantidad) || 0,
-    ley_promedio: Number(dia.ley_promedio) || 0,
-  }));
-
   const topFrentes = (datos?.top_frentes || []).map((f) => ({
     ...f,
     tonelaje: Number(f.tonelaje) || 0,
@@ -149,36 +132,20 @@ const usePreparedData = (datos) => {
     nombre: f.nombre?.length > 18 ? f.nombre.substring(0, 18) + '...' : f.nombre,
   }));
 
-  const estadosDumpadas = datos
-    ? [
-        { name: 'Completadas', value: Number(datos.dumpadas?.completadas) || 0 },
-        { name: 'Pendientes', value: Number(datos.dumpadas?.pendientes) || 0 },
-      ].filter((d) => d.value > 0)
-    : [];
-
-  const estadosMezclas = datos
-    ? [
-        { name: 'Activas', value: Number(datos.mezclas?.activas) || 0 },
-        { name: 'Completadas', value: Number(datos.mezclas?.completadas) || 0 },
-      ].filter((d) => d.value > 0)
-    : [];
-
-  const estadosLotes = datos
-    ? [
-        { name: 'Abiertos', value: Number(datos.lotes?.abiertos) || 0 },
-        { name: 'Cerrados', value: Number(datos.lotes?.cerrados) || 0 },
-      ].filter((d) => d.value > 0)
-    : [];
-
-  // Pareto: agrega % acumulado al topFrentes ordenado por tonelaje desc
+  // Pareto: % del total (no toneladas absolutas — un solo eje 0-100% junto al
+  // % acumulado, en vez del gráfico de doble eje que había antes) + % acumulado.
   const totalTonFrentes = topFrentes.reduce((s, f) => s + f.tonelaje, 0);
   let acum = 0;
   const paretoFrentes = topFrentes.map((f) => {
     acum += f.tonelaje;
-    return { ...f, pct_acumulado: totalTonFrentes > 0 ? Math.round((acum / totalTonFrentes) * 100) : 0 };
+    return {
+      ...f,
+      pct_total: totalTonFrentes > 0 ? Math.round((f.tonelaje / totalTonFrentes) * 1000) / 10 : 0,
+      pct_acumulado: totalTonFrentes > 0 ? Math.round((acum / totalTonFrentes) * 100) : 0,
+    };
   });
 
-  return { produccionDiaria, topFrentes, paretoFrentes, estadosDumpadas, estadosMezclas, estadosLotes };
+  return { topFrentes, paretoFrentes };
 };
 
 // =============================================
@@ -251,8 +218,16 @@ export const ProduccionCompleta = () => {
   const [dumpDiarias, setDumpDiarias]       = useState([]);
   const [dumpLoading, setDumpLoading]       = useState(false);
   const [dumpMetrica, setDumpMetrica]       = useState('toneladas'); // 'toneladas' | 'cantidad'
+  const [turnos, setTurnos]                 = useState([]);
+  const [turnosLoading, setTurnosLoading]   = useState(false);
+  const [turnosPeriodo, setTurnosPeriodo]   = useState(null);
 
   const [vista, setVista] = useState('resumen');
+
+  // Un solo asignador de color por frente para todo el dashboard (persiste
+  // mientras el componente esté montado): un frente conserva su color aunque
+  // cambie el filtro de fecha/faena o quede afuera y vuelva a aparecer.
+  const obtenerColorFrente = useRef(crearAsignadorDeFrentes()).current;
 
   // Cuando exactamente una faena está seleccionada → filtrar por ella
   const faenaIdActiva = selectedFaenas.length === 1
@@ -286,12 +261,30 @@ export const ProduccionCompleta = () => {
     finally { setDumpLoading(false); }
   };
 
+  // "Producción por Frente y Turno": el backend recorta solo a "ayer" como
+  // máximo (nunca hoy) porque el turno más reciente puede seguir recibiendo
+  // dumpadas — no se manda fecha_hasta acá, se deja que el backend decida.
+  const cargarTurnos = async (faenaId, fi) => {
+    setTurnosLoading(true);
+    try {
+      const params = { fecha_desde: fi };
+      if (faenaId) params.id_faena = faenaId;
+      const res = await gerencialService.getProduccionPorTurno(params);
+      if (res.success) {
+        setTurnos(res.data ?? []);
+        setTurnosPeriodo(res.periodo ?? null);
+      }
+    } catch (e) { console.error('Error producción por turno:', e); }
+    finally { setTurnosLoading(false); }
+  };
+
   useEffect(() => {
     const fi = new Date(); fi.setDate(1);
     const fiStr = fi.toISOString().split('T')[0];
     const ffStr = new Date().toISOString().split('T')[0];
     cargarReporte(null, fiStr, ffStr);
     cargarDumpDiarias(null, fiStr, ffStr);
+    cargarTurnos(null, fiStr);
   }, []);
 
   // Recarga automática cuando cambian fechas o selección de faenas
@@ -301,6 +294,7 @@ export const ProduccionCompleta = () => {
     cargarDatos(faenaIdActiva);
     cargarReporte(faenaIdActiva, fechaInicio, fechaFin);
     cargarDumpDiarias(faenaIdActiva, fechaInicio, fechaFin);
+    cargarTurnos(faenaIdActiva, fechaInicio);
   }, [fechaInicio, fechaFin, faenaIdActiva, ningunaSeleccionada]);
 
   return (
@@ -401,19 +395,40 @@ export const ProduccionCompleta = () => {
                   <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
                     <div className="bg-blue-50 px-6 py-4 border-b">
                       <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2">
-                        <FaMountain className="text-blue-600" /> Top Frentes por Tonelaje
+                        <FaMountain className="text-blue-600" /> Top Frentes por Tonelaje y Ley
                       </h3>
                     </div>
                     <div className="p-4">
                       <ResponsiveContainer width="100%" height={Math.max(240, topFrentes.length * 42)}>
-                        <BarChart data={topFrentes} layout="vertical" margin={{ top: 5, right: 30, left: 10, bottom: 5 }}>
+                        <BarChart data={topFrentes} layout="vertical" margin={{ top: 5, right: 60, left: 10, bottom: 5 }}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
                           <XAxis type="number" tick={{ fontSize: 11 }} />
                           <YAxis dataKey="nombre" type="category" width={120} tick={{ fontSize: 11 }} />
-                          <Tooltip content={<CustomTooltip />} />
-                          <Bar dataKey="tonelaje" name="Tonelaje (t)" fill={CHART_COLORS.blue} radius={[0, 4, 4, 0]} />
+                          <Tooltip
+                            content={({ active, payload, label }) => {
+                              if (!active || !payload?.length) return null;
+                              const row = payload[0]?.payload;
+                              return (
+                                <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-sm">
+                                  <p className="font-semibold text-gray-800 mb-1">{label}</p>
+                                  <p style={{ color: COLOR_TONELAJE }}>Tonelaje: {formatNumber(row?.tonelaje)} t</p>
+                                  {row?.ley_promedio != null && <p className="text-gray-600">Ley Cu: {formatNumber(row.ley_promedio)}%</p>}
+                                </div>
+                              );
+                            }}
+                          />
+                          <Bar dataKey="tonelaje" name="Tonelaje (t)" fill={COLOR_TONELAJE} radius={[0, 4, 4, 0]}>
+                            <LabelList
+                              dataKey="ley_promedio"
+                              position="right"
+                              formatter={(v) => (v != null ? `${formatNumber(v)}%` : '')}
+                              fontSize={11}
+                              fill="#374151"
+                            />
+                          </Bar>
                         </BarChart>
                       </ResponsiveContainer>
+                      <p className="text-xs text-gray-400 mt-1 text-right">Etiqueta al final de cada barra = ley Cu promedio del frente</p>
                     </div>
                   </div>
                 )}
@@ -488,34 +503,39 @@ export const ProduccionCompleta = () => {
                     <FiBarChart2 className="text-indigo-600 w-5 h-5" />
                     <div>
                       <h3 className="text-base font-semibold text-gray-800">Pareto de Frentes</h3>
-                      <p className="text-xs text-gray-400">Tonelaje por frente + % acumulado — identifica qué frentes concentran la producción</p>
+                      <p className="text-xs text-gray-400">% del tonelaje total por frente + % acumulado (significación) — la ley Cu de cada frente va sobre su barra</p>
                     </div>
                   </div>
                   <div className="p-4">
-                    <ResponsiveContainer width="100%" height={300}>
-                      <ComposedChart data={paretoFrentes} margin={{ top: 10, right: 50, left: 0, bottom: 60 }}>
+                    <ResponsiveContainer width="100%" height={320}>
+                      <ComposedChart data={paretoFrentes} margin={{ top: 20, right: 20, left: 0, bottom: 60 }}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
                         <XAxis dataKey="nombre" tick={{ fontSize: 10, angle: -35, textAnchor: 'end' }} interval={0} />
-                        <YAxis yAxisId="ton" tick={{ fontSize: 11 }} />
-                        <YAxis yAxisId="pct" orientation="right" domain={[0, 100]} unit="%" tick={{ fontSize: 11 }} width={42} />
+                        <YAxis domain={[0, 100]} unit="%" tick={{ fontSize: 11 }} />
+                        <ReferenceLine y={80} stroke="#9ca3af" strokeDasharray="4 4" label={{ value: '80%', position: 'right', fontSize: 10, fill: '#6b7280' }} />
                         <Tooltip
                           content={({ active, payload, label }) => {
                             if (!active || !payload?.length) return null;
-                            const ton = payload.find(p => p.dataKey === 'tonelaje');
-                            const pct = payload.find(p => p.dataKey === 'pct_acumulado');
+                            const total = payload.find(p => p.dataKey === 'pct_total');
+                            const acum = payload.find(p => p.dataKey === 'pct_acumulado');
+                            const row = payload[0]?.payload;
                             return (
                               <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-xs">
                                 <p className="font-semibold text-gray-800 mb-1">{label}</p>
-                                {ton && <p className="text-blue-700">Tonelaje: {formatNumber(ton.value)} t</p>}
-                                {pct && <p className="text-orange-600">% Acumulado: {pct.value}%</p>}
+                                {total && <p style={{ color: COLOR_TONELAJE }}>% del total: {total.value}% ({formatNumber(row?.tonelaje)} t)</p>}
+                                {acum && <p style={{ color: COLOR_ACUMULADO }}>% Acumulado: {acum.value}%</p>}
+                                {row?.ley_promedio != null && <p className="text-gray-600">Ley Cu: {formatNumber(row.ley_promedio)}%</p>}
                               </div>
                             );
                           }}
                         />
-                        <Bar yAxisId="ton" dataKey="tonelaje" name="Tonelaje (t)" fill={CHART_COLORS.blue} radius={[3, 3, 0, 0]} />
-                        <Line yAxisId="pct" dataKey="pct_acumulado" name="% Acumulado" type="monotone"
-                          stroke="#f97316" strokeWidth={2.5} dot={{ r: 4, fill: '#f97316', strokeWidth: 0 }}
+                        <Bar dataKey="pct_total" name="% del total" fill={COLOR_TONELAJE} radius={[3, 3, 0, 0]}>
+                          <LabelList dataKey="ley_promedio" position="top" formatter={(v) => `${formatNumber(v)}%`} fontSize={10} fill="#374151" />
+                        </Bar>
+                        <Line dataKey="pct_acumulado" name="% Acumulado" type="monotone"
+                          stroke={COLOR_ACUMULADO} strokeWidth={2.5} dot={{ r: 4, fill: COLOR_ACUMULADO, strokeWidth: 0 }}
                           activeDot={{ r: 6 }} />
+                        <Legend wrapperStyle={{ fontSize: 11 }} />
                       </ComposedChart>
                     </ResponsiveContainer>
                     {paretoFrentes.length > 0 && (() => {
@@ -523,7 +543,7 @@ export const ProduccionCompleta = () => {
                       if (idx80 < 0) return null;
                       return (
                         <p className="text-xs text-gray-500 mt-2 text-center">
-                          <span className="font-semibold text-orange-600">{idx80 + 1} frente{idx80 > 0 ? 's' : ''}</span>
+                          <span className="font-semibold" style={{ color: COLOR_ACUMULADO }}>{idx80 + 1} frente{idx80 > 0 ? 's' : ''}</span>
                           {' '}generan el 80% del tonelaje total
                         </p>
                       );
@@ -534,15 +554,26 @@ export const ProduccionCompleta = () => {
 
               {/* Avance diario por frente */}
               {(dumpDiarias.length > 0 || dumpLoading) && (() => {
-                // Pivotear: [{ fecha, frente, ton, cant }] → [{ fecha, Frente1: val, Frente2: val }]
+                // Pivotear: [{ fecha, frente, toneladas, cantidad, ley_promedio }] → [{ fecha, Frente1: val, ..., _detalle, _leyDia }]
+                // _detalle guarda ton+cantidad+ley por frente para el tooltip (no depende del toggle);
+                // _leyDia es la ley ponderada por tonelaje de TODOS los frentes ese día (para la etiqueta sobre la barra).
                 const frentes = [...new Set(dumpDiarias.map(d => d.frente))].sort();
                 const byFecha = {};
                 dumpDiarias.forEach(d => {
-                  if (!byFecha[d.fecha]) byFecha[d.fecha] = { fecha: d.fecha.slice(5) }; // MM-DD
-                  byFecha[d.fecha][d.frente] = dumpMetrica === 'toneladas' ? d.toneladas : d.cantidad;
+                  if (!byFecha[d.fecha]) {
+                    byFecha[d.fecha] = { fecha: d.fecha.slice(5), _detalle: {}, _tonTotal: 0, _tonLeyTotal: 0 };
+                  }
+                  const row = byFecha[d.fecha];
+                  row[d.frente] = dumpMetrica === 'toneladas' ? d.toneladas : d.cantidad;
+                  row._detalle[d.frente] = { toneladas: d.toneladas, cantidad: d.cantidad, ley_promedio: d.ley_promedio };
+                  if (d.ley_promedio != null) {
+                    row._tonTotal += d.toneladas;
+                    row._tonLeyTotal += d.toneladas * d.ley_promedio;
+                  }
                 });
-                const chartData = Object.values(byFecha).sort((a, b) => a.fecha.localeCompare(b.fecha));
-                const COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#84cc16'];
+                const chartData = Object.values(byFecha)
+                  .map((row) => ({ ...row, _leyDia: row._tonTotal > 0 ? row._tonLeyTotal / row._tonTotal : null }))
+                  .sort((a, b) => a.fecha.localeCompare(b.fecha));
 
                 return (
                   <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
@@ -551,7 +582,7 @@ export const ProduccionCompleta = () => {
                         <FiBarChart2 className="text-emerald-600 w-5 h-5" />
                         <div>
                           <h3 className="text-base font-semibold text-gray-800">Avance Diario por Frente</h3>
-                          <p className="text-xs text-gray-400">Dumpadas por día desglosadas por frente de trabajo</p>
+                          <p className="text-xs text-gray-400">Tonelaje/cantidad por día y frente — la ley Cu de cada uno aparece en el detalle y la ley del día sobre la barra</p>
                         </div>
                       </div>
                       <div className="flex gap-1 text-xs">
@@ -569,12 +600,112 @@ export const ProduccionCompleta = () => {
                       <div className="p-8 text-center"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-emerald-500 mx-auto" /></div>
                     ) : (
                       <div className="p-4">
-                        <ResponsiveContainer width="100%" height={320}>
-                          <BarChart data={chartData} margin={{ top: 10, right: 20, left: 0, bottom: 40 }}>
+                        <ResponsiveContainer width="100%" height={340}>
+                          <BarChart data={chartData} margin={{ top: 24, right: 20, left: 0, bottom: 40 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
                             <XAxis dataKey="fecha" tick={{ fontSize: 10, angle: -35, textAnchor: 'end' }} interval={0} />
                             <YAxis tick={{ fontSize: 11 }}
                               label={{ value: dumpMetrica === 'toneladas' ? 'Toneladas' : 'Dumpadas', angle: -90, position: 'insideLeft', fontSize: 11, fill: '#6b7280' }} />
+                            <Tooltip
+                              content={({ active, payload, label }) => {
+                                if (!active || !payload?.length) return null;
+                                const row = payload[0]?.payload;
+                                const total = payload.reduce((s, p) => s + (p.value ?? 0), 0);
+                                return (
+                                  <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-xs min-w-[220px]">
+                                    <p className="font-semibold text-gray-700 mb-2">{label}</p>
+                                    {payload.map((p) => {
+                                      const det = row?._detalle?.[p.dataKey];
+                                      return (
+                                        <div key={p.dataKey} className="mb-1.5">
+                                          <div className="flex justify-between gap-3">
+                                            <span style={{ color: p.fill }} className="font-medium">{p.dataKey}</span>
+                                            <span className="font-mono font-semibold">
+                                              {formatNumber(det?.toneladas)} t · {det?.cantidad ?? '-'} dumpadas
+                                            </span>
+                                          </div>
+                                          {det?.ley_promedio != null && (
+                                            <div className="text-right text-gray-500">Ley Cu: {formatNumber(det.ley_promedio)}%</div>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                    <div className="border-t mt-1 pt-1 flex justify-between font-semibold text-gray-800">
+                                      <span>Total</span>
+                                      <span className="font-mono">
+                                        {dumpMetrica === 'toneladas' ? `${formatNumber(total)} t` : `${total} dumpadas`}
+                                        {row?._leyDia != null && ` · Ley ${formatNumber(row._leyDia)}%`}
+                                      </span>
+                                    </div>
+                                  </div>
+                                );
+                              }}
+                            />
+                            {frentes.map((f, i) => (
+                              <Bar key={f} dataKey={f} stackId="a" fill={obtenerColorFrente(f)}
+                                radius={i === frentes.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]}>
+                                {i === frentes.length - 1 && (
+                                  <LabelList
+                                    dataKey="_leyDia"
+                                    position="top"
+                                    formatter={(v) => (v != null ? `Ley ${formatNumber(v)}%` : '')}
+                                    fontSize={10}
+                                    fill="#374151"
+                                  />
+                                )}
+                              </Bar>
+                            ))}
+                          </BarChart>
+                        </ResponsiveContainer>
+                        <div className="flex flex-wrap justify-center gap-3 mt-1">
+                          {frentes.map((f) => (
+                            <span key={f} className="flex items-center gap-1.5 text-xs text-gray-600">
+                              <span className="w-3 h-3 rounded-sm inline-block" style={{ backgroundColor: obtenerColorFrente(f) }} />
+                              {f}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Producción por Frente y Turno (antes "disparos" — ver nota abajo) */}
+              {(turnos.length > 0 || turnosLoading) && (() => {
+                const turnoLabel = (t) => `${t.fecha.slice(5)} ${t.jornada}`;
+                const frentesTurno = [...new Set(turnos.map(t => t.frente))].sort();
+                const byTurno = {};
+                turnos.forEach(t => {
+                  const key = `${t.fecha}_${t.jornada}`;
+                  if (!byTurno[key]) byTurno[key] = { turno: turnoLabel(t), fecha: t.fecha };
+                  byTurno[key][t.frente] = t.toneladas;
+                });
+                const chartDataTurno = Object.values(byTurno).sort((a, b) => a.fecha.localeCompare(b.fecha));
+                const filasOrdenadas = [...turnos].sort((a, b) => b.fecha.localeCompare(a.fecha) || a.frente.localeCompare(b.frente));
+
+                return (
+                  <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
+                    <div className="px-6 py-4 border-b flex items-center gap-2">
+                      <FiZap className="text-orange-600 w-5 h-5" />
+                      <div>
+                        <h3 className="text-base font-semibold text-gray-800">Producción por Frente y Turno</h3>
+                        <p className="text-xs text-gray-400">
+                          Tonelaje y ley extraídos por turno (Madrugada/AM/PM) — no incluye el día de hoy, el turno más reciente puede seguir recibiendo dumpadas
+                          {turnosPeriodo && ` · ventana ${turnosPeriodo.fecha_desde} a ${turnosPeriodo.fecha_hasta}`}
+                        </p>
+                      </div>
+                    </div>
+                    {turnosLoading ? (
+                      <div className="p-8 text-center"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-orange-500 mx-auto" /></div>
+                    ) : (
+                      <div className="p-4 space-y-4">
+                        <ResponsiveContainer width="100%" height={300}>
+                          <BarChart data={chartDataTurno} margin={{ top: 10, right: 20, left: 0, bottom: 50 }}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" vertical={false} />
+                            <XAxis dataKey="turno" tick={{ fontSize: 10, angle: -35, textAnchor: 'end' }} interval={0} />
+                            <YAxis tick={{ fontSize: 11 }}
+                              label={{ value: 'Toneladas', angle: -90, position: 'insideLeft', fontSize: 11, fill: '#6b7280' }} />
                             <Tooltip
                               content={({ active, payload, label }) => {
                                 if (!active || !payload?.length) return null;
@@ -585,34 +716,63 @@ export const ProduccionCompleta = () => {
                                     {payload.map(p => (
                                       <div key={p.dataKey} className="flex justify-between gap-3">
                                         <span style={{ color: p.fill }}>{p.dataKey}</span>
-                                        <span className="font-mono font-semibold">
-                                          {dumpMetrica === 'toneladas' ? `${formatNumber(p.value)} t` : p.value}
-                                        </span>
+                                        <span className="font-mono font-semibold">{formatNumber(p.value)} t</span>
                                       </div>
                                     ))}
                                     <div className="border-t mt-1 pt-1 flex justify-between font-semibold text-gray-800">
                                       <span>Total</span>
-                                      <span className="font-mono">
-                                        {dumpMetrica === 'toneladas' ? `${formatNumber(total)} t` : total}
-                                      </span>
+                                      <span className="font-mono">{formatNumber(total)} t</span>
                                     </div>
                                   </div>
                                 );
                               }}
                             />
-                            {frentes.map((f, i) => (
-                              <Bar key={f} dataKey={f} stackId="a" fill={COLORS[i % COLORS.length]}
-                                radius={i === frentes.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]} />
+                            {frentesTurno.map((f, i) => (
+                              <Bar key={f} dataKey={f} stackId="a" fill={obtenerColorFrente(f)}
+                                radius={i === frentesTurno.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]} />
                             ))}
                           </BarChart>
                         </ResponsiveContainer>
-                        <div className="flex flex-wrap justify-center gap-3 mt-1">
-                          {frentes.map((f, i) => (
+                        <div className="flex flex-wrap justify-center gap-3">
+                          {frentesTurno.map((f) => (
                             <span key={f} className="flex items-center gap-1.5 text-xs text-gray-600">
-                              <span className="w-3 h-3 rounded-sm inline-block" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
+                              <span className="w-3 h-3 rounded-sm inline-block" style={{ backgroundColor: obtenerColorFrente(f) }} />
                               {f}
                             </span>
                           ))}
+                        </div>
+
+                        {/* Tabla-vista: mismo dato del gráfico, detalle exacto por fila */}
+                        <div className="overflow-x-auto">
+                          <table className="min-w-full divide-y divide-gray-200 text-xs">
+                            <thead className="bg-gray-50">
+                              <tr>
+                                <th className="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wide">Frente</th>
+                                <th className="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wide">Fecha</th>
+                                <th className="px-4 py-2 text-left font-medium text-gray-500 uppercase tracking-wide">Turno</th>
+                                <th className="px-4 py-2 text-right font-medium text-gray-500 uppercase tracking-wide">Tonelaje</th>
+                                <th className="px-4 py-2 text-right font-medium text-gray-500 uppercase tracking-wide">Ley %</th>
+                                <th className="px-4 py-2 text-right font-medium text-gray-500 uppercase tracking-wide">N° Dumpadas</th>
+                              </tr>
+                            </thead>
+                            <tbody className="bg-white divide-y divide-gray-100">
+                              {filasOrdenadas.map((t, i) => (
+                                <tr key={i} className="hover:bg-gray-50">
+                                  <td className="px-4 py-2 font-medium text-gray-800">
+                                    <span className="inline-flex items-center gap-1.5">
+                                      <span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ backgroundColor: obtenerColorFrente(t.frente) }} />
+                                      {t.frente}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-2 text-gray-600">{t.fecha}</td>
+                                  <td className="px-4 py-2 text-gray-600">{t.jornada}</td>
+                                  <td className="px-4 py-2 text-right text-gray-700">{formatNumber(t.toneladas)} t</td>
+                                  <td className="px-4 py-2 text-right text-gray-700">{t.ley_promedio != null ? `${formatNumber(t.ley_promedio)}%` : '—'}</td>
+                                  <td className="px-4 py-2 text-right text-gray-700">{t.n_dumpadas}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
                         </div>
                       </div>
                     )}

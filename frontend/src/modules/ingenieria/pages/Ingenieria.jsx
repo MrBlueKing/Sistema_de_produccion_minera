@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Navigate } from 'react-router-dom';
 import {
-  HiHome, HiMap, HiTag, HiClipboardDocumentList, HiInformationCircle,
+  HiHome, HiMap, HiTag, HiClipboardDocumentList, HiInformationCircle, HiDocumentText,
 } from 'react-icons/hi2';
 import Header from '../../../shared/components/organisms/Header';
 import Breadcrumb from '../../../shared/components/atoms/Breadcrumb';
@@ -14,13 +14,20 @@ import { FaenaProvider, useFaena } from '../../../contexts/FaenaContext';
 
 const FAENAS_VISIBLES = [1, 2, 4];
 
+// Roles que ven el tile "Reportes de Perforación y Tronadura" en el hub
+const ROLES_REPORTES_PYT = ['ingeniero', 'jefe_mina'];
+// Roles con acceso directo SOLO a Reportes P&T — no deben poder navegar al resto del hub
+// (Frentes de Trabajo, Tipos de Frente, Estado de Frentes), aunque tengan sesión iniciada.
+const ROLES_SOLO_REPORTES_PYT = ['admin_explosivos', 'jefe_mina'];
+
 function IngenieriaContent() {
   const navigate = useNavigate();
-  const { getUserInfo } = useAuth();
+  const { getUserInfo, getRolActivo } = useAuth();
   const { faenaUsuario } = useFaena();
 
   const userInfo = getUserInfo();
   const userNombre = userInfo?.nombre || '';
+  const veReportesPyT = ROLES_REPORTES_PYT.includes(getRolActivo());
 
   const getSaludo = () => {
     const h = new Date().getHours();
@@ -47,6 +54,12 @@ function IngenieriaContent() {
     };
     load();
   }, []);
+
+  // Bloquear el hub completo a roles que solo deben ver Reportes P&T
+  // (después de todos los hooks, para no romper las Reglas de los Hooks)
+  if (ROLES_SOLO_REPORTES_PYT.includes(getRolActivo())) {
+    return <Navigate to="/ingenieria/reportes-perforacion" replace />;
+  }
 
   const handleGoBack = () => {
     window.location.href = import.meta.env.VITE_CENTRAL_URL;
@@ -202,6 +215,20 @@ function IngenieriaContent() {
                 <p className="font-bold text-slate-900 text-sm leading-tight">Tipos de Frente</p>
                 <p className="text-slate-400 text-xs mt-0.5">Catálogo</p>
               </button>
+
+              {/* Reportes de Perforación y Tronadura */}
+              {veReportesPyT && (
+                <button
+                  onClick={() => navigate('/ingenieria/reportes-perforacion')}
+                  className="group bg-orange-50 rounded-xl border border-orange-100 shadow-sm p-4 text-left hover:bg-orange-100 hover:border-orange-300 hover:shadow-md hover:-translate-y-0.5 transition-all duration-150 active:scale-[0.97]"
+                >
+                  <div className="w-10 h-10 bg-orange-500 rounded-xl flex items-center justify-center mb-3 group-hover:bg-orange-600 transition-colors shadow-sm">
+                    <HiDocumentText className="w-5 h-5 text-white" />
+                  </div>
+                  <p className="font-bold text-orange-900 text-sm leading-tight">Reportes de Perforación y Tronadura</p>
+                  <p className="text-orange-400 text-xs mt-0.5">Planificación de tiros por frente y turno</p>
+                </button>
+              )}
 
             </div>
           </div>

@@ -51,6 +51,9 @@ Route::get('/historial', [LaboratorioController::class, 'historial']);
 // Editar análisis de una dumpada del historial
 Route::put('/historial/{id}', [LaboratorioController::class, 'editarAnalisis']);
 
+// Revertir análisis de una dumpada a Pendiente (solo si no tiene certificado)
+Route::put('/historial/{id}/revertir', [LaboratorioController::class, 'revertirAnalisis']);
+
 // Empresas
 Route::get('/empresas', [EmpresaController::class, 'index']);
 Route::post('/empresas', [EmpresaController::class, 'store']);
@@ -92,6 +95,15 @@ Route::get('/certificados/{numeroCertificado}/dumpadas', [CertificadoController:
 // Regenerar certificado existente
 Route::post('/certificados/{numeroCertificado}/regenerar', [CertificadoController::class, 'regenerar']);
 
+// Aprobar certificado (requiere permiso aprobar_certificados_laboratorio)
+Route::post('/certificados/{numeroCertificado}/aprobar', [CertificadoController::class, 'aprobar']);
+
+// Rechazar certificado con motivo (requiere permiso aprobar_certificados_laboratorio)
+Route::post('/certificados/{numeroCertificado}/rechazar', [CertificadoController::class, 'rechazar']);
+
+// Enviar certificado por correo electrónico (solo si está Aprobado)
+Route::post('/certificados/{numeroCertificado}/enviar-correo', [CertificadoController::class, 'enviarCorreo']);
+
 // ========================================
 // MÓDULO: MUESTRAS LIBRES
 // ========================================
@@ -100,4 +112,7 @@ Route::put('/muestras-libres/{id}/completar', [MuestraLibreController::class, 'c
 
 // Editar análisis de una muestra libre ya completada
 Route::put('/muestras-libres/{id}/editar', [MuestraLibreController::class, 'editarAnalisis']);
+
+// Revertir análisis de una muestra libre a Pendiente (solo si no tiene certificado)
+Route::put('/muestras-libres/{id}/revertir', [MuestraLibreController::class, 'revertirAnalisis']);
 

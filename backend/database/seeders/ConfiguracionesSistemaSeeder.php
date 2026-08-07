@@ -45,6 +45,14 @@ class ConfiguracionesSistemaSeeder extends Seeder
                 'created_at' => now(),
                 'updated_at' => now(),
             ],
+            [
+                'clave' => 'factor_ley_lote',
+                'valor' => '1.235',
+                'tipo' => 'number',
+                'descripcion' => 'Divisor para calcular ley_lote desde la ley cupping (o ley visual si no hay lab): ley_lote = base / factor_ley_lote. Reemplaza el esquema anterior de doble descuento (factor_ajuste_ley al cuadrado).',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
         ];
 
         foreach ($configuraciones as $config) {

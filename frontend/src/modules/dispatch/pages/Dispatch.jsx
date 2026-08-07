@@ -1929,8 +1929,8 @@ function DispatchContent() {
                                 {dumpada.frente_trabajo?.codigo_completo || '-'}
                               </span>
                             </td>
-                            <td className="py-3 px-3" title={dumpada.acopios ? `Código del acopio: ${dumpada.acopios}` : 'Sin acopio asociado'}>
-                              <span className="font-mono font-bold text-gray-700 text-xs whitespace-nowrap">
+                            <td className="py-3 px-3 max-w-[180px]" title={dumpada.acopios ? `Código del acopio: ${dumpada.acopios}` : 'Sin acopio asociado'}>
+                              <span className="font-mono font-bold text-gray-700 text-xs block whitespace-normal break-words leading-tight">
                                 {dumpada.acopios || '-'}
                               </span>
                             </td>

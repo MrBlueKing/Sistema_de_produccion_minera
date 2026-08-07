@@ -2804,8 +2804,7 @@ const DespachosView = () => {
                                             <div key={mezcla.id} className="mb-3 last:mb-0">
                                               <p className="text-xs font-bold text-indigo-700 mb-1.5 flex items-center gap-1">
                                                 <span className="font-mono bg-indigo-100 px-1.5 py-0.5 rounded">{mezcla.codigo}</span>
-                                                {mezcla.ley_prom_dump != null && <span className="text-orange-600">Ley dump: {parseFloat(mezcla.ley_prom_dump).toFixed(3)}%</span>}
-                                                {mezcla.ley_prom_lote != null && <span className="text-emerald-700">· Ley lote: {parseFloat(mezcla.ley_prom_lote).toFixed(3)}%</span>}
+                                                {mezcla.ley_prom_lote != null && <span className="text-emerald-700">Ley lote: {parseFloat(mezcla.ley_prom_lote).toFixed(3)}%</span>}
                                                 {mezcla.ley_lab != null && <span className="text-violet-700">· Ley lab: {parseFloat(mezcla.ley_lab).toFixed(3)}%</span>}
                                               </p>
                                               {detalles.length > 0 ? (
@@ -2815,7 +2814,6 @@ const DespachosView = () => {
                                                       <th className="px-2 py-1 text-left font-semibold">Dump#</th>
                                                       <th className="px-2 py-1 text-left font-semibold">Origen</th>
                                                       <th className="px-2 py-1 text-right font-semibold">Ton</th>
-                                                      <th className="px-2 py-1 text-right font-semibold">Ley dump</th>
                                                       <th className="px-2 py-1 text-right font-semibold">Ley lote</th>
                                                     </tr>
                                                   </thead>
@@ -2829,7 +2827,6 @@ const DespachosView = () => {
                                                         </td>
                                                         <td className="px-2 py-1 text-gray-500 max-w-[180px] truncate">{det.origen ?? '-'}</td>
                                                         <td className="px-2 py-1 text-right tabular-nums">{det.toneladas != null ? parseFloat(det.toneladas).toFixed(2) : '-'}</td>
-                                                        <td className="px-2 py-1 text-right tabular-nums text-orange-700">{det.ley_dump_ajustada != null ? `${parseFloat(det.ley_dump_ajustada).toFixed(3)}%` : '-'}</td>
                                                         <td className="px-2 py-1 text-right tabular-nums text-emerald-700 font-semibold">{det.ley_lote != null ? `${parseFloat(det.ley_lote).toFixed(3)}%` : '-'}</td>
                                                       </tr>
                                                     ))}
@@ -2850,7 +2847,7 @@ const DespachosView = () => {
                           </tbody>
                           <tfoot className="bg-gradient-to-r from-gray-100 to-gray-50 border-t-2 border-gray-400">
                             <tr>
-                              <td colSpan="6" className="px-3 py-3 text-gray-900 font-bold text-sm">TOTALES</td>
+                              <td colSpan="5" className="px-3 py-3 text-gray-900 font-bold text-sm">TOTALES</td>
                               <td className="px-3 py-3 text-right text-gray-900 font-bold">
                                 {loteSeleccionado.camionadas.reduce((sum, c) => {
                                   const peso = c.peso_real != null ? c.peso_real : c.peso;
@@ -2867,6 +2864,7 @@ const DespachosView = () => {
                                   ? <span className="inline-flex items-center px-2 py-1 rounded-full bg-amber-200 text-amber-900 font-bold text-xs">{loteSeleccionado.ley_visual_promedio.toFixed(2)}%</span>
                                   : <span className="text-gray-500 text-xs">N/A</span>}
                               </td>
+                              <td className="px-3 py-3"></td>
                               <td className="px-3 py-3"></td>
                             </tr>
                           </tfoot>

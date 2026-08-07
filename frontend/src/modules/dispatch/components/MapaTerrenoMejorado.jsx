@@ -7,8 +7,10 @@ import ConfirmModal from '../../../shared/components/molecules/ConfirmModal';
 import mapaService from '../services/mapa';
 import dispatchService from '../services/dispatch';
 import mezclasService from '../services/mezclas';
+import { useConfig } from '../../../hooks/useConfig';
 
 export default function MapaTerrenoMejorado({ toast }) {
+  const { factorLeyLote } = useConfig();
   const [dumpadas, setDumpadas] = useState([]);
   const [zonas, setZonas] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -435,7 +437,7 @@ export default function MapaTerrenoMejorado({ toast }) {
     if (dumpadasSeleccionadasMezcla.length === 0) {
       return {
         totalToneladas: 0,
-        leyPromedioDump: 0,
+        leyPromedioLab: 0,
         leyPromedioVisual: 0,
         leyPromedioLote: 0,
         cantidadDumpadas: 0
@@ -444,29 +446,25 @@ export default function MapaTerrenoMejorado({ toast }) {
 
     const totalTon = dumpadasSeleccionadasMezcla.reduce((sum, d) => sum + parseFloat(d.ton || 0), 0);
 
-    // Ley dump ajustada (ley * 0.9)
-    const sumaDumpPonderada = dumpadasSeleccionadasMezcla.reduce((sum, d) => {
-      const leyAjustada = d.ley ? parseFloat(d.ley) * 0.9 : 0;
-      return sum + (parseFloat(d.ton || 0) * leyAjustada);
-    }, 0);
-
     // Ley visual
     const sumaVisualPonderada = dumpadasSeleccionadasMezcla.reduce((sum, d) => {
       return sum + (parseFloat(d.ton || 0) * parseFloat(d.ley_visual || 0));
     }, 0);
 
-    // Ley lote (si hay ley usar esa, sino ley_visual, ambas * 0.9)
+    // Ley lote: base (lab o visual) / factorLeyLote, unificado
     const sumaLotePonderada = dumpadasSeleccionadasMezcla.reduce((sum, d) => {
       const leyParaLote = d.ley ? parseFloat(d.ley) : parseFloat(d.ley_visual || 0);
-      const leyLote = leyParaLote * 0.9;
+      const leyLote = leyParaLote / factorLeyLote;
       return sum + (parseFloat(d.ton || 0) * leyLote);
     }, 0);
 
+    const leyPromedioLote = totalTon > 0 ? (sumaLotePonderada / totalTon) : 0;
+
     return {
       totalToneladas: totalTon.toFixed(2),
-      leyPromedioDump: totalTon > 0 ? (sumaDumpPonderada / totalTon).toFixed(3) : '0.000',
+      leyPromedioLab: leyPromedioLote > 0 ? (leyPromedioLote * factorLeyLote).toFixed(3) : '0.000',
       leyPromedioVisual: totalTon > 0 ? (sumaVisualPonderada / totalTon).toFixed(3) : '0.000',
-      leyPromedioLote: totalTon > 0 ? (sumaLotePonderada / totalTon).toFixed(3) : '0.000',
+      leyPromedioLote: leyPromedioLote.toFixed(3),
       cantidadDumpadas: dumpadasSeleccionadasMezcla.length
     };
   };
@@ -723,8 +721,8 @@ export default function MapaTerrenoMejorado({ toast }) {
                   <p className="text-lg font-bold text-blue-600">{calcularTotalesMezcla().totalToneladas}</p>
                 </div>
                 <div>
-                  <span className="text-sm text-gray-600">Ley Dump (ajust.):</span>
-                  <p className="text-lg font-bold text-green-600">{calcularTotalesMezcla().leyPromedioDump}%</p>
+                  <span className="text-sm text-gray-600">Ley Laboratorio:</span>
+                  <p className="text-lg font-bold text-green-600">{calcularTotalesMezcla().leyPromedioLab}%</p>
                 </div>
                 <div>
                   <span className="text-sm text-gray-600">Ley Visual:</span>
@@ -1013,8 +1011,8 @@ export default function MapaTerrenoMejorado({ toast }) {
 
                   <div className="grid grid-cols-3 gap-2 mt-3 text-xs">
                     <div>
-                      <span className="text-gray-600">Ley Dump:</span>
-                      <p className="font-bold text-green-600">{parseFloat(mezcla.ley_prom_dump || 0).toFixed(3)}%</p>
+                      <span className="text-gray-600">Ley Laboratorio:</span>
+                      <p className="font-bold text-green-600">{parseFloat(mezcla.ley_lab || 0).toFixed(3)}%</p>
                     </div>
                     <div>
                       <span className="text-gray-600">Ley Visual:</span>
@@ -1436,9 +1434,9 @@ export default function MapaTerrenoMejorado({ toast }) {
                         </span>
                       </div>
                       <div className="flex justify-between items-center">
-                        <span className="text-xs text-gray-600">Ley Dump (ajustada):</span>
+                        <span className="text-xs text-gray-600">Ley Laboratorio:</span>
                         <span className="text-sm font-bold text-green-600">
-                          {calcularTotalesMezcla().leyPromedioDump}%
+                          {calcularTotalesMezcla().leyPromedioLab}%
                         </span>
                       </div>
                       <div className="flex justify-between items-center">

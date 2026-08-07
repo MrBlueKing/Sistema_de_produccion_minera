@@ -200,8 +200,12 @@ class Mezcla extends Model
      * Este método recalcula todos los valores basándose en los detalles
      *
      * IMPORTANTE:
-     * - ley_dump_ajustada ya viene CON factor aplicado (lab×0.9, visual directo)
-     * - ley_lote ya viene CON factor aplicado (lab×0.81, visual×0.9)
+     * - Mezclas viejas/mixtas: ley_dump_ajustada ya viene con factor_ajuste_ley aplicado
+     *   (lab×0.9, visual directo), ley_lote con factor² (lab×0.81, visual×0.9). Sin cambios.
+     * - Mezclas nuevas (desde 2026-08): ley_dump_ajustada es siempre null; ley_lote ya viene
+     *   dividido por factor_ley_lote (lab capado o visual ÷ factor_ley_lote). ley_prom_dump
+     *   se deja en null (concepto retirado) y ley_lab se reconstruye multiplicando por
+     *   factor_ley_lote en vez de dividir por factor².
      * - ley_prom_visual es un estimado a ojo, se guarda SIN descuento (valor original)
      */
     public function calcularTotales()
@@ -242,6 +246,13 @@ class Mezcla extends Model
 
         // Promedios ponderados por toneladas (ley_dump y ley_lote ya tienen factores aplicados)
         $factor = MezclaConfig::getFactorAjusteLey();
+        $factorLeyLote = MezclaConfig::getFactorLeyLote();
+
+        // Mezclas armadas desde 2026-08 en adelante ya no calculan ley_dump_ajustada (concepto
+        // retirado, ver MezclaDumpada::desdeDumpada). Si NINGÚN detalle lo trae, es una mezcla
+        // "fórmula nueva" y el repair heurístico de abajo (pensado para datos legados/corruptos
+        // de Excel) no debe activarse ni inventar un ley_prom_dump que ya no significa nada.
+        $todosNuevaFormula = $detalles->every(fn ($d) => $d->ley_dump_ajustada === null);
 
         // ley_dump_ajustada puede venir NULL o con un valor inconsistente en remanentes
         // importados con error de fórmula en el Excel origen (#¡REF! u otro dato suelto).
@@ -292,13 +303,25 @@ class Mezcla extends Model
         // - ley_prom_dump: los detalles ya tienen el factor aplicado (lab×0.9, visual directo), NO aplicar de nuevo
         // - ley_prom_visual: es un estimado a ojo, se guarda SIN descuento (valor original)
         // - ley_prom_lote: los detalles ya tienen factor aplicado (lab×0.81, visual×0.9), NO aplicar de nuevo
-        $this->ley_prom_dump = $totalTon > 0 ? round($sumaDumpPonderada / $totalTon, 2) : null;
+        $this->ley_prom_dump = ($totalTon > 0 && !$todosNuevaFormula) ? round($sumaDumpPonderada / $totalTon, 2) : null;
         $this->ley_prom_visual = $totalTon > 0 ? round($sumaVisualPonderada / $totalTon, 2) : null;
         $this->ley_prom_lote = $totalTon > 0 ? round($sumaLotePonderada / $totalTon, 2) : null;
 
-        // Calcular ley_lab = ley_prom_lote / (factor * factor) → inversa del camino lab
+        // Reconstruir ley_lab (ley cupping) desde ley_prom_lote — inversa del cálculo de
+        // MezclaDumpada::desdeDumpada(). Mezclas "fórmula nueva" dividen para llegar a
+        // ley_lote, así que la inversa es multiplicar por factor_ley_lote. Mezclas viejas/mixtas
+        // multiplicaban dos veces (factor²), así que su inversa sigue siendo dividir por factor².
+        //
+        // Fórmula nueva: se multiplica sobre el promedio SIN redondear (no sobre
+        // $this->ley_prom_lote, que ya viene redondeado a 2 decimales) para no arrastrar un
+        // doble redondeo — si no, el resultado puede quedar hasta 0.01 desviado de promediar
+        // directamente los ley_lab de cada detalle (matemáticamente son la misma cuenta, dado
+        // que el factor es el mismo para todas las filas).
+        $leyPromLoteSinRedondear = $totalTon > 0 ? ($sumaLotePonderada / $totalTon) : null;
         $this->ley_lab = $this->ley_prom_lote
-            ? round($this->ley_prom_lote / ($factor * $factor), 2)
+            ? ($todosNuevaFormula
+                ? round($leyPromLoteSinRedondear * $factorLeyLote, 2)
+                : round($this->ley_prom_lote / ($factor * $factor), 2))
             : null;
 
         \Log::info('📊 [MEZCLA TOTALES] Resultado final', [

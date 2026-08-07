@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { HiPlus, HiHome, HiPencil, HiTrash, HiTag, HiInformationCircle } from 'react-icons/hi2';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Navigate } from 'react-router-dom';
 import Header from '../../../shared/components/organisms/Header';
 import Button from '../../../shared/components/atoms/Button';
 import Input from '../../../shared/components/atoms/Input';
@@ -9,10 +9,15 @@ import Breadcrumb from '../../../shared/components/atoms/Breadcrumb';
 import ConfirmModal from '../../../shared/components/molecules/ConfirmModal';
 import useToast from '../../../hooks/useToast';
 import ingenieriaService from '../../ingenieria/services/ingenieria';
+import { useAuth } from '../../../core/context/AuthContext';
+
+// Roles con acceso directo SOLO a Reportes P&T — no deben poder navegar al resto del hub
+const ROLES_SOLO_REPORTES_PYT = ['admin_explosivos', 'jefe_mina'];
 
 export default function TiposFrente() {
   const navigate = useNavigate();
   const toast = useToast();
+  const { getRolActivo } = useAuth();
 
   const [tiposFrente, setTiposFrente] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -31,6 +36,12 @@ export default function TiposFrente() {
   useEffect(() => {
     loadTiposFrente();
   }, []);
+
+  // Bloquear esta página a roles que solo deben ver Reportes P&T
+  // (después de todos los hooks, para no romper las Reglas de los Hooks)
+  if (ROLES_SOLO_REPORTES_PYT.includes(getRolActivo())) {
+    return <Navigate to="/ingenieria/reportes-perforacion" replace />;
+  }
 
   const loadTiposFrente = async () => {
     setLoading(true);

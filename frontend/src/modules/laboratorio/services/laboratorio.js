@@ -41,6 +41,12 @@ class LaboratorioService {
     return response.data;
   }
 
+  // Revertir análisis de una dumpada a Pendiente (solo si no tiene certificado)
+  async revertirAnalisis(id) {
+    const response = await api.put(`/laboratorio/historial/${id}/revertir`);
+    return response.data;
+  }
+
   // ========================================
   // MÓDULO: MUESTREO
   // ========================================
@@ -85,7 +91,7 @@ class LaboratorioService {
     return response.data;
   }
 
-  // Generar y descargar certificado PDF (acepta dumpadas, muestras específicas, o ambos)
+  // Generar certificado (no descarga el PDF, queda disponible en la pestaña Certificados)
   async generarCertificadoPdf(dumpadaIds = [], numeroCertificado = null, muestraLibreIds = [], para = null) {
     const body = {};
     if (numeroCertificado) body.numero_certificado = numeroCertificado;
@@ -93,10 +99,8 @@ class LaboratorioService {
     if (muestraLibreIds.length > 0) body.muestra_libre_ids = muestraLibreIds;
     if (para) body.para = para;
 
-    const response = await api.post('/laboratorio/certificados/generar', body, {
-      responseType: 'blob'
-    });
-    return response;
+    const response = await api.post('/laboratorio/certificados/generar', body);
+    return response.data;
   }
 
   // Previsualizar certificado PDF (abre en nueva pestaña)
@@ -132,6 +136,24 @@ class LaboratorioService {
     return response;
   }
 
+  // Aprobar certificado (visto bueno)
+  async aprobarCertificado(numeroCertificado) {
+    const response = await api.post(`/laboratorio/certificados/${numeroCertificado}/aprobar`);
+    return response.data;
+  }
+
+  // Rechazar certificado con motivo
+  async rechazarCertificado(numeroCertificado, motivo) {
+    const response = await api.post(`/laboratorio/certificados/${numeroCertificado}/rechazar`, { motivo });
+    return response.data;
+  }
+
+  // Enviar certificado ya aprobado por correo electrónico
+  async enviarCorreoCertificado(numeroCertificado, destinatario, mensaje = null) {
+    const response = await api.post(`/laboratorio/certificados/${numeroCertificado}/enviar-correo`, { destinatario, mensaje });
+    return response.data;
+  }
+
   // ========================================
   // MÓDULO: MUESTRAS LIBRES
   // ========================================
@@ -145,6 +167,12 @@ class LaboratorioService {
   // Editar análisis de una muestra libre ya completada
   async editarMuestraLibre(id, data) {
     const response = await api.put(`/laboratorio/muestras-libres/${id}/editar`, data);
+    return response.data;
+  }
+
+  // Revertir análisis de una muestra libre a Pendiente (solo si no tiene certificado)
+  async revertirMuestraLibre(id) {
+    const response = await api.put(`/laboratorio/muestras-libres/${id}/revertir`);
     return response.data;
   }
 }

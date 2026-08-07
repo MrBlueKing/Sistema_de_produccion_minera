@@ -6,6 +6,7 @@ import {
 } from 'react-icons/hi2';
 import laboratorioService from '../../../services/laboratorio';
 import useDebounce from '../../../hooks/useDebounce';
+import { useConfig } from '../../../hooks/useConfig';
 
 // ─── utilidades ──────────────────────────────────────────────────────────────
 
@@ -20,11 +21,18 @@ const descuentoPct = (lote, base) => {
   return ((lote / base - 1) * 100).toFixed(0);
 };
 
-// Para dumpadas con lab: ley_efectiva = ley_dump_ajustada / 0.90
-// Para dumpadas sin lab: ley_efectiva = ley_visual (ley_dump_ajustada = ley_visual)
+// Fórmula nueva (desde 2026-08, sin "ley dumpada"): ley_efectiva (ley cupping) viene guardada
+// directo en ley_lab_capado — ya no se reconstruye desde ley_lote (eso perdía precisión).
+// Fórmula vieja/legada: ley_efectiva = ley_dump_ajustada / 0.90
+// Para dumpadas sin lab: ley_efectiva = ley_visual
 const leyEfectiva = (comp) => {
-  if (comp.tiene_lab && comp.ley_dump_ajustada) {
-    return parseFloat((comp.ley_dump_ajustada / 0.90).toFixed(3));
+  if (comp.tiene_lab) {
+    if (comp.ley_dump_ajustada != null) {
+      return parseFloat((comp.ley_dump_ajustada / 0.90).toFixed(3));
+    }
+    if (comp.ley_lab_capado != null) {
+      return parseFloat(comp.ley_lab_capado);
+    }
   }
   return comp.ley_visual ?? comp.ley_visual_mezcla ?? null;
 };
@@ -69,8 +77,9 @@ function DumpadaChip({ comp, isSelected, onClick }) {
 
 // ─── SubComponente: panel de detalle de una dumpada ─────────────────────────
 
-function DumpadaDetalle({ comp }) {
+function DumpadaDetalle({ comp, factorLeyLote }) {
   const efectiva = leyEfectiva(comp);
+  const esFormulaNueva = comp.ley_dump_ajustada == null;
   const cuIns    = comp.cu_insoluble;
   const cuSol    = comp.cu_soluble;
   const insUsada = cuIns != null && (cuSol == null || cuIns >= cuSol);
@@ -152,17 +161,27 @@ function DumpadaDetalle({ comp }) {
                   <span className="text-gray-300 font-bold text-xl">→</span>
                 </>
               )}
-              <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-center">
-                <p className="text-[10px] text-gray-500 font-semibold">× 0.9 = Ley Dump</p>
-                <p className="text-lg font-bold text-gray-700">{fmt(comp.ley_dump_ajustada)}</p>
-                <p className="text-[10px] text-gray-400">−10% operacional</p>
-              </div>
-              <span className="text-gray-300 font-bold text-xl">→</span>
-              <div className="bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2 text-center">
-                <p className="text-[10px] text-indigo-600 font-semibold">× 0.81 = Ley Lote</p>
-                <p className="text-xl font-bold text-indigo-700">{fmt(comp.ley_lote)}</p>
-                <p className="text-[10px] text-indigo-400">−19% base de venta</p>
-              </div>
+              {esFormulaNueva ? (
+                <div className="bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2 text-center">
+                  <p className="text-[10px] text-indigo-600 font-semibold">÷ {factorLeyLote} = Ley Lote</p>
+                  <p className="text-xl font-bold text-indigo-700">{fmt(comp.ley_lote)}</p>
+                  <p className="text-[10px] text-indigo-400">base de venta</p>
+                </div>
+              ) : (
+                <>
+                  <div className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-center">
+                    <p className="text-[10px] text-gray-500 font-semibold">× 0.9 = Ley Dump</p>
+                    <p className="text-lg font-bold text-gray-700">{fmt(comp.ley_dump_ajustada)}</p>
+                    <p className="text-[10px] text-gray-400">−10% operacional</p>
+                  </div>
+                  <span className="text-gray-300 font-bold text-xl">→</span>
+                  <div className="bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2 text-center">
+                    <p className="text-[10px] text-indigo-600 font-semibold">× 0.81 = Ley Lote</p>
+                    <p className="text-xl font-bold text-indigo-700">{fmt(comp.ley_lote)}</p>
+                    <p className="text-[10px] text-indigo-400">−19% base de venta</p>
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
@@ -186,11 +205,19 @@ function DumpadaDetalle({ comp }) {
               <p className="text-[10px] text-yellow-400">estimación en terreno</p>
             </div>
             <span className="text-gray-300 font-bold text-xl">→</span>
-            <div className="bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2 text-center">
-              <p className="text-[10px] text-indigo-600 font-semibold">× 0.9 = Ley Lote</p>
-              <p className="text-xl font-bold text-indigo-700">{fmt(comp.ley_lote)}</p>
-              <p className="text-[10px] text-indigo-400">−10% base de venta</p>
-            </div>
+            {esFormulaNueva ? (
+              <div className="bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2 text-center">
+                <p className="text-[10px] text-indigo-600 font-semibold">÷ {factorLeyLote} = Ley Lote</p>
+                <p className="text-xl font-bold text-indigo-700">{fmt(comp.ley_lote)}</p>
+                <p className="text-[10px] text-indigo-400">base de venta</p>
+              </div>
+            ) : (
+              <div className="bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2 text-center">
+                <p className="text-[10px] text-indigo-600 font-semibold">× 0.9 = Ley Lote</p>
+                <p className="text-xl font-bold text-indigo-700">{fmt(comp.ley_lote)}</p>
+                <p className="text-[10px] text-indigo-400">−10% base de venta</p>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -230,12 +257,16 @@ function RemDetalle({ comp }) {
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <div className="bg-white border border-purple-200 rounded-lg px-3 py-2 text-center">
-          <p className="text-[10px] text-gray-500 font-semibold">Ley Dump</p>
-          <p className="text-lg font-bold text-gray-700">{fmt(comp.ley_dump_ajustada)}</p>
-          <p className="text-[10px] text-gray-400">heredado de mezcla origen</p>
-        </div>
-        <span className="text-gray-300 font-bold text-xl">→</span>
+        {comp.ley_dump_ajustada != null && (
+          <>
+            <div className="bg-white border border-purple-200 rounded-lg px-3 py-2 text-center">
+              <p className="text-[10px] text-gray-500 font-semibold">Ley Dump</p>
+              <p className="text-lg font-bold text-gray-700">{fmt(comp.ley_dump_ajustada)}</p>
+              <p className="text-[10px] text-gray-400">heredado de mezcla origen</p>
+            </div>
+            <span className="text-gray-300 font-bold text-xl">→</span>
+          </>
+        )}
         <div className="bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-2 text-center">
           <p className="text-[10px] text-indigo-600 font-semibold">Ley Lote</p>
           <p className="text-xl font-bold text-indigo-700">{fmt(comp.ley_lote)}</p>
@@ -248,7 +279,7 @@ function RemDetalle({ comp }) {
 
 // ─── SubComponente: chips + detalle (reemplaza tabla y grid) ─────────────────
 
-function TablaComponentes({ componentes }) {
+function TablaComponentes({ componentes, factorLeyLote }) {
   const [selIdx, setSelIdx] = useState(null);
 
   if (!componentes?.length) {
@@ -298,7 +329,7 @@ function TablaComponentes({ componentes }) {
       {/* ── Hint / panel de detalle ── */}
       {selComp ? (
         selComp.tipo === 'DUMP'
-          ? <DumpadaDetalle comp={selComp} />
+          ? <DumpadaDetalle comp={selComp} factorLeyLote={factorLeyLote} />
           : <RemDetalle comp={selComp} />
       ) : (
         <p className="text-[11px] text-gray-300 text-center py-2 select-none">
@@ -312,7 +343,7 @@ function TablaComponentes({ componentes }) {
 
 // ─── SubComponente: bloque de una mezcla ─────────────────────────────────────
 
-function MezclaBloque({ mezcla, open, onToggle }) {
+function MezclaBloque({ mezcla, open, onToggle, factorLeyLote }) {
   return (
     <div className="border border-purple-100 rounded-xl overflow-hidden mb-2">
       {/* Header mezcla */}
@@ -350,7 +381,7 @@ function MezclaBloque({ mezcla, open, onToggle }) {
       {/* Cuerpo con componentes */}
       {open && (
         <div className="border-t border-purple-100 bg-white">
-          <TablaComponentes componentes={mezcla.componentes} />
+          <TablaComponentes componentes={mezcla.componentes} factorLeyLote={factorLeyLote} />
         </div>
       )}
     </div>
@@ -359,7 +390,7 @@ function MezclaBloque({ mezcla, open, onToggle }) {
 
 // ─── SubComponente: fila de camionada ────────────────────────────────────────
 
-function CamionadaBloque({ camionada, openMezclas, onToggleCamionada, onToggleMezcla, isOpen }) {
+function CamionadaBloque({ camionada, openMezclas, onToggleCamionada, onToggleMezcla, isOpen, factorLeyLote }) {
   return (
     <div className="border border-indigo-100 rounded-xl overflow-hidden mb-3">
       {/* Header camionada */}
@@ -412,6 +443,7 @@ function CamionadaBloque({ camionada, openMezclas, onToggleCamionada, onToggleMe
                 mezcla={mezcla}
                 open={openMezclas.has(`${camionada.id}-${mezcla.id}`)}
                 onToggle={() => onToggleMezcla(`${camionada.id}-${mezcla.id}`)}
+                factorLeyLote={factorLeyLote}
               />
             ))
           )}
@@ -424,6 +456,7 @@ function CamionadaBloque({ camionada, openMezclas, onToggleCamionada, onToggleMe
 // ─── Vista principal ──────────────────────────────────────────────────────────
 
 export default function ReconstruccionLoteView() {
+  const { factorLeyLote } = useConfig();
   const [busqueda, setBusqueda] = useState('');
   const [lotes, setLotes] = useState([]);
   const [loadingLotes, setLoadingLotes] = useState(false);
@@ -698,6 +731,7 @@ export default function ReconstruccionLoteView() {
                   openMezclas={openMezclas}
                   onToggleCamionada={() => toggleCamionada(cam.id)}
                   onToggleMezcla={toggleMezcla}
+                  factorLeyLote={factorLeyLote}
                 />
               ))
             )}

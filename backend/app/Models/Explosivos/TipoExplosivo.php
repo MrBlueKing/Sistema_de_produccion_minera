@@ -19,6 +19,7 @@ class TipoExplosivo extends Model
         'requiere_lote',
         'dias_alerta_vencimiento',
         'stock_minimo',
+        'dias_cobertura_stock',
         'stock_maximo',
         'fabricante',
         'clasificacion_onu',
@@ -30,6 +31,7 @@ class TipoExplosivo extends Model
         'requiere_lote' => 'boolean',
         'dias_alerta_vencimiento' => 'integer',
         'stock_minimo' => 'decimal:2',
+        'dias_cobertura_stock' => 'integer',
         'stock_maximo' => 'decimal:2',
         'activo' => 'boolean',
     ];

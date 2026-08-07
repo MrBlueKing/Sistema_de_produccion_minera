@@ -6,7 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Services\CertificadoPdfService;
 use App\Models\Dispatch\Dumpada;
 use App\Models\Dispatch\MuestraLibre;
+use App\Models\Laboratorio\Certificado;
+use App\Mail\CertificadoLaboratorioMail;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Validator;
 
 class CertificadoController extends Controller
@@ -16,6 +19,27 @@ class CertificadoController extends Controller
     public function __construct(CertificadoPdfService $certificadoService)
     {
         $this->certificadoService = $certificadoService;
+    }
+
+    /**
+     * Nombre para mostrar de quien hace la acción, a partir de los datos de
+     * usuario inyectados por ValidateTokenWithCentral.
+     */
+    private function actorNombre(Request $request): string
+    {
+        $usuario = $request->input('auth_user') ?? [];
+        $nombre = trim(($usuario['nombre'] ?? '') . ' ' . ($usuario['apellido'] ?? ''));
+
+        return $nombre !== '' ? $nombre : ($usuario['rut'] ?? 'Usuario desconocido');
+    }
+
+    /**
+     * Permiso que habilita aprobar/rechazar certificados. Debe coincidir
+     * exactamente con el permiso creado en el SAC (módulo Laboratorio).
+     */
+    private function tienePermisoAprobacion(Request $request): bool
+    {
+        return in_array('aprobar_certificados_laboratorio', $request->input('auth_permisos') ?? []);
     }
 
     /**
@@ -185,13 +209,23 @@ class CertificadoController extends Controller
                         'message' => 'No puede mezclar muestras de diferentes certificados: ' . $certificadosUnicos->implode(', ')
                     ], 400);
                 }
-                $pdf = $this->certificadoService->regenerarCertificado($certificadosUnicos->first(), $para);
-                return $pdf->download("certificado_{$certificadosUnicos->first()}.pdf");
+                $numeroCertificado = $certificadosUnicos->first();
+                return response()->json([
+                    'success' => true,
+                    'message' => "Certificado {$numeroCertificado} listo. Ya está disponible en la pestaña Certificados.",
+                    'numero_certificado' => $numeroCertificado,
+                ]);
             }
 
             // Generar nuevo certificado con ambos tipos
-            $pdf = $this->certificadoService->generarCertificado($dumpadaIds, null, true, $muestraLibreIds, $para);
-            return $pdf->download('certificado_' . date('Y-m-d_His') . '.pdf');
+            $numeroCertificado = $this->certificadoService->generarNumeroCertificado();
+            $this->certificadoService->generarCertificado($dumpadaIds, $numeroCertificado, true, $muestraLibreIds, $para, $this->actorNombre($request));
+
+            return response()->json([
+                'success' => true,
+                'message' => "Certificado {$numeroCertificado} generado correctamente. Ya está disponible en la pestaña Certificados.",
+                'numero_certificado' => $numeroCertificado,
+            ]);
 
         } catch (\Exception $e) {
             return response()->json(['success' => false, 'message' => $e->getMessage()], 400);
@@ -255,7 +289,7 @@ class CertificadoController extends Controller
     /**
      * Listar certificados PDF generados (con filtros y paginación)
      */
-    public function certificadosGenerados(Request $request)
+    private function listarCertificados(Request $request, bool $soloAprobados)
     {
         $idFaena     = $request->get('id_faena');
         $search      = $request->get('search');
@@ -272,7 +306,8 @@ class CertificadoController extends Controller
             $fechaInicio,
             $fechaFin,
             $muestrasMin,
-            $muestrasMax
+            $muestrasMax,
+            $soloAprobados
         );
 
         $total    = $todos->count();
@@ -295,11 +330,141 @@ class CertificadoController extends Controller
     }
 
     /**
+     * Listar certificados PDF generados (con filtros y paginación).
+     * Usado por Laboratorio: ve todos los estados (Pendiente/Aprobado/Rechazado).
+     */
+    public function certificadosGenerados(Request $request)
+    {
+        return $this->listarCertificados($request, false);
+    }
+
+    /**
+     * Listar certificados PDF generados, solo los Aprobados.
+     * Usado por el Dashboard Gerencial.
+     */
+    public function certificadosAprobados(Request $request)
+    {
+        return $this->listarCertificados($request, true);
+    }
+
+    /**
+     * Aprobar un certificado (visto bueno). Requiere el permiso
+     * aprobar_certificados_laboratorio.
+     */
+    public function aprobar(Request $request, string $numeroCertificado)
+    {
+        if (!$this->tienePermisoAprobacion($request)) {
+            return response()->json(['success' => false, 'message' => 'No tiene permiso para aprobar certificados.'], 403);
+        }
+
+        $certificado = Certificado::where('numero_certificado', $numeroCertificado)->first();
+        if (!$certificado) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Certificado no encontrado (probablemente histórico, ya aprobado por defecto).'
+            ], 404);
+        }
+
+        try {
+            $certificado->aprobar($this->actorNombre($request));
+            return response()->json(['success' => true, 'message' => 'Certificado aprobado.', 'data' => $certificado]);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 400);
+        }
+    }
+
+    /**
+     * Rechazar un certificado con motivo. Requiere el permiso
+     * aprobar_certificados_laboratorio.
+     */
+    public function rechazar(Request $request, string $numeroCertificado)
+    {
+        if (!$this->tienePermisoAprobacion($request)) {
+            return response()->json(['success' => false, 'message' => 'No tiene permiso para rechazar certificados.'], 403);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'motivo' => 'required|string|max:500',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+        }
+
+        $certificado = Certificado::where('numero_certificado', $numeroCertificado)->first();
+        if (!$certificado) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Certificado no encontrado (probablemente histórico, ya aprobado por defecto).'
+            ], 404);
+        }
+
+        try {
+            $certificado->rechazar($request->input('motivo'), $this->actorNombre($request));
+
+            // Liberar las dumpadas/muestras vinculadas: vuelven a "sin certificado"
+            // para poder corregirlas (editar o revertir) y generar un certificado nuevo.
+            Dumpada::where('certificado', $numeroCertificado)->update(['certificado' => null]);
+            MuestraLibre::where('certificado', $numeroCertificado)->update(['certificado' => null]);
+
+            return response()->json(['success' => true, 'message' => 'Certificado rechazado. Las muestras quedaron liberadas para corregirlas.', 'data' => $certificado]);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => $e->getMessage()], 400);
+        }
+    }
+
+    /**
+     * Enviar un certificado ya Aprobado por correo electrónico.
+     */
+    public function enviarCorreo(Request $request, string $numeroCertificado)
+    {
+        $validator = Validator::make($request->all(), [
+            'destinatario' => 'required|email|max:150',
+            'mensaje'      => 'nullable|string|max:1000',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
+        }
+
+        $estado = Certificado::estadoParaNumero($numeroCertificado);
+        if ($estado !== Certificado::ESTADO_APROBADO) {
+            return response()->json([
+                'success' => false,
+                'message' => "El certificado debe estar Aprobado antes de poder enviarse por correo (estado actual: {$estado})."
+            ], 400);
+        }
+
+        try {
+            $pdf = $this->certificadoService->regenerarCertificado($numeroCertificado);
+            $pdfBinario = $pdf->output();
+
+            Mail::to($request->input('destinatario'))
+                ->send(new CertificadoLaboratorioMail($numeroCertificado, $pdfBinario, $request->input('mensaje')));
+
+            Certificado::where('numero_certificado', $numeroCertificado)->update([
+                'enviado_a' => $request->input('destinatario'),
+                'fecha_envio_correo' => now(),
+            ]);
+
+            return response()->json(['success' => true, 'message' => 'Certificado enviado a ' . $request->input('destinatario')]);
+        } catch (\Exception $e) {
+            return response()->json(['success' => false, 'message' => 'No se pudo enviar el correo: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
      * Regenerar un certificado existente por su número.
      * Incluye automáticamente todos los tipos (dumpadas + muestras específicas).
      */
     public function regenerar(Request $request, string $numeroCertificado)
     {
+        $estado = Certificado::estadoParaNumero($numeroCertificado);
+        if ($estado !== Certificado::ESTADO_APROBADO) {
+            return response()->json([
+                'success' => false,
+                'message' => "No se puede descargar: el certificado está en estado {$estado}. Debe ser aprobado primero."
+            ], 400);
+        }
+
         try {
             $para = $request->input('para');
             $pdf = $this->certificadoService->regenerarCertificado($numeroCertificado, $para);
@@ -325,9 +490,7 @@ class CertificadoController extends Controller
     public function previsualizarPorNumero(Request $request, string $numeroCertificado)
     {
         try {
-            $usuario = $request->input('auth_user');
-            $nombreUsuario = trim(($usuario['nombre'] ?? '') . ' ' . ($usuario['apellido'] ?? '')) ?: ($usuario['rut'] ?? 'Usuario');
-            $watermarkTexto = $nombreUsuario . ' · ' . now()->format('d-m-Y H:i');
+            $watermarkTexto = $this->actorNombre($request) . ' · ' . now()->format('d-m-Y H:i');
 
             $pdf = $this->certificadoService->regenerarCertificado($numeroCertificado, null, $watermarkTexto);
             return $pdf->stream('certificado_preview.pdf');

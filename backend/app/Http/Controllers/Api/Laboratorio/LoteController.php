@@ -461,6 +461,7 @@ class LoteController extends Controller
                             'toneladas'         => (float) $detalle->toneladas,
                             'numero_paladas'    => $detalle->numero_paladas !== null ? (float) $detalle->numero_paladas : null,
                             'ley_dump_ajustada' => $detalle->ley_dump_ajustada !== null ? (float) $detalle->ley_dump_ajustada : null,
+                            'ley_lab_capado'    => $detalle->ley_lab_capado !== null ? (float) $detalle->ley_lab_capado : null,
                             'ley_visual_mezcla' => $detalle->ley_visual !== null ? (float) $detalle->ley_visual : null,
                             'ley_lote'          => $detalle->ley_lote !== null ? (float) $detalle->ley_lote : null,
                             'numero_dumpada'    => $d->numero_dumpada,

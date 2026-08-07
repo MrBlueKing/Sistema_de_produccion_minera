@@ -11,7 +11,7 @@ import { useConfig } from '../../../hooks/useConfig';
 import acopiosService from '../../../services/acopios';
 
 export default function AcopiosView({ toast, formatearFecha }) {
-  const { tonelajeDumpadaDefault, factorAjusteLey } = useConfig();
+  const { tonelajeDumpadaDefault } = useConfig();
   const [showInfo, setShowInfo] = useState(false);
   const [acopios, setAcopios] = useState([]);
   const [dumpadasSinAcopio, setDumpadasSinAcopio] = useState([]);
@@ -512,7 +512,7 @@ export default function AcopiosView({ toast, formatearFecha }) {
                       <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs">Frente</th>
                       <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs">Fecha</th>
                       <th className="text-right py-3 px-3 font-bold text-blue-900 text-xs">Toneladas</th>
-                      <th className="text-right py-3 px-3 font-bold text-blue-900 text-xs">Ley Dump</th>
+                      <th className="text-right py-3 px-3 font-bold text-blue-900 text-xs">Ley Laboratorio</th>
                       <th className="text-right py-3 px-3 font-bold text-blue-900 text-xs">Ley Visual</th>
                       <th className="text-right py-3 px-3 font-bold text-blue-900 text-xs">Estado</th>
                     </tr>
@@ -589,13 +589,13 @@ export default function AcopiosView({ toast, formatearFecha }) {
                   <h5 className="text-xs font-bold text-blue-900 mb-2">📐 Fórmulas de Cálculo:</h5>
                   <div className="text-xs text-blue-800 space-y-1">
                     <div>
-                      <span className="font-semibold">Ley Dump Ajustada:</span> Σ(ton<sub>i</sub> × ley_dump<sub>i</sub> × 0.9) / Total_Toneladas
+                      <span className="font-semibold">Ley Lote (con lab):</span> Σ(ton<sub>i</sub> × ley<sub>i</sub> × 0.81) / Total_Toneladas
                     </div>
                     <div>
-                      <span className="font-semibold">Ley Visual Ajustada:</span> Σ(ton<sub>i</sub> × ley_visual<sub>i</sub> × 0.9) / Total_Toneladas
+                      <span className="font-semibold">Ley Lote (solo visual):</span> Σ(ton<sub>i</sub> × ley_visual<sub>i</sub> × 0.9) / Total_Toneladas
                     </div>
                     <div className="text-blue-600 italic mt-2">
-                      Factor de ajuste: {factorAjusteLey} (configurable en sistema)
+                      Sistema de Acopios: fórmula propia, independiente del factor configurable de Mezclas (Dumpadas Directas)
                     </div>
                   </div>
                 </div>

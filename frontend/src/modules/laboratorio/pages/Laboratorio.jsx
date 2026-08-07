@@ -10,6 +10,7 @@ import TableFilters from '../../../shared/components/molecules/TableFilters';
 import useDebounce from '../../../hooks/useDebounce';
 import useToast from '../../../hooks/useToast';
 import laboratorioService from '../services/laboratorio';
+import configuracionService from '../../../services/configuracion';
 import CertificadosGenerados from '../components/CertificadosGenerados';
 import ingenieriaService from '../../ingenieria/services/ingenieria';
 import api from '../../../core/services/api';
@@ -39,11 +40,31 @@ export default function Laboratorio() {
 
   // Modal "Para" antes de generar certificado
   const [paraModal, setParaModal] = useState({ show: false, para: '', pendingAction: null });
+  const [destinatariosFrecuentes, setDestinatariosFrecuentes] = useState([]);
+  const [paraEsOtro, setParaEsOtro] = useState(false);
+  const [mostrarGestionDestinatarios, setMostrarGestionDestinatarios] = useState(false);
+  const [nuevoDestinatario, setNuevoDestinatario] = useState('');
+  const [guardandoDestinatarios, setGuardandoDestinatarios] = useState(false);
+
+  // Modal independiente para gestionar destinatarios (accesible sin pasar por generar certificado)
+  const [destinatariosModalOpen, setDestinatariosModalOpen] = useState(false);
+  const [editandoDestinatario, setEditandoDestinatario] = useState(null);
+  const [valorEditado, setValorEditado] = useState('');
 
   // Edición de análisis
   const [editModal, setEditModal] = useState({ show: false, dumpada: null });
-  const [editForm, setEditForm] = useState({ ley: '', cu_soluble: '', cu_insoluble: '', para: '' });
+  const [editForm, setEditForm] = useState({ ley: '', cu_soluble: '', cu_insoluble: '' });
   const [savingEdit, setSavingEdit] = useState(false);
+
+  // Revertir análisis a Pendiente
+  const [revertModal, setRevertModal] = useState({ show: false, dumpada: null });
+  const [revirtiendo, setRevirtiendo] = useState(false);
+
+  // Edición en secuencia (varias filas de Historial)
+  const [modoSeleccionEdicion, setModoSeleccionEdicion] = useState(false);
+  const [selectedEditIds, setSelectedEditIds] = useState([]);
+  const [colaEdicion, setColaEdicion] = useState([]);
+  const [progresoEdicion, setProgresoEdicion] = useState({ actual: 0, total: 0 });
 
   // Paginación
   const [currentPage, setCurrentPage] = useState(1);
@@ -72,7 +93,17 @@ export default function Laboratorio() {
     loadMaestros();
     loadFaenas();
     loadEstadisticas();
+    loadDestinatariosFrecuentes();
   }, []);
+
+  const loadDestinatariosFrecuentes = async () => {
+    try {
+      const lista = await configuracionService.get('certificado_destinatarios_frecuentes');
+      setDestinatariosFrecuentes(Array.isArray(lista) ? lista : []);
+    } catch (error) {
+      console.error('Error cargando destinatarios frecuentes:', error);
+    }
+  };
 
   // Recargar cuando cambian filtros, página o vista (también corre en el montaje inicial)
   useEffect(() => {
@@ -369,6 +400,8 @@ export default function Laboratorio() {
       return;
     }
 
+    setParaEsOtro(false);
+    setMostrarGestionDestinatarios(false);
     setParaModal({ show: true, para: '', pendingAction: 'generar' });
   };
 
@@ -413,33 +446,15 @@ export default function Laboratorio() {
   const ejecutarGenerarCertificado = async (para) => {
     const dumpadaIds      = selectedHistorialIds.filter(k => k.startsWith('d_')).map(k => parseInt(k.slice(2)));
     const muestraLibreIds = selectedHistorialIds.filter(k => k.startsWith('ml_')).map(k => parseInt(k.slice(3)));
-    const certificadoActual = getCertificadoSeleccionado();
 
     setGenerandoPdf(true);
 
     try {
-      const response = await laboratorioService.generarCertificadoPdf(dumpadaIds, null, muestraLibreIds, para);
-
-      // Crear blob y descargar
-      const blob = new Blob([response.data], { type: 'application/pdf' });
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement('a');
-      link.href = url;
-
-      // Usar número de certificado si existe
-      const nombreArchivo = certificadoActual && certificadoActual !== 'SIN_CERTIFICADO'
-        ? `certificado_${certificadoActual}.pdf`
-        : `certificado_${new Date().toISOString().split('T')[0]}.pdf`;
-
-      link.download = nombreArchivo;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
+      const data = await laboratorioService.generarCertificadoPdf(dumpadaIds, null, muestraLibreIds, para);
 
       toast.success(
         'Certificado generado',
-        `Se descargó el certificado con ${selectedHistorialIds.length} muestra(s)`
+        `Certificado ${data.numero_certificado} listo — revísalo en la pestaña Certificados.`
       );
 
       setSelectedHistorialIds([]);
@@ -474,14 +489,73 @@ export default function Laboratorio() {
     }
   };
 
-  // Editar análisis
+  // Gestión de la lista de destinatarios frecuentes ("Para")
+  const handleAgregarDestinatario = async () => {
+    const valor = nuevoDestinatario.trim();
+    if (!valor || destinatariosFrecuentes.includes(valor)) return;
+
+    const nuevaLista = [...destinatariosFrecuentes, valor];
+    setGuardandoDestinatarios(true);
+    try {
+      await configuracionService.update('certificado_destinatarios_frecuentes', JSON.stringify(nuevaLista));
+      setDestinatariosFrecuentes(nuevaLista);
+      setNuevoDestinatario('');
+    } catch (error) {
+      toast.error('Error al guardar', error.response?.data?.message || error.message);
+    } finally {
+      setGuardandoDestinatarios(false);
+    }
+  };
+
+  const handleIniciarRenombrar = (valor) => {
+    setEditandoDestinatario(valor);
+    setValorEditado(valor);
+  };
+
+  const handleGuardarRenombrar = async () => {
+    const valorNuevo = valorEditado.trim();
+    if (!valorNuevo || valorNuevo === editandoDestinatario) {
+      setEditandoDestinatario(null);
+      return;
+    }
+    if (destinatariosFrecuentes.includes(valorNuevo)) {
+      toast.error('Ya existe', 'Ese destinatario ya está en la lista');
+      return;
+    }
+
+    const nuevaLista = destinatariosFrecuentes.map(d => d === editandoDestinatario ? valorNuevo : d);
+    setGuardandoDestinatarios(true);
+    try {
+      await configuracionService.update('certificado_destinatarios_frecuentes', JSON.stringify(nuevaLista));
+      setDestinatariosFrecuentes(nuevaLista);
+      setEditandoDestinatario(null);
+    } catch (error) {
+      toast.error('Error al guardar', error.response?.data?.message || error.message);
+    } finally {
+      setGuardandoDestinatarios(false);
+    }
+  };
+
+  const handleEliminarDestinatario = async (valor) => {
+    const nuevaLista = destinatariosFrecuentes.filter(d => d !== valor);
+    setGuardandoDestinatarios(true);
+    try {
+      await configuracionService.update('certificado_destinatarios_frecuentes', JSON.stringify(nuevaLista));
+      setDestinatariosFrecuentes(nuevaLista);
+    } catch (error) {
+      toast.error('Error al guardar', error.response?.data?.message || error.message);
+    } finally {
+      setGuardandoDestinatarios(false);
+    }
+  };
+
+  // Editar análisis (solo disponible mientras la dumpada no tiene certificado generado)
   const handleEditClick = (dumpada, e) => {
     e?.stopPropagation();
     setEditForm({
       ley: dumpada.ley || '',
       cu_soluble: dumpada.cu_soluble || '',
       cu_insoluble: dumpada.cu_insoluble || '',
-      para: '',
     });
     setEditModal({ show: true, dumpada });
   };
@@ -507,18 +581,79 @@ export default function Laboratorio() {
       }
 
       toast.success('Actualizado', 'El análisis fue editado correctamente');
-      setEditModal({ show: false, dumpada: null });
       loadData();
 
-      // Si tiene certificado y se indicó un nuevo destinatario, regenerar y re-descargar el PDF
-      const nuevoPara = editForm.para.trim();
-      if (editModal.dumpada.certificado && nuevoPara) {
-        ejecutarRegenerarCertificado(editModal.dumpada.certificado, nuevoPara);
+      // Edición en secuencia: si hay más ítems en la cola, avanzar al siguiente
+      if (colaEdicion.length > 0) {
+        const [siguiente, ...resto] = colaEdicion;
+        setColaEdicion(resto);
+        setProgresoEdicion(prev => ({ ...prev, actual: prev.actual + 1 }));
+        handleEditClick(siguiente);
+      } else {
+        setEditModal({ show: false, dumpada: null });
+        setProgresoEdicion({ actual: 0, total: 0 });
       }
     } catch (error) {
       toast.error('Error al guardar', error.response?.data?.message || error.message);
     } finally {
       setSavingEdit(false);
+    }
+  };
+
+  // Detener la edición en lote a mitad de camino (no guarda el ítem que estaba abierto)
+  const handleDetenerEdicionLote = () => {
+    setColaEdicion([]);
+    setProgresoEdicion({ actual: 0, total: 0 });
+    setEditModal({ show: false, dumpada: null });
+  };
+
+  // Selección para edición en secuencia (Historial)
+  const handleSelectOneEdit = (key) => {
+    setSelectedEditIds(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+  };
+
+  const handleSelectAllEdit = (items) => {
+    const allKeys = items.filter(d => !d.certificado).map(d => d._key);
+    const allSelected = allKeys.length > 0 && allKeys.every(k => selectedEditIds.includes(k));
+    setSelectedEditIds(allSelected ? [] : allKeys);
+  };
+
+  const iniciarEdicionSecuencial = () => {
+    const items = dumpadas.filter(d => selectedEditIds.includes(d._key));
+    if (items.length === 0) {
+      toast.warning('Atención', 'Selecciona al menos una muestra para editar');
+      return;
+    }
+    setColaEdicion(items.slice(1));
+    setProgresoEdicion({ actual: 1, total: items.length });
+    setSelectedEditIds([]);
+    setModoSeleccionEdicion(false);
+    handleEditClick(items[0]);
+  };
+
+  // Revertir análisis a Pendiente
+  const handleRevertirClick = (dumpada, e) => {
+    e?.stopPropagation();
+    setRevertModal({ show: true, dumpada });
+  };
+
+  const handleRevertirConfirm = async () => {
+    if (!revertModal.dumpada) return;
+    setRevirtiendo(true);
+    try {
+      if (revertModal.dumpada.tipo === 'muestra_libre') {
+        await laboratorioService.revertirMuestraLibre(revertModal.dumpada.id);
+      } else {
+        await laboratorioService.revertirAnalisis(revertModal.dumpada.id);
+      }
+      toast.success('Revertido', 'El análisis volvió a Pendiente');
+      setRevertModal({ show: false, dumpada: null });
+      loadData();
+      loadEstadisticas();
+    } catch (error) {
+      toast.error('Error al revertir', error.response?.data?.message || error.message);
+    } finally {
+      setRevirtiendo(false);
     }
   };
 
@@ -792,16 +927,100 @@ export default function Laboratorio() {
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   Para: <span className="text-red-500">*</span>
                 </label>
-                <input
-                  type="text"
-                  value={paraModal.para}
-                  onChange={e => setParaModal(prev => ({ ...prev, para: e.target.value }))}
-                  onKeyDown={e => e.key === 'Enter' && handleParaConfirm()}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm"
-                  placeholder="Ej: Mra 3H Copper Spa"
-                  autoFocus
-                />
-                <p className="text-xs text-gray-500 mt-1.5">Este valor aparecerá en el PDF como "Para:"</p>
+
+                {!paraEsOtro ? (
+                  <select
+                    value={paraModal.para}
+                    onChange={e => {
+                      if (e.target.value === '__otro__') {
+                        setParaEsOtro(true);
+                        setParaModal(prev => ({ ...prev, para: '' }));
+                      } else {
+                        setParaModal(prev => ({ ...prev, para: e.target.value }));
+                      }
+                    }}
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm bg-white"
+                    autoFocus
+                  >
+                    <option value="">Seleccionar destinatario...</option>
+                    {destinatariosFrecuentes.map(d => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                    <option value="__otro__">Otro (escribir manualmente)</option>
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    value={paraModal.para}
+                    onChange={e => setParaModal(prev => ({ ...prev, para: e.target.value }))}
+                    onKeyDown={e => e.key === 'Enter' && handleParaConfirm()}
+                    className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent text-sm"
+                    placeholder="Ej: Mra 3H Copper Spa"
+                    autoFocus
+                  />
+                )}
+                <div className="flex items-center justify-between mt-1.5">
+                  <p className="text-xs text-gray-500">Este valor aparecerá en el PDF como "Para:"</p>
+                  {paraEsOtro && (
+                    <button
+                      type="button"
+                      onClick={() => { setParaEsOtro(false); setParaModal(prev => ({ ...prev, para: '' })); }}
+                      className="text-xs text-green-700 underline font-medium whitespace-nowrap ml-2"
+                    >
+                      Elegir de la lista
+                    </button>
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setMostrarGestionDestinatarios(prev => !prev)}
+                  className="text-xs text-gray-500 underline mt-3"
+                >
+                  {mostrarGestionDestinatarios ? 'Ocultar' : 'Gestionar'} lista de destinatarios
+                </button>
+
+                {mostrarGestionDestinatarios && (
+                  <div className="mt-2 border border-gray-200 rounded-lg p-3 bg-gray-50">
+                    {destinatariosFrecuentes.length === 0 && (
+                      <p className="text-xs text-gray-400 italic mb-2">Sin destinatarios guardados</p>
+                    )}
+                    <ul className="space-y-1 mb-2">
+                      {destinatariosFrecuentes.map(d => (
+                        <li key={d} className="flex items-center justify-between bg-white border border-gray-200 rounded px-2 py-1.5 text-xs">
+                          <span className="text-gray-800">{d}</span>
+                          <button
+                            type="button"
+                            onClick={() => handleEliminarDestinatario(d)}
+                            disabled={guardandoDestinatarios}
+                            className="text-red-500 hover:text-red-700"
+                            title="Eliminar de la lista"
+                          >
+                            <HiXMark className="w-4 h-4" />
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={nuevoDestinatario}
+                        onChange={e => setNuevoDestinatario(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && handleAgregarDestinatario()}
+                        placeholder="Nuevo destinatario..."
+                        className="flex-1 px-2.5 py-1.5 border border-gray-300 rounded text-xs focus:ring-2 focus:ring-green-500 focus:border-transparent"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAgregarDestinatario}
+                        disabled={guardandoDestinatarios || !nuevoDestinatario.trim()}
+                        className="px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded text-xs font-semibold disabled:opacity-50"
+                      >
+                        + Agregar
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="px-6 pb-5 flex gap-3 justify-end">
                 <Button variant="secondary" onClick={() => setParaModal(prev => ({ ...prev, show: false }))}>
@@ -809,6 +1028,114 @@ export default function Laboratorio() {
                 </Button>
                 <Button variant="success" icon={HiDocumentText} onClick={handleParaConfirm}>
                   Generar PDF
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal independiente: gestionar destinatarios frecuentes ("Para") */}
+        {destinatariosModalOpen && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+              <div className="bg-gradient-to-r from-blue-600 to-blue-500 text-white px-6 py-4 rounded-t-2xl flex items-center justify-between">
+                <h3 className="text-lg font-bold flex items-center gap-2">
+                  <HiDocumentText className="w-5 h-5" />
+                  Destinatarios frecuentes
+                </h3>
+                <button
+                  onClick={() => { setDestinatariosModalOpen(false); setEditandoDestinatario(null); }}
+                  className="text-white/80 hover:text-white"
+                >
+                  <HiXMark className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-6">
+                <p className="text-xs text-gray-500 mb-3">
+                  Esta lista aparece como opciones del campo "Para" al generar un certificado. Los cambios se guardan de inmediato.
+                </p>
+                {destinatariosFrecuentes.length === 0 && (
+                  <p className="text-sm text-gray-400 italic mb-2">Sin destinatarios guardados todavía.</p>
+                )}
+                <ul className="space-y-1.5 mb-3">
+                  {destinatariosFrecuentes.map(d => (
+                    <li key={d} className="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm">
+                      {editandoDestinatario === d ? (
+                        <>
+                          <input
+                            type="text"
+                            value={valorEditado}
+                            onChange={e => setValorEditado(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && handleGuardarRenombrar()}
+                            className="flex-1 px-2 py-1 border border-blue-300 rounded text-sm mr-2"
+                            autoFocus
+                          />
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={handleGuardarRenombrar}
+                              disabled={guardandoDestinatarios || !valorEditado.trim()}
+                              className="text-green-600 hover:text-green-800"
+                              title="Guardar"
+                            >
+                              <HiCheck className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => setEditandoDestinatario(null)}
+                              className="text-gray-400 hover:text-gray-600"
+                              title="Cancelar"
+                            >
+                              <HiXMark className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-gray-800">{d}</span>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleIniciarRenombrar(d)}
+                              disabled={guardandoDestinatarios}
+                              className="text-blue-500 hover:text-blue-700"
+                              title="Renombrar"
+                            >
+                              <HiPencil className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={() => handleEliminarDestinatario(d)}
+                              disabled={guardandoDestinatarios}
+                              className="text-red-500 hover:text-red-700"
+                              title="Eliminar de la lista"
+                            >
+                              <HiXMark className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={nuevoDestinatario}
+                    onChange={e => setNuevoDestinatario(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleAgregarDestinatario()}
+                    placeholder="Nuevo destinatario..."
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={handleAgregarDestinatario}
+                    disabled={guardandoDestinatarios || !nuevoDestinatario.trim()}
+                  >
+                    + Agregar
+                  </Button>
+                </div>
+              </div>
+              <div className="px-6 pb-5 flex justify-end">
+                <Button variant="secondary" onClick={() => { setDestinatariosModalOpen(false); setEditandoDestinatario(null); }}>
+                  Cerrar
                 </Button>
               </div>
             </div>
@@ -995,17 +1322,42 @@ export default function Laboratorio() {
           <CertificadosGenerados idFaena={filters.id_faena} />
         ) : (
         <Card className={`border-l-4 ${vistaActual === 'pendientes' ? 'border-orange-400' : 'border-green-400'}`}>
-          <div className="mb-6">
-            <h3 className="text-2xl font-bold text-gray-900">
-              {vistaActual === 'pendientes' ? 'Muestras Pendientes de Análisis' : 'Historial de Análisis'}
-            </h3>
-            <p className="text-sm text-gray-600 mt-1">
-              {loading ? (
-                'Cargando...'
-              ) : (
-                <>Total: <span className={`font-semibold ${vistaActual === 'pendientes' ? 'text-orange-600' : 'text-green-600'}`}>{totalRecords}</span> {vistaActual === 'pendientes' ? 'muestra' : 'registro'}{totalRecords !== 1 ? 's' : ''}</>
-              )}
-            </p>
+          <div className="mb-6 flex items-start justify-between flex-wrap gap-3">
+            <div>
+              <h3 className="text-2xl font-bold text-gray-900">
+                {vistaActual === 'pendientes' ? 'Muestras Pendientes de Análisis' : 'Historial de Análisis'}
+              </h3>
+              <p className="text-sm text-gray-600 mt-1">
+                {loading ? (
+                  'Cargando...'
+                ) : (
+                  <>Total: <span className={`font-semibold ${vistaActual === 'pendientes' ? 'text-orange-600' : 'text-green-600'}`}>{totalRecords}</span> {vistaActual === 'pendientes' ? 'muestra' : 'registro'}{totalRecords !== 1 ? 's' : ''}</>
+                )}
+              </p>
+            </div>
+            {vistaActual === 'historial' && (
+              <div className="flex gap-2">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon={HiDocumentText}
+                  onClick={() => setDestinatariosModalOpen(true)}
+                >
+                  Gestionar destinatarios
+                </Button>
+                <Button
+                  variant={modoSeleccionEdicion ? 'primary' : 'secondary'}
+                  size="sm"
+                  icon={HiPencil}
+                  onClick={() => {
+                    setModoSeleccionEdicion(prev => !prev);
+                    setSelectedEditIds([]);
+                  }}
+                >
+                  {modoSeleccionEdicion ? 'Cancelar selección' : 'Editar varias'}
+                </Button>
+              </div>
+            )}
           </div>
 
           {/* Componente de Filtros - Siempre visible */}
@@ -1121,9 +1473,10 @@ export default function Laboratorio() {
                           <tr
                             key={dumpada._key}
                             style={{ backgroundColor }}
-                            className={`border-b border-gray-200 hover:bg-orange-50 transition-all ${selectedIds.includes(dumpada._key) ? 'ring-2 ring-orange-400 bg-orange-50' : ''}`}
+                            className={`border-b border-gray-200 hover:bg-orange-50 transition-all cursor-pointer ${selectedIds.includes(dumpada._key) ? 'ring-2 ring-orange-400 bg-orange-50' : ''}`}
+                            onClick={() => handleSelectOne(dumpada._key)}
                           >
-                            <td className="py-3 px-2 text-center">
+                            <td className="py-3 px-2 text-center" onClick={(e) => e.stopPropagation()}>
                               <input
                                 type="checkbox"
                                 checked={selectedIds.includes(dumpada._key)}
@@ -1175,7 +1528,7 @@ export default function Laboratorio() {
                                 {dumpada.estado}
                               </span>
                             </td>
-                            <td className="py-3 px-2">
+                            <td className="py-3 px-2" onClick={(e) => e.stopPropagation()}>
                               <Button
                                 variant="success"
                                 size="sm"
@@ -1191,6 +1544,35 @@ export default function Laboratorio() {
                   </table>
                 ) : (
                   <>
+                    {/* Barra de acciones para edición en lote - Solo en modo selección de edición */}
+                    {modoSeleccionEdicion && (
+                      <div className="mb-4 bg-gradient-to-r from-blue-50 to-indigo-100 border-2 border-blue-300 rounded-lg p-4">
+                        <div className="flex items-center justify-between flex-wrap gap-3">
+                          <span className="font-semibold text-blue-900">
+                            {selectedEditIds.length} muestra{selectedEditIds.length !== 1 ? 's' : ''} seleccionada{selectedEditIds.length !== 1 ? 's' : ''} para editar en secuencia
+                          </span>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="primary"
+                              size="sm"
+                              icon={HiPencil}
+                              onClick={iniciarEdicionSecuencial}
+                              disabled={selectedEditIds.length === 0}
+                            >
+                              Editar seleccionadas
+                            </Button>
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => { setModoSeleccionEdicion(false); setSelectedEditIds([]); }}
+                            >
+                              Cancelar
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Barra de acciones para certificado - Solo en vista historial */}
                     {selectedHistorialIds.length > 0 && (
                       <div className="mb-4 bg-gradient-to-r from-green-50 to-emerald-100 border-2 border-green-300 rounded-lg p-4">
@@ -1270,7 +1652,21 @@ export default function Laboratorio() {
                           <th className="text-left py-3 px-2 font-bold text-green-900 text-xs">Cu Sol</th>
                           <th className="text-left py-3 px-2 font-bold text-green-900 text-xs">Cu Insol</th>
                           <th className="text-left py-3 px-2 font-bold text-green-900 text-xs">Certificado</th>
-                          <th className="text-center py-3 px-2 font-bold text-green-900 text-xs">Editar</th>
+                          <th className="text-center py-3 px-2 font-bold text-green-900 text-xs">
+                            {modoSeleccionEdicion ? (
+                              <input
+                                type="checkbox"
+                                onChange={() => handleSelectAllEdit(dumpadas)}
+                                checked={(() => {
+                                  const seleccionables = dumpadas.filter(d => !d.certificado);
+                                  return seleccionables.length > 0 && seleccionables.every(d => selectedEditIds.includes(d._key));
+                                })()}
+                                disabled={dumpadas.every(d => d.certificado)}
+                                title="Seleccionar todas para editar (excluye las que ya tienen certificado)"
+                                className="w-4 h-4 rounded border-blue-300 text-blue-600 focus:ring-blue-500"
+                              />
+                            ) : 'Editar'}
+                          </th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1297,7 +1693,7 @@ export default function Laboratorio() {
                               } ${isSelected ? 'ring-2 ring-green-400' : ''} ${
                                 tieneCertificado ? 'border-l-4 border-l-amber-400' : ''
                               }`}
-                              onClick={() => esSeleccionable && handleSelectOneHistorial(dumpada._key)}
+                              onClick={() => !modoSeleccionEdicion && esSeleccionable && handleSelectOneHistorial(dumpada._key)}
                               title={getTooltipMessage(dumpada) || undefined}
                             >
                               <td className="py-3 px-2 text-center" onClick={(e) => e.stopPropagation()}>
@@ -1371,13 +1767,41 @@ export default function Laboratorio() {
                                 </div>
                               </td>
                               <td className="py-3 px-2 text-center" onClick={(e) => e.stopPropagation()}>
-                                <button
-                                  onClick={(e) => handleEditClick(dumpada, e)}
-                                  className="p-1.5 bg-green-100 hover:bg-green-200 text-green-700 rounded-lg transition-colors"
-                                  title={dumpada.certificado ? 'Editar análisis y/o destinatario del certificado' : 'Editar análisis'}
-                                >
-                                  <HiPencil className="w-4 h-4" />
-                                </button>
+                                {modoSeleccionEdicion ? (
+                                  tieneCertificado ? (
+                                    <span className="text-gray-300" title="Ya tiene certificado generado, no se puede editar">
+                                      <HiPencil className="w-4 h-4 mx-auto" />
+                                    </span>
+                                  ) : (
+                                    <input
+                                      type="checkbox"
+                                      checked={selectedEditIds.includes(dumpada._key)}
+                                      onChange={() => handleSelectOneEdit(dumpada._key)}
+                                      className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                                    />
+                                  )
+                                ) : tieneCertificado ? (
+                                  <span className="text-xs text-gray-400 italic" title="Certificado ya generado: los valores quedan bloqueados. Si hay un error, rechaza el certificado desde la pestaña Certificados para poder corregirlo.">
+                                    Bloqueado
+                                  </span>
+                                ) : (
+                                  <div className="flex items-center justify-center gap-1.5">
+                                    <button
+                                      onClick={(e) => handleEditClick(dumpada, e)}
+                                      className="p-1.5 bg-green-100 hover:bg-green-200 text-green-700 rounded-lg transition-colors"
+                                      title="Editar análisis"
+                                    >
+                                      <HiPencil className="w-4 h-4" />
+                                    </button>
+                                    <button
+                                      onClick={(e) => handleRevertirClick(dumpada, e)}
+                                      className="p-1.5 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg transition-colors"
+                                      title="Revertir a Pendiente (borra los valores ingresados)"
+                                    >
+                                      <HiArrowPath className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                )}
                               </td>
                             </tr>
                           );
@@ -1414,7 +1838,10 @@ export default function Laboratorio() {
                     <HiPencil className="w-5 h-5" />
                   </div>
                   <div>
-                    <h2 className="text-lg font-bold">Editar Análisis</h2>
+                    <h2 className="text-lg font-bold">
+                      Editar Análisis
+                      {progresoEdicion.total > 0 && ` (${progresoEdicion.actual} de ${progresoEdicion.total})`}
+                    </h2>
                     <p className="text-green-100 text-xs">
                       {editModal.dumpada.tipo === 'muestra_libre'
                         ? `${editModal.dumpada.codigo || `ME-${String(editModal.dumpada.id).padStart(5, '0')}`} - ${editModal.dumpada.nombre || 'Muestra Específica'}`
@@ -1424,14 +1851,23 @@ export default function Laboratorio() {
                   </div>
                 </div>
                 <button
-                  onClick={() => setEditModal({ show: false, dumpada: null })}
+                  onClick={handleDetenerEdicionLote}
                   className="w-8 h-8 bg-white/20 hover:bg-white/30 rounded-full flex items-center justify-center transition-colors"
+                  title={progresoEdicion.total > 0 ? 'Detener edición en lote' : 'Cerrar'}
                 >
                   <HiXMark className="w-5 h-5" />
                 </button>
               </div>
 
               <div className="p-5 space-y-4">
+                {progresoEdicion.total > 0 && (
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-2.5 text-xs text-blue-800 flex items-center justify-between">
+                    <span>Editando {progresoEdicion.actual} de {progresoEdicion.total} — al guardar avanza automáticamente a la siguiente.</span>
+                    <button onClick={handleDetenerEdicionLote} className="font-semibold underline whitespace-nowrap ml-2">
+                      Detener
+                    </button>
+                  </div>
+                )}
                 <div className="bg-gray-50 rounded-lg p-3 text-xs text-gray-600">
                   <p><strong>Fecha:</strong> {formatearFecha(editModal.dumpada.fecha)} | <strong>Jornada:</strong> {editModal.dumpada.jornada}{editModal.dumpada.numero_jornada ? `-${editModal.dumpada.numero_jornada}` : ''}</p>
                 </div>
@@ -1477,32 +1913,14 @@ export default function Laboratorio() {
                     placeholder={editForm.ley && editForm.cu_soluble ? `Auto: ${(parseFloat(editForm.ley || 0) - parseFloat(editForm.cu_soluble || 0)).toFixed(3)}` : 'Se calcula automáticamente'}
                   />
                 </div>
-
-                {editModal.dumpada.certificado && (
-                  <div className="pt-3 border-t border-gray-200">
-                    <label className="block text-sm font-semibold text-gray-700 mb-1">
-                      Destinatario del certificado (Para)
-                    </label>
-                    <input
-                      type="text"
-                      value={editForm.para}
-                      onChange={(e) => setEditForm(prev => ({ ...prev, para: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white text-gray-900"
-                      placeholder="Ej: Mra 3H Copper Spa"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">
-                      Ya tiene el certificado <strong>{editModal.dumpada.certificado}</strong>. Completa este campo solo si quieres cambiar el destinatario y re-descargar el PDF.
-                    </p>
-                  </div>
-                )}
               </div>
 
               <div className="px-5 pb-5 flex gap-3 justify-end">
                 <button
-                  onClick={() => setEditModal({ show: false, dumpada: null })}
+                  onClick={handleDetenerEdicionLote}
                   className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
                 >
-                  Cancelar
+                  {progresoEdicion.total > 0 ? 'Detener' : 'Cancelar'}
                 </button>
                 <button
                   onClick={handleEditSave}
@@ -1521,6 +1939,34 @@ export default function Laboratorio() {
                     </>
                   )}
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal confirmación "Revertir a Pendiente" */}
+        {revertModal.show && revertModal.dumpada && (
+          <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+              <div className="bg-gradient-to-r from-red-600 to-red-500 text-white px-6 py-4 rounded-t-2xl">
+                <h3 className="text-lg font-bold flex items-center gap-2">
+                  <HiArrowPath className="w-5 h-5" />
+                  Revertir a Pendiente
+                </h3>
+              </div>
+              <div className="p-6">
+                <p className="text-sm text-gray-700">
+                  ¿Revertir este análisis a Pendiente? Se perderán los valores de Ley, Cu Soluble y Cu Insoluble
+                  ingresados y la muestra volverá a aparecer en la pestaña Pendientes para reingresarla de cero.
+                </p>
+              </div>
+              <div className="px-6 pb-5 flex gap-3 justify-end">
+                <Button variant="secondary" onClick={() => setRevertModal({ show: false, dumpada: null })} disabled={revirtiendo}>
+                  Cancelar
+                </Button>
+                <Button variant="danger" icon={HiArrowPath} onClick={handleRevertirConfirm} disabled={revirtiendo}>
+                  {revirtiendo ? 'Revirtiendo...' : 'Sí, revertir'}
+                </Button>
               </div>
             </div>
           </div>

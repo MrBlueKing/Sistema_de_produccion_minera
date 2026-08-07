@@ -98,13 +98,15 @@ class ReportePerforacion extends Model
 
     // MÉTODOS ESTÁTICOS
 
-    public static function generarCodigo()
+    public static function generarCodigo($fecha, $turno, $polvorinNombre)
     {
-        $año = Carbon::now()->year;
-        $prefijo = "RPT-{$año}-";
+        $fechaFmt = Carbon::parse($fecha)->format('Y-m-d');
+        $prefijo = "{$fechaFmt}-{$turno}-{$polvorinNombre}-";
 
-        $ultimoNumero = self::where('codigo', 'like', $prefijo . '%')
-            ->selectRaw("MAX(CAST(SUBSTRING(codigo, " . (strlen($prefijo) + 1) . ") AS UNSIGNED)) as max_num")
+        // Correlativo global (no se reinicia por fecha/turno/polvorín/año): se extrae el
+        // último segmento de CUALQUIER código existente, sin importar el prefijo, porque
+        // el prefijo ahora cambia en cada reporte.
+        $ultimoNumero = self::selectRaw("MAX(CAST(SUBSTRING_INDEX(codigo, '-', -1) AS UNSIGNED)) as max_num")
             ->value('max_num');
 
         $nuevoNumero = ($ultimoNumero ?? 0) + 1;

@@ -4,6 +4,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from '../core/context/AuthContext';
 import ProtectedRoute from '../routes/ProtectedRoute';
 import AccesoDenegado from '../pages/AccesoDenegado';
+import ModuloNoConfigurado from '../pages/ModuloNoConfigurado';
 import { routesConfig } from './routesConfig';
 
 /**
@@ -53,10 +54,15 @@ export default function AppRoutes() {
   return (
     <Suspense fallback={fallback}>
     <Routes>
-      {/* Ruta raíz - Si está autenticado, redirige a dispatch */}
+      {/*
+        Ruta raíz: se llega acá cuando el SAC no pudo armar una URL específica
+        para el rol (rol sin "url_especifica" configurada). Antes redirigía
+        siempre a /dispatch/dumpadas sin importar el módulo/rol real, lo que
+        mandaba usuarios de otros módulos a la sección equivocada en silencio.
+      */}
       <Route
         path="/"
-        element={<Navigate to="/dispatch/dumpadas" replace />}
+        element={<ModuloNoConfigurado />}
       />
 
       {/* Generar rutas dinámicamente desde configuración */}

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { HiPlus, HiHome, HiPencil, HiTrash, HiClock, HiTag, HiInformationCircle } from 'react-icons/hi2';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Navigate } from 'react-router-dom';
 import Header from '../../../shared/components/organisms/Header';
 import Button from '../../../shared/components/atoms/Button';
 import Input from '../../../shared/components/atoms/Input';
@@ -18,15 +18,20 @@ import faenaService from '../../../services/faenaService';
 import { getFaenaColors } from '../../../constants/faenaColors';
 import { FaenaProvider, useFaena } from '../../../contexts/FaenaContext';
 import FaenaMultiSelector from '../../../shared/components/molecules/FaenaMultiSelector';
+import { useAuth } from '../../../core/context/AuthContext';
 
 //CONFIGURACIÓN: IDs de faenas que se mostrarán en el selector
 // Para mostrar todas las faenas, dejar como null: const FAENAS_VISIBLES_INGENIERIA = null;
 // Para filtrar, especificar los IDs: const FAENAS_VISIBLES_INGENIERIA = [1, 2, 4];
 const FAENAS_VISIBLES_INGENIERIA = [1, 2, 4]; // Solo mostrar faenas 1, 2 y 4
 
+// Roles con acceso directo SOLO a Reportes P&T — no deben poder navegar al resto del hub
+const ROLES_SOLO_REPORTES_PYT = ['admin_explosivos', 'jefe_mina'];
+
 function FrentesTrabajoContent() {
   const navigate = useNavigate();
   const toast = useToast();
+  const { getRolActivo } = useAuth();
   const { faenaUsuario } = useFaena(); // Obtener faena del usuario
 
   //INGENIERÍA: En este módulo, TODOS los usuarios ven TODAS las faenas
@@ -84,6 +89,12 @@ function FrentesTrabajoContent() {
       loadFrentes();
     }
   }, [currentPage, debouncedSearchTerm, filters, selectedFaenas]);
+
+  // Bloquear esta página a roles que solo deben ver Reportes P&T
+  // (después de todos los hooks, para no romper las Reglas de los Hooks)
+  if (ROLES_SOLO_REPORTES_PYT.includes(getRolActivo())) {
+    return <Navigate to="/ingenieria/reportes-perforacion" replace />;
+  }
 
   // Cargar datos iniciales: tipos de frente y faenas (solo una vez)
   const loadInitialData = async () => {

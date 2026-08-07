@@ -57,6 +57,13 @@ class ExplosivosService {
     return response.data;
   }
 
+  async getStockMinimoSugerido(idTipo, idPolvorin) {
+    const response = await api.get(`/explosivos/tipos/${idTipo}/stock-minimo-sugerido`, {
+      params: { id_polvorin: idPolvorin },
+    });
+    return response.data;
+  }
+
   // =============================================
   // POLVORINES
   // =============================================
@@ -196,6 +203,11 @@ class ExplosivosService {
     return response.data;
   }
 
+  async getKardex(params) {
+    const response = await api.get('/explosivos/movimientos/kardex', { params });
+    return response.data;
+  }
+
   // =============================================
   // PERSONAL AUTORIZADO PARA SOLICITAR EXPLOSIVOS
   // =============================================
@@ -312,6 +324,29 @@ class ExplosivosService {
 
   async getHistorialReporte(id) {
     const response = await api.get(`/explosivos/reportes-perforacion/${id}/historial`);
+    return response.data;
+  }
+
+  // =============================================
+  // AUTORIDADES FISCALIZADORAS (DGMN)
+  // =============================================
+  async getAutoridadesFiscalizadoras(params = {}) {
+    const response = await api.get('/explosivos/autoridades-fiscalizadoras', { params });
+    return response.data;
+  }
+
+  async createAutoridadFiscalizadora(data) {
+    const response = await api.post('/explosivos/autoridades-fiscalizadoras', data);
+    return response.data;
+  }
+
+  async updateAutoridadFiscalizadora(id, data) {
+    const response = await api.put(`/explosivos/autoridades-fiscalizadoras/${id}`, data);
+    return response.data;
+  }
+
+  async deleteAutoridadFiscalizadora(id) {
+    const response = await api.delete(`/explosivos/autoridades-fiscalizadoras/${id}`);
     return response.data;
   }
 

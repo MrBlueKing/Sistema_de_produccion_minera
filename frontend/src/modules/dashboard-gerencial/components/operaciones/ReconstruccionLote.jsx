@@ -102,7 +102,7 @@ function FilaRem({ comp }) {
       </div>
       <span className="text-gray-400 text-xs hidden sm:block w-16 text-right">—</span>
       <span className="text-gray-600 text-xs w-24 text-right">{fmtTon(comp.toneladas)}</span>
-      <span className="text-violet-700 text-xs font-semibold w-20 text-right">{fmtLey(comp.ley_dump_ajustada)}</span>
+      <span className="text-violet-700 text-xs font-semibold w-20 text-right">{fmtLey(comp.ley_lote)}</span>
     </div>
   );
 }

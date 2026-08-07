@@ -324,6 +324,45 @@ class LaboratorioController extends Controller
     }
 
     /**
+     * Revertir un análisis completado de vuelta a Pendiente.
+     * Solo permitido si la dumpada aún no pertenece a un certificado generado.
+     */
+    public function revertirAnalisis($id)
+    {
+        $dumpada = Dumpada::find($id);
+
+        if (!$dumpada) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Dumpada no encontrada'
+            ], 404);
+        }
+
+        if ($dumpada->certificado) {
+            return response()->json([
+                'success' => false,
+                'message' => "No se puede revertir: esta muestra ya pertenece al certificado {$dumpada->certificado}. Edítala en vez de revertirla."
+            ], 400);
+        }
+
+        $dumpada->update([
+            'ley' => null,
+            'ley_cup' => null,
+            'cu_soluble' => null,
+            'cu_insoluble' => null,
+            'rango' => null,
+            'fecha_analisis_completado' => null,
+            'estado' => $dumpada->para_muestreo ? Dumpada::ESTADO_INGRESADO : 'Recibido',
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Análisis revertido a Pendiente',
+            'data' => $dumpada
+        ], 200);
+    }
+
+    /**
      * Obtener estadísticas del laboratorio
      */
     public function estadisticas()

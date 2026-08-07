@@ -46,6 +46,11 @@ const gerencialService = {
     return response.data;
   },
 
+  getProduccionPorTurno: async (params = {}) => {
+    const response = await api.get('/gerencial/produccion-turno', { params });
+    return response.data;
+  },
+
   getPlantas: async () => {
     const response = await api.get('/gerencial/plantas');
     return response.data;

@@ -66,4 +66,26 @@ class MezclaConfig
     {
         return ConfiguracionSistema::obtener('factor_remanente_visual', self::FACTOR_REMANENTE_VISUAL_DEFAULT);
     }
+
+    /**
+     * Factor por defecto para calcular ley_lote (usado solo si no existe en BD)
+     *
+     * @var float
+     */
+    const FACTOR_LEY_LOTE_DEFAULT = 1.235;
+
+    /**
+     * Obtener factor para calcular ley_lote desde BD (con cache)
+     *
+     * IMPORTANTE: se usa como DIVISOR, no multiplicador: ley_lote = base / factor.
+     * La "base" es la ley cupping (Dumpada::calcularCapping()) si hay lab, o la ley visual
+     * tal cual si no hay lab. Reemplaza el esquema anterior de "ley dumpada" (factor_ajuste_ley
+     * aplicado dos veces, ×factor²) por un único paso de división.
+     *
+     * @return float
+     */
+    public static function getFactorLeyLote()
+    {
+        return ConfiguracionSistema::obtener('factor_ley_lote', self::FACTOR_LEY_LOTE_DEFAULT);
+    }
 }

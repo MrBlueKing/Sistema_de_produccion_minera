@@ -15,6 +15,9 @@ import {
   HiUserMinus,
   HiCalculator,
   HiBuildingStorefront,
+  HiShieldCheck,
+  HiEye,
+  HiEyeSlash,
 } from 'react-icons/hi2';
 import Card from '../../../shared/components/atoms/Card';
 import Button from '../../../shared/components/atoms/Button';
@@ -52,6 +55,7 @@ export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin =
     capacidad_maxima_kg: '',
     responsable: '',
     telefono_responsable: '',
+    id_autoridad_fiscalizadora: '',
     observaciones: '',
     id_faena: faenaActual?.id || '',
   });
@@ -70,11 +74,16 @@ export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin =
     requiere_lote: true,
     dias_alerta_vencimiento: 30,
     stock_minimo: 0,
+    dias_cobertura_stock: 15,
     stock_maximo: '',
     fabricante: '',
     clasificacion_onu: '',
     descripcion: '',
   });
+
+  // Stock mínimo sugerido (promedio diario hábil de consumo x días de cobertura)
+  const [sugerido, setSugerido] = useState(null);
+  const [loadingSugerido, setLoadingSugerido] = useState(false);
 
   const [submitting, setSubmitting] = useState(false);
 
@@ -84,6 +93,7 @@ export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin =
     { id: 'tipos', label: 'Tipos de Explosivos', icon: HiCube },
     { id: 'personal', label: 'Personal Autorizado', icon: HiUserGroup },
     { id: 'proveedores', label: 'Proveedores', icon: HiBuildingStorefront },
+    { id: 'autoridades', label: 'Autoridad Fiscalizadora', icon: HiShieldCheck },
     { id: 'formulas', label: 'Fórmulas', icon: HiCalculator },
   ];
 
@@ -109,6 +119,13 @@ export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin =
     nombre: '', rut: '', direccion: '', telefono: '', contacto: '',
   });
 
+  // Estados para Autoridad Fiscalizadora
+  const [autoridades, setAutoridades] = useState([]);
+  const [loadingAutoridades, setLoadingAutoridades] = useState(false);
+  const [showModalAutoridad, setShowModalAutoridad] = useState(false);
+  const [editandoAutoridad, setEditandoAutoridad] = useState(null);
+  const [formAutoridad, setFormAutoridad] = useState({ codigo: '', nombre: '' });
+
   // Cargar personal autorizado cuando se cambia a la pestaña
   useEffect(() => {
     if (tabActual === 'personal' && faenaActual) {
@@ -117,7 +134,45 @@ export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin =
     if (tabActual === 'proveedores') {
       cargarProveedores();
     }
+    if (tabActual === 'tipos') {
+      cargarTodosTipos();
+    }
   }, [tabActual, faenaActual]);
+
+  // Catálogo de Tipos de Explosivo con TODOS (activos e inactivos) — la prop `tipos` que
+  // recibe este componente ya viene filtrada a solo activos (la usan Stock/Reportes/etc.),
+  // así que para poder ver y reactivar un tipo desactivado hace falta esta lista aparte.
+  const [todosTipos, setTodosTipos] = useState([]);
+  const cargarTodosTipos = async () => {
+    try {
+      const data = await explosivosService.getTipos();
+      setTodosTipos(data);
+    } catch (error) {
+      toast.error('Error', 'No se pudieron cargar los tipos de explosivo');
+    }
+  };
+
+  const toggleActivoTipo = async (tipo) => {
+    try {
+      await explosivosService.updateTipo(tipo.id, { activo: !tipo.activo });
+      toast.success(
+        tipo.activo ? 'Tipo desactivado' : 'Tipo activado',
+        tipo.activo
+          ? `${tipo.nombre} ya no aparecerá en el registro de reportes de perforación.`
+          : `${tipo.nombre} volverá a aparecer en el registro de reportes de perforación.`
+      );
+      await cargarTodosTipos();
+      onRefresh?.();
+    } catch (error) {
+      toast.error('Error', error.response?.data?.mensaje || 'No se pudo cambiar el estado del tipo');
+    }
+  };
+
+  // El selector de Autoridad Fiscalizadora del form de Polvorín necesita esta
+  // lista cargada de antemano, no solo cuando se visita la pestaña propia.
+  useEffect(() => {
+    cargarAutoridades();
+  }, []);
 
   const cargarPersonalAutorizado = async () => {
     try {
@@ -278,6 +333,61 @@ export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin =
     }
   };
 
+  // --- Autoridad Fiscalizadora ---
+  const cargarAutoridades = async () => {
+    setLoadingAutoridades(true);
+    try {
+      const data = await explosivosService.getAutoridadesFiscalizadoras();
+      setAutoridades(Array.isArray(data) ? data : data.data || []);
+    } catch (error) {
+      toast.error('Error', 'No se pudieron cargar las autoridades fiscalizadoras');
+    } finally {
+      setLoadingAutoridades(false);
+    }
+  };
+
+  const nuevaAutoridad = () => {
+    setEditandoAutoridad(null);
+    setFormAutoridad({ codigo: '', nombre: '' });
+    setShowModalAutoridad(true);
+  };
+
+  const editarAutoridad = (aut) => {
+    setEditandoAutoridad(aut);
+    setFormAutoridad({ codigo: aut.codigo || '', nombre: aut.nombre || '' });
+    setShowModalAutoridad(true);
+  };
+
+  const guardarAutoridad = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+    try {
+      if (editandoAutoridad) {
+        await explosivosService.updateAutoridadFiscalizadora(editandoAutoridad.id, formAutoridad);
+        toast.success('Autoridad actualizada', 'Los datos fueron actualizados');
+      } else {
+        await explosivosService.createAutoridadFiscalizadora(formAutoridad);
+        toast.success('Autoridad creada', 'La Autoridad Fiscalizadora fue creada exitosamente');
+      }
+      setShowModalAutoridad(false);
+      cargarAutoridades();
+    } catch (error) {
+      toast.error('Error', error.response?.data?.mensaje || 'No se pudo guardar la Autoridad Fiscalizadora');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const eliminarAutoridad = async (aut) => {
+    try {
+      await explosivosService.deleteAutoridadFiscalizadora(aut.id);
+      toast.success('Autoridad eliminada', `${aut.nombre} fue eliminada`);
+      cargarAutoridades();
+    } catch (error) {
+      toast.error('Error', 'No se pudo eliminar. Puede estar asignada a un polvorín');
+    }
+  };
+
   // Abrir modal de edición
   const editarPolvorin = () => {
     setEditandoPolvorin(polvorin);
@@ -287,6 +397,7 @@ export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin =
       capacidad_maxima_kg: polvorin.capacidad_maxima_kg || '',
       responsable: polvorin.responsable || '',
       telefono_responsable: polvorin.telefono_responsable || '',
+      id_autoridad_fiscalizadora: polvorin.id_autoridad_fiscalizadora || '',
       observaciones: polvorin.observaciones || '',
     });
     setShowModalPolvorin(true);
@@ -312,11 +423,13 @@ export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin =
       requiere_lote: tipo.requiere_lote,
       dias_alerta_vencimiento: tipo.dias_alerta_vencimiento,
       stock_minimo: tipo.stock_minimo || 0,
+      dias_cobertura_stock: tipo.dias_cobertura_stock || 15,
       stock_maximo: tipo.stock_maximo || '',
       fabricante: tipo.fabricante || '',
       clasificacion_onu: tipo.clasificacion_onu || '',
       descripcion: tipo.descripcion || '',
     });
+    setSugerido(null);
     setShowModalTipo(true);
   };
 
@@ -337,12 +450,32 @@ export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin =
       requiere_lote: true,
       dias_alerta_vencimiento: 30,
       stock_minimo: 0,
+      dias_cobertura_stock: 15,
       stock_maximo: '',
       fabricante: '',
       clasificacion_onu: '',
       descripcion: '',
     });
+    setSugerido(null);
     setShowModalTipo(true);
+  };
+
+  const calcularSugerido = async () => {
+    if (!editandoTipo || !polvorin?.id) return;
+    setLoadingSugerido(true);
+    try {
+      const data = await explosivosService.getStockMinimoSugerido(editandoTipo.id, polvorin.id);
+      setSugerido(data);
+    } catch (error) {
+      toast.error('Error', error.response?.data?.mensaje || 'No se pudo calcular el stock mínimo sugerido');
+    } finally {
+      setLoadingSugerido(false);
+    }
+  };
+
+  const aplicarSugerido = () => {
+    if (!sugerido) return;
+    setFormTipo(prev => ({ ...prev, stock_minimo: sugerido.stock_minimo_sugerido }));
   };
 
   const nuevoPolvorin = () => {
@@ -353,6 +486,7 @@ export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin =
       capacidad_maxima_kg: '',
       responsable: '',
       telefono_responsable: '',
+      id_autoridad_fiscalizadora: '',
       observaciones: '',
       id_faena: faenaActual?.id || '',
     });
@@ -422,6 +556,7 @@ export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin =
         toast.success('Tipo creado', 'El tipo de explosivo fue creado exitosamente');
       }
       setShowModalTipo(false);
+      await cargarTodosTipos();
       onRefresh?.();
     } catch (error) {
       toast.error('Error', error.response?.data?.mensaje || 'No se pudo guardar el tipo');
@@ -445,6 +580,7 @@ export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin =
       } else if (tipoItemAEliminar === 'tipo') {
         await explosivosService.deleteTipo(itemAEliminar.id);
         toast.success('Tipo eliminado', 'El tipo de explosivo fue eliminado');
+        await cargarTodosTipos();
       }
       setShowConfirmDelete(false);
       onRefresh?.();
@@ -514,6 +650,9 @@ export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin =
                           {p.capacidad_maxima_kg && (
                             <span>Cap: {parseFloat(p.capacidad_maxima_kg).toLocaleString('es-CL')} kg</span>
                           )}
+                          {p.autoridad_fiscalizadora && (
+                            <span>F/A: {p.autoridad_fiscalizadora.nombre} ({p.autoridad_fiscalizadora.codigo})</span>
+                          )}
                         </div>
                       </div>
                       <button
@@ -525,6 +664,7 @@ export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin =
                             capacidad_maxima_kg: p.capacidad_maxima_kg || '',
                             responsable: p.responsable || '',
                             telefono_responsable: p.telefono_responsable || '',
+                            id_autoridad_fiscalizadora: p.id_autoridad_fiscalizadora || '',
                             observaciones: p.observaciones || '',
                             id_faena: p.id_faena || '',
                           });
@@ -575,6 +715,14 @@ export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin =
                 <div>
                   <p className="text-sm text-gray-500">Teléfono</p>
                   <p className="text-gray-700">{polvorin.telefono_responsable || '-'}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Autoridad Fiscalizadora (F/A)</p>
+                  <p className="text-gray-700">
+                    {polvorin.autoridad_fiscalizadora
+                      ? `${polvorin.autoridad_fiscalizadora.nombre} (${polvorin.autoridad_fiscalizadora.codigo})`
+                      : '-'}
+                  </p>
                 </div>
               </div>
               {polvorin.observaciones && (
@@ -656,7 +804,7 @@ export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin =
             </Button>
           </div>
 
-          {tipos.length === 0 ? (
+          {todosTipos.length === 0 ? (
             <div className="text-center py-8">
               <HiCube className="w-16 h-16 text-gray-300 mx-auto mb-4" />
               <p className="text-gray-500">No hay tipos de explosivos definidos</p>
@@ -671,12 +819,13 @@ export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin =
                     <th className="px-4 py-3 text-left font-semibold">Categoría</th>
                     <th className="px-4 py-3 text-center font-semibold">Unidad</th>
                     <th className="px-4 py-3 text-center font-semibold">Stock Mín/Máx</th>
+                    <th className="px-4 py-3 text-center font-semibold">Estado</th>
                     <th className="px-4 py-3 text-center font-semibold">Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {tipos.map((tipo) => (
-                    <tr key={tipo.id} className="border-b hover:bg-gray-50">
+                  {todosTipos.map((tipo) => (
+                    <tr key={tipo.id} className={`border-b hover:bg-gray-50 ${tipo.activo === false ? 'opacity-60' : ''}`}>
                       <td className="px-4 py-3">
                         <span className="font-mono font-medium">{tipo.codigo}</span>
                       </td>
@@ -687,7 +836,26 @@ export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin =
                         {tipo.stock_minimo || 0} / {tipo.stock_maximo || '∞'}
                       </td>
                       <td className="px-4 py-3 text-center">
+                        <span
+                          className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${
+                            tipo.activo === false
+                              ? 'bg-gray-100 text-gray-500'
+                              : 'bg-green-100 text-green-700'
+                          }`}
+                        >
+                          {tipo.activo === false ? <HiXMark className="w-3.5 h-3.5" /> : <HiCheckCircle className="w-3.5 h-3.5" />}
+                          {tipo.activo === false ? 'Inactivo' : 'Activo'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-center">
                         <div className="flex items-center justify-center gap-2">
+                          <button
+                            onClick={() => toggleActivoTipo(tipo)}
+                            title={tipo.activo === false ? 'Activar — volverá a aparecer en el registro de reportes' : 'Desactivar — dejará de aparecer en el registro de reportes'}
+                            className={tipo.activo === false ? 'p-1.5 text-green-600 hover:bg-green-50 rounded' : 'p-1.5 text-gray-500 hover:bg-gray-100 rounded'}
+                          >
+                            {tipo.activo === false ? <HiEye className="w-5 h-5" /> : <HiEyeSlash className="w-5 h-5" />}
+                          </button>
                           <button
                             onClick={() => editarTipo(tipo)}
                             className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
@@ -708,6 +876,9 @@ export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin =
               </table>
             </div>
           )}
+          <p className="mt-3 text-xs text-gray-400">
+            Un tipo "Inactivo" no aparece como columna en el registro de reportes de perforación ni en los formularios de movimientos — sigue existiendo en el historial de lo ya registrado.
+          </p>
         </Card>
       )}
 
@@ -833,6 +1004,59 @@ export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin =
         </Card>
       )}
 
+      {tabActual === 'autoridades' && (
+        <Card>
+          <div className="flex items-center justify-between mb-6">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-800">Autoridad Fiscalizadora (DGMN)</h3>
+              <p className="text-sm text-gray-500 mt-1">
+                Código "F/A" que exige el libro de control de explosivos, ej: 22 = Los Andes. Se asigna una a cada polvorín en la pestaña "Polvorín".
+              </p>
+            </div>
+            <Button variant="primary" icon={HiPlus} onClick={nuevaAutoridad}>
+              Nueva Autoridad
+            </Button>
+          </div>
+
+          {loadingAutoridades ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-4 border-red-200 border-t-red-600"></div>
+            </div>
+          ) : autoridades.length === 0 ? (
+            <div className="text-center py-8">
+              <HiShieldCheck className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+              <p className="text-gray-500">No hay autoridades fiscalizadoras registradas</p>
+              <p className="text-sm text-gray-400 mt-1">Ej: código 22, nombre "Los Andes"</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {autoridades.map((aut) => (
+                <div key={aut.id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <span className="font-mono text-sm bg-white px-2 py-0.5 rounded border">{aut.codigo}</span>
+                    <span className="font-medium">{aut.nombre}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => editarAutoridad(aut)}
+                      className="p-2 text-blue-600 hover:bg-blue-50 rounded"
+                    >
+                      <HiPencil className="w-5 h-5" />
+                    </button>
+                    <button
+                      onClick={() => eliminarAutoridad(aut)}
+                      className="p-2 text-red-600 hover:bg-red-50 rounded"
+                    >
+                      <HiTrash className="w-5 h-5" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      )}
+
       {tabActual === 'formulas' && (
         <FormulaExplosivosConfig
           tipos={tipos}
@@ -938,7 +1162,7 @@ export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin =
       {/* Modal Polvorín */}
       {showModalPolvorin && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full mx-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
             <div className="px-6 py-4 border-b flex items-center justify-between">
               <h3 className="text-lg font-semibold">
                 {editandoPolvorin ? 'Editar Polvorín' : 'Crear Polvorín'}
@@ -1030,6 +1254,22 @@ export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin =
                 value={formPolvorin.telefono_responsable}
                 onChange={(e) => setFormPolvorin(prev => ({ ...prev, telefono_responsable: e.target.value }))}
               />
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Autoridad Fiscalizadora (F/A)</label>
+                <select
+                  value={formPolvorin.id_autoridad_fiscalizadora}
+                  onChange={(e) => setFormPolvorin(prev => ({ ...prev, id_autoridad_fiscalizadora: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 bg-white text-gray-900"
+                >
+                  <option value="">Sin asignar</option>
+                  {autoridades.map(a => (
+                    <option key={a.id} value={a.id}>{a.nombre} ({a.codigo})</option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-400 mt-1">
+                  Código F/A que exige el libro de control de explosivos. Se administra en la pestaña "Autoridad Fiscalizadora".
+                </p>
+              </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Observaciones</label>
                 <textarea
@@ -1165,6 +1405,42 @@ export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin =
                   onChange={(e) => setFormTipo(prev => ({ ...prev, stock_maximo: e.target.value }))}
                 />
               </div>
+
+              {/* Stock mínimo sugerido: promedio diario hábil de consumo x días de cobertura */}
+              <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 space-y-3">
+                <div className="flex items-end justify-between gap-3">
+                  <div className="flex-1 max-w-[200px]">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Días de Cobertura</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={formTipo.dias_cobertura_stock}
+                      onChange={(e) => setFormTipo(prev => ({ ...prev, dias_cobertura_stock: e.target.value }))}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
+                    />
+                  </div>
+                  {editandoTipo && (
+                    <Button type="button" variant="outline" size="sm" onClick={calcularSugerido} disabled={loadingSugerido}>
+                      {loadingSugerido ? 'Calculando...' : 'Calcular sugerido'}
+                    </Button>
+                  )}
+                </div>
+                <p className="text-xs text-gray-400">
+                  Días que demora reponer stock. Se usa para sugerir el Stock Mínimo: promedio diario de consumo (días hábiles, sin fines de semana) x días de cobertura.
+                </p>
+                {sugerido && (
+                  <div className="flex items-center justify-between gap-3 p-2.5 bg-white rounded border border-gray-200 text-sm">
+                    <div className="text-gray-600">
+                      Promedio diario hábil ({sugerido.periodo.desde} a {sugerido.periodo.hasta}): <span className="font-semibold text-gray-800">{sugerido.promedio_diario_habil}</span>
+                      {' '}· Sugerido: <span className="font-semibold text-gray-800">{sugerido.stock_minimo_sugerido}</span>
+                    </div>
+                    <Button type="button" variant="primary" size="sm" onClick={aplicarSugerido}>
+                      Aplicar
+                    </Button>
+                  </div>
+                )}
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <Input
                   label="Días Alerta Vencimiento"
@@ -1266,6 +1542,46 @@ export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin =
               </div>
               <div className="flex justify-end gap-3 pt-4 border-t">
                 <Button type="button" variant="secondary" onClick={() => setShowModalProveedor(false)}>
+                  Cancelar
+                </Button>
+                <Button type="submit" variant="primary" disabled={submitting}>
+                  {submitting ? 'Guardando...' : 'Guardar'}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Autoridad Fiscalizadora */}
+      {showModalAutoridad && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4">
+            <div className="px-6 py-4 border-b flex items-center justify-between">
+              <h3 className="text-lg font-semibold">
+                {editandoAutoridad ? 'Editar Autoridad Fiscalizadora' : 'Nueva Autoridad Fiscalizadora'}
+              </h3>
+              <button onClick={() => setShowModalAutoridad(false)} className="text-gray-500 hover:text-gray-700">
+                <HiXMark className="w-6 h-6" />
+              </button>
+            </div>
+            <form onSubmit={guardarAutoridad} className="p-6 space-y-4">
+              <Input
+                label="Código F/A"
+                required
+                value={formAutoridad.codigo}
+                onChange={(e) => setFormAutoridad(prev => ({ ...prev, codigo: e.target.value }))}
+                placeholder="22"
+              />
+              <Input
+                label="Nombre"
+                required
+                value={formAutoridad.nombre}
+                onChange={(e) => setFormAutoridad(prev => ({ ...prev, nombre: e.target.value }))}
+                placeholder="Los Andes"
+              />
+              <div className="flex justify-end gap-3 pt-4 border-t">
+                <Button type="button" variant="secondary" onClick={() => setShowModalAutoridad(false)}>
                   Cancelar
                 </Button>
                 <Button type="submit" variant="primary" disabled={submitting}>
