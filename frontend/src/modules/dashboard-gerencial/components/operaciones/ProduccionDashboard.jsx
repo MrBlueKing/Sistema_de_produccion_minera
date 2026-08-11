@@ -390,6 +390,7 @@ export const ProduccionCompleta = () => {
   // cambie el filtro de fecha/faena o quede afuera y vuelva a aparecer.
   const obtenerColorFrente = useRef(crearAsignadorDeFrentes()).current;
   const obtenerColorEmpresa = useRef(crearAsignadorDeFrentes()).current; // asignador genérico, reutilizado por empresa
+  const obtenerColorPlanta = useRef(crearAsignadorDeFrentes()).current; // idem, para el divisor de planta en "Por Empresa y Planta"
 
   // Debounce de las fechas: el input dispara onChange en cada click/tecleo del
   // date picker — sin esto, cada uno de esos cambios intermedios lanzaba las 5
@@ -728,7 +729,7 @@ export const ProduccionCompleta = () => {
                 {eficienciaLoading ? (
                   <div className="p-8 text-center"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-cyan-500 mx-auto" /></div>
                 ) : (
-                  <div className="p-4 grid grid-cols-2 lg:grid-cols-4 gap-3">
+                  <div className="p-4 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
                     {/* Acento de color = Vendido (esmeralda, mismo tono que "Tonelaje
                         Despachado") vs Extraído (azul, mismo tono que "Ley Cu Ponderada")
                         — el ícono sigue marcando Tiro vs Litro, así la grilla se lee en
@@ -740,11 +741,11 @@ export const ProduccionCompleta = () => {
                       </div>
                       <div className="flex items-end justify-between gap-1">
                         <p className="text-2xl font-bold text-gray-800">
-                          {eficiencia?.ratios?.vendido_por_tiro != null ? `${formatNumber(eficiencia.ratios.vendido_por_tiro)} t` : '—'}
+                          {eficiencia?.ratios?.vendido_por_tiro != null ? `${formatNumber(eficiencia.ratios.vendido_por_tiro)} ton/tiro` : '—'}
                         </p>
                         <TendenciaBadge actual={eficiencia?.ratios?.vendido_por_tiro} anterior={comparativa?.ratios?.vendido_por_tiro} />
                       </div>
-                      <TendenciaAnterior actual={eficiencia?.ratios?.vendido_por_tiro} anterior={comparativa?.ratios?.vendido_por_tiro} unidad=" t" />
+                      <TendenciaAnterior actual={eficiencia?.ratios?.vendido_por_tiro} anterior={comparativa?.ratios?.vendido_por_tiro} unidad=" ton/tiro" />
                       <TendenciaSinDato ratioAnterior={comparativa?.ratios?.vendido_por_tiro} denominadorAnterior={comparativa?.tiros} etiqueta="tiros confirmados" />
                       <p className="text-xs text-gray-400 mt-1">{formatNumber(eficiencia?.tonelaje_vendido)} t vendidas / {formatInteger(eficiencia?.tiros)} tiros</p>
                     </div>
@@ -756,11 +757,11 @@ export const ProduccionCompleta = () => {
                       </div>
                       <div className="flex items-end justify-between gap-1">
                         <p className="text-2xl font-bold text-gray-800">
-                          {eficiencia?.ratios?.extraido_por_tiro != null ? `${formatNumber(eficiencia.ratios.extraido_por_tiro)} t` : '—'}
+                          {eficiencia?.ratios?.extraido_por_tiro != null ? `${formatNumber(eficiencia.ratios.extraido_por_tiro)} ton/tiro` : '—'}
                         </p>
                         <TendenciaBadge actual={eficiencia?.ratios?.extraido_por_tiro} anterior={comparativa?.ratios?.extraido_por_tiro} />
                       </div>
-                      <TendenciaAnterior actual={eficiencia?.ratios?.extraido_por_tiro} anterior={comparativa?.ratios?.extraido_por_tiro} unidad=" t" />
+                      <TendenciaAnterior actual={eficiencia?.ratios?.extraido_por_tiro} anterior={comparativa?.ratios?.extraido_por_tiro} unidad=" ton/tiro" />
                       <TendenciaSinDato ratioAnterior={comparativa?.ratios?.extraido_por_tiro} denominadorAnterior={comparativa?.tiros} etiqueta="tiros confirmados" />
                       <p className="text-xs text-gray-400 mt-1">{formatNumber(eficiencia?.tonelaje_extraido)} t extraídas / {formatInteger(eficiencia?.tiros)} tiros</p>
                     </div>
@@ -777,12 +778,12 @@ export const ProduccionCompleta = () => {
                             : eficiencia.litros === 0
                             ? 'Sin consumo'
                             : eficiencia?.ratios?.vendido_por_litro != null
-                            ? `${formatNumber(eficiencia.ratios.vendido_por_litro)} t`
+                            ? `${formatNumber(eficiencia.ratios.vendido_por_litro)} ton/L`
                             : '—'}
                         </p>
                         <TendenciaBadge actual={eficiencia?.ratios?.vendido_por_litro} anterior={comparativa?.ratios?.vendido_por_litro} />
                       </div>
-                      <TendenciaAnterior actual={eficiencia?.ratios?.vendido_por_litro} anterior={comparativa?.ratios?.vendido_por_litro} unidad=" t" />
+                      <TendenciaAnterior actual={eficiencia?.ratios?.vendido_por_litro} anterior={comparativa?.ratios?.vendido_por_litro} unidad=" ton/L" />
                       <TendenciaSinDato ratioAnterior={comparativa?.ratios?.vendido_por_litro} denominadorAnterior={comparativa?.litros} etiqueta="consumo de combustible" />
                       <p className="text-xs text-gray-400 mt-1">
                         {eficiencia?.litros == null
@@ -803,17 +804,43 @@ export const ProduccionCompleta = () => {
                             : eficiencia.litros === 0
                             ? 'Sin consumo'
                             : eficiencia?.ratios?.extraido_por_litro != null
-                            ? `${formatNumber(eficiencia.ratios.extraido_por_litro)} t`
+                            ? `${formatNumber(eficiencia.ratios.extraido_por_litro)} ton/L`
                             : '—'}
                         </p>
                         <TendenciaBadge actual={eficiencia?.ratios?.extraido_por_litro} anterior={comparativa?.ratios?.extraido_por_litro} />
                       </div>
-                      <TendenciaAnterior actual={eficiencia?.ratios?.extraido_por_litro} anterior={comparativa?.ratios?.extraido_por_litro} unidad=" t" />
+                      <TendenciaAnterior actual={eficiencia?.ratios?.extraido_por_litro} anterior={comparativa?.ratios?.extraido_por_litro} unidad=" ton/L" />
                       <TendenciaSinDato ratioAnterior={comparativa?.ratios?.extraido_por_litro} denominadorAnterior={comparativa?.litros} etiqueta="consumo de combustible" />
                       <p className="text-xs text-gray-400 mt-1">
                         {eficiencia?.litros == null
                           ? 'Sin datos de combustible'
                           : `${formatNumber(eficiencia.tonelaje_extraido)} t extraídas / ${formatNumber(eficiencia.litros)} L`}
+                      </p>
+                    </div>
+
+                    <div className="bg-gray-50 rounded-lg p-4 border-l-4 border-violet-400 border-t border-r border-b border-gray-100">
+                      <div className="flex items-center gap-1.5 text-violet-600 mb-1">
+                        <FiDroplet className="w-3.5 h-3.5" />
+                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Litros / Tiro</span>
+                      </div>
+                      <div className="flex items-end justify-between gap-1">
+                        <p className="text-2xl font-bold text-gray-800">
+                          {eficiencia?.litros == null
+                            ? '—'
+                            : eficiencia.litros === 0
+                            ? 'Sin consumo'
+                            : eficiencia?.ratios?.litros_por_tiro != null
+                            ? `${formatNumber(eficiencia.ratios.litros_por_tiro)} L/tiro`
+                            : '—'}
+                        </p>
+                        <TendenciaBadge actual={eficiencia?.ratios?.litros_por_tiro} anterior={comparativa?.ratios?.litros_por_tiro} />
+                      </div>
+                      <TendenciaAnterior actual={eficiencia?.ratios?.litros_por_tiro} anterior={comparativa?.ratios?.litros_por_tiro} unidad=" L/tiro" />
+                      <TendenciaSinDato ratioAnterior={comparativa?.ratios?.litros_por_tiro} denominadorAnterior={comparativa?.tiros} etiqueta="tiros confirmados" />
+                      <p className="text-xs text-gray-400 mt-1">
+                        {eficiencia?.litros == null
+                          ? 'Sin datos de combustible'
+                          : `${formatNumber(eficiencia.litros)} L / ${formatInteger(eficiencia.tiros)} tiros`}
                       </p>
                     </div>
                   </div>
@@ -852,26 +879,50 @@ export const ProduccionCompleta = () => {
                         </tr>
                       </thead>
                       <tbody className="bg-white divide-y divide-gray-100">
-                        {reporte.filas.map((f, i) => (
-                          <tr key={i} className="hover:bg-gray-50">
-                            <td className="px-4 py-2 font-medium text-gray-800">
-                              <span className="inline-flex items-center gap-1.5">
-                                <span className="w-2.5 h-2.5 rounded-full inline-block flex-shrink-0" style={{ backgroundColor: obtenerColorEmpresa(f.empresa) }} />
-                                {f.empresa}
-                              </span>
-                            </td>
-                            <td className="px-4 py-2 text-gray-600">{f.planta}</td>
-                            <td className="px-4 py-2 text-right text-gray-700">{f.n_viajes}</td>
-                            <td className="px-4 py-2 text-right text-gray-700">{formatNumber(f.tonelaje)} t</td>
-                            <td className="px-4 py-2 text-right text-gray-700">{formatNumber(f.tonelaje_vendido)} t</td>
-                            <td className="px-4 py-2 text-right text-gray-700">{f.ley_ponderada != null ? `${formatNumber(f.ley_ponderada)}%` : '—'}</td>
-                            <td className="px-4 py-2 text-right text-gray-700">
-                              {f.tonelaje_pendiente > 0 ? `${formatNumber(f.tonelaje_pendiente)} t` : <span className="text-gray-400">—</span>}
-                            </td>
-                          </tr>
-                        ))}
+                        {reporte.filas.map((f, i) => {
+                          // Divisor horizontal de color: se marca la primera fila de cada
+                          // planta nueva (las filas ya vienen agrupadas por planta desde el
+                          // backend) con un borde superior grueso del color asignado a esa
+                          // planta, para separar visualmente los grupos sin duplicar la
+                          // columna "Planta" en cada fila.
+                          const esNuevaPlanta = i === 0 || reporte.filas[i - 1].planta !== f.planta;
+                          const colorPlanta = obtenerColorPlanta(f.planta);
+                          return (
+                            <tr
+                              key={i}
+                              style={{
+                                backgroundColor: `${colorPlanta}14`, // fondo tenue (~8% opacidad) para todo el grupo de esa planta
+                                borderTop: esNuevaPlanta ? `3px solid ${colorPlanta}` : undefined,
+                              }}
+                            >
+                              <td className="px-4 py-2 font-medium text-gray-800">
+                                <span className="inline-flex items-center gap-1.5">
+                                  <span className="w-2.5 h-2.5 rounded-full inline-block flex-shrink-0" style={{ backgroundColor: obtenerColorEmpresa(f.empresa) }} />
+                                  {f.empresa}
+                                </span>
+                              </td>
+                              <td className="px-4 py-2 text-gray-600">
+                                <span className="inline-flex items-center gap-1.5">
+                                  <span className="w-2.5 h-2.5 rounded-full inline-block flex-shrink-0" style={{ backgroundColor: colorPlanta }} />
+                                  {f.planta}
+                                </span>
+                              </td>
+                              <td className="px-4 py-2 text-right text-gray-700">{f.n_viajes}</td>
+                              <td className="px-4 py-2 text-right text-gray-700">{formatNumber(f.tonelaje)} t</td>
+                              <td className="px-4 py-2 text-right text-gray-700">{formatNumber(f.tonelaje_vendido)} t</td>
+                              <td className="px-4 py-2 text-right text-gray-700">{f.ley_ponderada != null ? `${formatNumber(f.ley_ponderada)}%` : '—'}</td>
+                              <td className="px-4 py-2 text-right text-gray-700">
+                                {f.tonelaje_pendiente > 0 ? `${formatNumber(f.tonelaje_pendiente)} t` : <span className="text-gray-400">—</span>}
+                              </td>
+                            </tr>
+                          );
+                        })}
                         {reporte.totales_por_planta.map((t, i) => (
-                          <tr key={`sub-${i}`} className="bg-amber-50 border-t border-amber-200">
+                          <tr
+                            key={`sub-${i}`}
+                            className="bg-amber-50 border-t-2 border-b border-amber-200"
+                            style={{ borderLeft: `4px solid ${obtenerColorPlanta(t.planta)}` }}
+                          >
                             <td className="px-4 py-2 font-bold text-amber-800 uppercase" colSpan={2}>Total {t.planta}</td>
                             <td className="px-4 py-2 text-right font-bold text-amber-800">{t.n_viajes}</td>
                             <td className="px-4 py-2 text-right font-bold text-amber-800">{formatNumber(t.tonelaje)} t</td>

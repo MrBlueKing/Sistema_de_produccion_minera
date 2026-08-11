@@ -452,6 +452,7 @@ class GerencialController extends Controller
                         'vendido_por_tiro' => $dividir($tonelajeVendido, $tiros),
                         'extraido_por_litro' => $dividir($tonelajeExtraido, $litros),
                         'vendido_por_litro' => $dividir($tonelajeVendido, $litros),
+                        'litros_por_tiro' => $dividir($litros, $tiros),
                     ],
                 ],
             ]);

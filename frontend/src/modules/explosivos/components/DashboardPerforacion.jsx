@@ -46,6 +46,16 @@ export default function DashboardPerforacion({ faenaActual }) {
   const totalesEstado = data.totales_por_estado || {};
   const totalReportes = Object.values(totalesEstado).reduce((a, b) => a + b, 0);
 
+  const tirosPorDia = data.tiros_por_dia || [];
+  const totalTiros = tirosPorDia.reduce((sum, item) => sum + (parseInt(item.total_tiros) || 0), 0);
+
+  // Escala del eje Y: techo "redondo" (siguiente múltiplo de 10/50/100 según la magnitud) y 4 marcas
+  const maxTirosDato = Math.max(...tirosPorDia.map((item) => parseInt(item.total_tiros) || 0), 1);
+  const magnitud = Math.pow(10, Math.floor(Math.log10(maxTirosDato)) );
+  const paso = Math.ceil(maxTirosDato / 4 / magnitud) * magnitud || 1;
+  const ejeYMax = paso * 4;
+  const marcasEjeY = [0, 1, 2, 3, 4].map((i) => i * paso);
+
   // Agrupar consumo por frente para tabla
   const consumoPorFrente = {};
   (data.consumo_por_frente || []).forEach((item) => {
@@ -95,10 +105,14 @@ export default function DashboardPerforacion({ faenaActual }) {
       </Card>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <Card className="text-center border-b-4 border-gray-400">
           <p className="text-3xl font-bold text-gray-800">{totalReportes}</p>
           <p className="text-sm text-gray-500">Total Reportes</p>
+        </Card>
+        <Card className="text-center border-b-4 border-orange-400">
+          <p className="text-3xl font-bold text-orange-700">{totalTiros.toLocaleString('es-CL')}</p>
+          <p className="text-sm text-gray-500">Total Tiros</p>
         </Card>
         <Card className="text-center border-b-4 border-yellow-400">
           <p className="text-3xl font-bold text-yellow-700">{totalesEstado.borrador || 0}</p>
@@ -114,13 +128,137 @@ export default function DashboardPerforacion({ faenaActual }) {
         </Card>
       </div>
 
-      {/* Eficiencia: calculada vs final */}
-      {(data.eficiencia || []).length > 0 && (
+      {/* Tiros por dia */}
+      {tirosPorDia.length === 0 ? (
         <Card>
           <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
             <HiChartBar className="w-5 h-5" />
-            Consumo por Tipo de Explosivo (Calculado vs Real)
+            Tiros por Día
           </h4>
+          <p className="text-sm text-gray-400 py-6 text-center">No hay tiros registrados en este período.</p>
+        </Card>
+      ) : (() => {
+        const MARGIN_LEFT = 46;
+        const MARGIN_RIGHT = 10;
+        const MARGIN_TOP = 24;
+        const MARGIN_BOTTOM = 46;
+        const PLOT_HEIGHT = 160;
+        const BAR_WIDTH = 26;
+        const SLOT_WIDTH = 36;
+        const plotWidth = tirosPorDia.length * SLOT_WIDTH;
+        const totalWidth = MARGIN_LEFT + MARGIN_RIGHT + plotWidth;
+        const totalHeight = MARGIN_TOP + PLOT_HEIGHT + MARGIN_BOTTOM;
+        const yFor = (valor) => MARGIN_TOP + PLOT_HEIGHT - (valor / ejeYMax) * PLOT_HEIGHT;
+
+        return (
+          <Card>
+            <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+              <HiChartBar className="w-5 h-5" />
+              Tiros por Día
+            </h4>
+            <div className="overflow-x-auto pb-1">
+              <svg width={totalWidth} height={totalHeight} role="img" aria-label="Tiros por día">
+                {/* Grilla y eje Y */}
+                {marcasEjeY.map((valor) => (
+                  <g key={valor}>
+                    <line
+                      x1={MARGIN_LEFT}
+                      x2={totalWidth - MARGIN_RIGHT}
+                      y1={yFor(valor)}
+                      y2={yFor(valor)}
+                      className={valor === 0 ? 'stroke-gray-300' : 'stroke-gray-100'}
+                      strokeWidth={1}
+                    />
+                    <text
+                      x={MARGIN_LEFT - 8}
+                      y={yFor(valor)}
+                      textAnchor="end"
+                      dominantBaseline="middle"
+                      className="fill-gray-400 text-[9px]"
+                    >
+                      {valor.toLocaleString('es-CL')}
+                    </text>
+                  </g>
+                ))}
+
+                {/* Titulo eje Y */}
+                <text
+                  x={14}
+                  y={MARGIN_TOP + PLOT_HEIGHT / 2}
+                  textAnchor="middle"
+                  className="fill-gray-500 text-[10px] font-semibold uppercase tracking-wide"
+                  transform={`rotate(-90, 14, ${MARGIN_TOP + PLOT_HEIGHT / 2})`}
+                >
+                  N° de Tiros
+                </text>
+
+                {/* Barras + valor + fecha */}
+                {tirosPorDia.map((item, index) => {
+                  const total = parseInt(item.total_tiros) || 0;
+                  const x = MARGIN_LEFT + index * SLOT_WIDTH + (SLOT_WIDTH - BAR_WIDTH) / 2;
+                  const yBar = yFor(total);
+                  const baseline = yFor(0);
+                  const fecha = new Date(`${item.fecha}T00:00:00`);
+                  const fechaCorta = fecha.toLocaleDateString('es-CL', { day: '2-digit', month: '2-digit' });
+                  const fechaCompleta = fecha.toLocaleDateString('es-CL', { day: '2-digit', month: 'long', year: 'numeric' });
+
+                  return (
+                    <g key={item.fecha}>
+                      <title>{`${fechaCompleta}: ${total.toLocaleString('es-CL')} tiros`}</title>
+                      <text
+                        x={x + BAR_WIDTH / 2}
+                        y={yBar - 6}
+                        textAnchor="middle"
+                        className="fill-gray-600 text-[9px] font-semibold"
+                      >
+                        {total}
+                      </text>
+                      <rect
+                        x={x}
+                        y={yBar}
+                        width={BAR_WIDTH}
+                        height={Math.max(baseline - yBar, total > 0 ? 2 : 0)}
+                        rx={3}
+                        className="fill-orange-500 hover:fill-orange-600 transition-colors"
+                      />
+                      <text
+                        x={x + BAR_WIDTH / 2}
+                        y={baseline + 14}
+                        textAnchor="middle"
+                        className="fill-gray-400 text-[9px]"
+                      >
+                        {fechaCorta}
+                      </text>
+                    </g>
+                  );
+                })}
+
+                {/* Titulo eje X */}
+                <text
+                  x={MARGIN_LEFT + plotWidth / 2}
+                  y={totalHeight - 4}
+                  textAnchor="middle"
+                  className="fill-gray-500 text-[10px] font-semibold uppercase tracking-wide"
+                >
+                  Fecha
+                </text>
+              </svg>
+            </div>
+          </Card>
+        );
+      })()}
+
+      {/* Eficiencia: calculada vs final */}
+      <Card>
+        <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+          <HiChartBar className="w-5 h-5" />
+          Consumo por Tipo de Explosivo (Calculado vs Real)
+        </h4>
+        {(data.eficiencia || []).length === 0 ? (
+          <p className="text-sm text-gray-400 py-6 text-center">
+            Ninguna línea de este período tiene cantidad de explosivo registrada todavía.
+          </p>
+        ) : (
           <div className="space-y-3">
             {(data.eficiencia || []).map((item) => {
               const calculado = parseFloat(item.total_calculado) || 0;
@@ -150,16 +288,20 @@ export default function DashboardPerforacion({ faenaActual }) {
               );
             })}
           </div>
-        </Card>
-      )}
+        )}
+      </Card>
 
       {/* Consumo por frente */}
-      {Object.keys(consumoPorFrente).length > 0 && (
-        <Card>
-          <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
-            <HiCalendar className="w-5 h-5" />
-            Consumo por Frente de Trabajo
-          </h4>
+      <Card>
+        <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+          <HiCalendar className="w-5 h-5" />
+          Consumo por Frente de Trabajo
+        </h4>
+        {Object.keys(consumoPorFrente).length === 0 ? (
+          <p className="text-sm text-gray-400 py-6 text-center">
+            Ninguna línea de este período tiene cantidad de explosivo registrada todavía.
+          </p>
+        ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -188,8 +330,8 @@ export default function DashboardPerforacion({ faenaActual }) {
               </tbody>
             </table>
           </div>
-        </Card>
-      )}
+        )}
+      </Card>
     </div>
   );
 }

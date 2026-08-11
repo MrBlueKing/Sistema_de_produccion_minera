@@ -24,6 +24,7 @@ export default function ReportesPerforacionView({ polvorin, polvorines = [], tip
   const [reportes, setReportes] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [totalRecords, setTotalRecords] = useState(0);
   const [frentesTrabajo, setFrentesTrabajo] = useState([]);
 
   // Filtros
@@ -73,6 +74,7 @@ export default function ReportesPerforacionView({ polvorin, polvorines = [], tip
       const response = await explosivosService.getReportes(params);
       setReportes(response.data || []);
       setTotalPages(response.last_page || 1);
+      setTotalRecords(response.total || 0);
     } catch (error) {
       toast.error('Error', 'No se pudieron cargar los reportes');
     } finally {
@@ -310,7 +312,13 @@ export default function ReportesPerforacionView({ polvorin, polvorines = [], tip
               </table>
             </div>
 
-            <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
+            <Pagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalRecords={totalRecords}
+              perPage={15}
+              onPageChange={setCurrentPage}
+            />
           </>
         )}
       </Card>
