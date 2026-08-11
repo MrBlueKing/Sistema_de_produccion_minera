@@ -20,10 +20,12 @@ import DashboardPerforacion from '../../explosivos/components/DashboardPerforaci
 import ConfiguracionView from '../../explosivos/components/ConfiguracionView';
 
 // Roles que ven todas las faenas (necesitan elegir una antes de operar). jefe_mina se queda
-// SIEMPRE con su faena por defecto (la asignada a su cuenta en el SAC), sin selector — si una
-// persona necesita cubrir más de una faena, se le asigna también el rol `ingeniero` en el SAC
-// ("Gestión de Frentes de Trabajo"), y con ESE rol entra con selector, sin cambiar el
-// comportamiento del resto de los jefe_mina.
+// SIEMPRE con su faena por defecto (la asignada a su cuenta en el SAC), sin selector — EXCEPTO
+// si esa misma cuenta también tiene asignado el rol `ingeniero` en este módulo (verificado con
+// hasRole() contra la lista completa de roles del usuario, no solo el rol activo de la sesión):
+// en ese caso ve el selector aunque haya entrado por el acceso directo "Reporte de Perforación y
+// Tronadura" (rol_sistema_externo=jefe_mina), sin cambiar el comportamiento del resto de los
+// jefe_mina que no tienen también ingeniero.
 const ROLES_MULTI_FAENA = ['ingeniero'];
 // Rol con poderes completos de Administrador de Explosivos (crear polvorín, ver todas las
 // faenas a la vez) — misma experiencia que tenía dentro de Explosivos antes del movimiento.
@@ -33,10 +35,10 @@ const ROLES_ADMIN_COMPLETO = ['admin_explosivos'];
 const ROLES_SOLO_REPORTES_PYT = ['admin_explosivos', 'jefe_mina'];
 
 function ReportesPerforacionContent() {
-  const { getRolActivo } = useAuth();
+  const { getRolActivo, hasRole } = useAuth();
   const { faenaUsuario } = useFaena();
   const rolActivo = getRolActivo();
-  const esMultiFaena = ROLES_MULTI_FAENA.includes(rolActivo);
+  const esMultiFaena = ROLES_MULTI_FAENA.includes(rolActivo) || hasRole('ingeniero');
   const esAdminCompleto = ROLES_ADMIN_COMPLETO.includes(rolActivo);
   const puedeVerHub = !ROLES_SOLO_REPORTES_PYT.includes(rolActivo);
 

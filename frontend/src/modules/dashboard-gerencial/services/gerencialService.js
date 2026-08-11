@@ -6,8 +6,8 @@ import api from '../../../core/services/api';
  * autenticadas vía el interceptor de core/services/api.js).
  */
 const gerencialService = {
-  getResumen: async (params = {}) => {
-    const response = await api.get('/gerencial/resumen', { params });
+  getResumen: async (params = {}, signal) => {
+    const response = await api.get('/gerencial/resumen', { params, signal });
     return response.data;
   },
 
@@ -16,8 +16,8 @@ const gerencialService = {
     return response.data;
   },
 
-  getReporteProduccion: async (params = {}) => {
-    const response = await api.get('/gerencial/reporte-produccion', { params });
+  getReporteProduccion: async (params = {}, signal) => {
+    const response = await api.get('/gerencial/reporte-produccion', { params, signal });
     return response.data;
   },
 
@@ -36,18 +36,18 @@ const gerencialService = {
     return response.data;
   },
 
-  getAnalisisLotes: async (params = {}) => {
-    const response = await api.get('/gerencial/analisis-lotes', { params });
+  getAnalisisLotes: async (params = {}, signal) => {
+    const response = await api.get('/gerencial/analisis-lotes', { params, signal });
     return response.data;
   },
 
-  getDumpadasDiarias: async (params = {}) => {
-    const response = await api.get('/gerencial/dumpadas-diarias', { params });
+  getEficiencia: async (params = {}, signal) => {
+    const response = await api.get('/gerencial/eficiencia', { params, signal });
     return response.data;
   },
 
-  getProduccionPorTurno: async (params = {}) => {
-    const response = await api.get('/gerencial/produccion-turno', { params });
+  getDumpadasDiarias: async (params = {}, signal) => {
+    const response = await api.get('/gerencial/dumpadas-diarias', { params, signal });
     return response.data;
   },
 

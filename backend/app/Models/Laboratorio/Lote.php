@@ -19,6 +19,7 @@ class Lote extends Model
         'fecha_creacion',
         'fecha_estimada_llegada',
         'estado',
+        'fecha_cierre',
         'observaciones',
         'user_id',
     ];
@@ -26,6 +27,7 @@ class Lote extends Model
     protected $casts = [
         'fecha_creacion' => 'date',
         'fecha_estimada_llegada' => 'date',
+        'fecha_cierre' => 'date',
     ];
 
     // Estados del lote
@@ -162,6 +164,7 @@ class Lote extends Model
 
             // Cambiar estado del lote a Completado
             $this->estado = self::ESTADO_COMPLETADO;
+            $this->fecha_cierre = now()->toDateString();
             $this->save();
 
             \DB::commit();
@@ -201,6 +204,7 @@ class Lote extends Model
         }
 
         $this->estado = self::ESTADO_ABIERTO;
+        $this->fecha_cierre = null;
         $this->save();
 
         return $this;

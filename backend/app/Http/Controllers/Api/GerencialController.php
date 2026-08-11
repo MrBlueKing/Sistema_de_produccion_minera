@@ -8,6 +8,8 @@ use App\Models\Laboratorio\Planta;
 use App\Models\Laboratorio\Empresa;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use Carbon\Carbon;
 
 class GerencialController extends Controller
@@ -31,11 +33,14 @@ class GerencialController extends Controller
             }
 
             // Estadísticas de dumpadas (columnas reales: ton, ley, estado: Ingresado/Completado/etc)
+            // ley_promedio ponderada por tonelaje (no AVG simple) — mismo criterio que
+            // dumpadasDiarias()/produccionPorTurno(), para que "ley promedio" signifique
+            // lo mismo en todo el dashboard gerencial.
             $statsDumpadas = (clone $queryDumpadas)
                 ->select(
                     DB::raw('COUNT(*) as total'),
                     DB::raw('SUM(ton) as tonelaje_total'),
-                    DB::raw('AVG(ley) as ley_promedio'),
+                    DB::raw('CASE WHEN SUM(ton) > 0 THEN SUM(ton * ley) / SUM(ton) ELSE NULL END as ley_promedio'),
                     DB::raw('COUNT(CASE WHEN estado = "Completado" THEN 1 END) as completadas'),
                     DB::raw('COUNT(CASE WHEN estado = "Ingresado" THEN 1 END) as pendientes')
                 )
@@ -49,19 +54,30 @@ class GerencialController extends Controller
                 $queryMezclas->where('id_faena', $idFaena);
             }
 
+            // ley_promedio ponderada por total_ton, usando ley_prom_lote (vigente desde
+            // ago-2026) con fallback a ley_prom_dump (campo retirado, solo mezclas viejas
+            // lo tienen) — AVG(ley_prom_dump) solo quedaba sesgado hacia mezclas antiguas.
             $statsMezclas = $queryMezclas
                 ->select(
                     DB::raw('COUNT(*) as total'),
                     DB::raw('SUM(total_ton) as tonelaje_total'),
-                    DB::raw('AVG(ley_prom_dump) as ley_promedio'),
+                    DB::raw('CASE WHEN SUM(CASE WHEN COALESCE(ley_prom_lote, ley_prom_dump) IS NOT NULL THEN total_ton ELSE 0 END) > 0
+                        THEN SUM(total_ton * COALESCE(ley_prom_lote, ley_prom_dump, 0)) / SUM(CASE WHEN COALESCE(ley_prom_lote, ley_prom_dump) IS NOT NULL THEN total_ton ELSE 0 END)
+                        ELSE NULL END as ley_promedio'),
                     DB::raw('COUNT(CASE WHEN estado = "Confirmado" THEN 1 END) as activas'),
                     DB::raw('COUNT(CASE WHEN estado = "Despachado" THEN 1 END) as completadas')
                 )
                 ->first();
 
-            // Estadísticas de lotes (columnas reales: estado: Abierto/Completado)
+            // Estadísticas de lotes (columnas reales: estado: Abierto/Completado).
+            // total/abiertos: filtrados por fecha_creacion (fecha de negocio, cargada
+            // a mano o por importación) — NO por created_at (timestamp de cuándo se
+            // insertó la fila en la BD). Con datos importados en bloque, created_at
+            // queda clavado en el día de la importación para cientos de filas, sin
+            // relación con cuándo pasó realmente cada lote (verificado con datos
+            // reales: 111 de 136 lotes tienen fecha_creacion != DATE(created_at)).
             $queryLotes = DB::table('lotes')
-                ->whereBetween('created_at', [$fechaInicio . ' 00:00:00', $fechaFin . ' 23:59:59']);
+                ->whereBetween('fecha_creacion', [$fechaInicio, $fechaFin]);
 
             if ($idFaena) {
                 $queryLotes->where('id_faena', $idFaena);
@@ -70,15 +86,34 @@ class GerencialController extends Controller
             $statsLotes = $queryLotes
                 ->select(
                     DB::raw('COUNT(*) as total'),
-                    DB::raw('COUNT(CASE WHEN estado = "Abierto" THEN 1 END) as abiertos'),
-                    DB::raw('COUNT(CASE WHEN estado = "Completado" THEN 1 END) as cerrados')
+                    DB::raw('COUNT(CASE WHEN estado = "Abierto" THEN 1 END) as abiertos')
                 )
                 ->first();
 
-            // Tonelaje total de lotes (sumando peso de camionadas asociadas)
+            // Lotes CERRADOS en el período: usa fecha_cierre (columna agregada
+            // 2026-08-10, la llena Lote::cerrar() de ahora en más) cuando existe;
+            // para lotes cerrados ANTES de que existiera esa columna, cae al proxy
+            // de siempre — la fecha de recepción de su ÚLTIMA camionada, que es la
+            // condición real que Lote::cerrar() exige (todasCamionadasRecepcionadas()).
+            // A propósito NO comparte rango con total/abiertos de arriba (esos son
+            // "creados en el período", este es "cerrados en el período" — pueden
+            // ser lotes distintos, un lote creado en julio puede cerrar en agosto).
+            $cerradosQuery = DB::table('lotes')
+                ->where('estado', 'Completado')
+                ->whereRaw(
+                    'COALESCE(fecha_cierre, (SELECT MAX(c.fecha_recepcion) FROM camionadas c WHERE c.lote_id = lotes.id)) BETWEEN ? AND ?',
+                    [$fechaInicio, $fechaFin]
+                );
+            if ($idFaena) {
+                $cerradosQuery->where('id_faena', $idFaena);
+            }
+            $lotesCerrados = $cerradosQuery->count();
+
+            // Tonelaje total de lotes (sumando peso de camionadas asociadas a lotes
+            // creados en el período — mismo criterio fecha_creacion que arriba)
             $tonelajeLotes = DB::table('camionadas')
                 ->join('lotes', 'camionadas.lote_id', '=', 'lotes.id')
-                ->whereBetween('lotes.created_at', [$fechaInicio . ' 00:00:00', $fechaFin . ' 23:59:59'])
+                ->whereBetween('lotes.fecha_creacion', [$fechaInicio, $fechaFin])
                 ->when($idFaena, function ($q) use ($idFaena) {
                     return $q->where('lotes.id_faena', $idFaena);
                 })
@@ -101,6 +136,29 @@ class GerencialController extends Controller
                     DB::raw('SUM(camionadas.peso) as tonelaje_despachado'),
                     DB::raw('COUNT(CASE WHEN camionadas.estado = "Despachado" THEN 1 END) as despachadas'),
                     DB::raw('COUNT(CASE WHEN camionadas.estado IN ("Recibido", "Completado") THEN 1 END) as recibidas')
+                )
+                ->first();
+
+            // Tonelaje RECEPCIONADO: KPI aparte de "despachado" — filtra por
+            // camionadas.fecha_recepcion (no fecha_despacho), porque acá lo que
+            // importa es "cuánto se confirmó recibido EN este período", sin
+            // importar cuándo salió. peso_real es el peso real confirmado al
+            // recepcionar; peso_teorico es el peso con el que salió esa MISMA
+            // camionada, para poder comparar ambos sin mezclar poblaciones
+            // distintas (a diferencia de comparar contra el total despachado,
+            // que puede incluir camionadas todavía en tránsito).
+            $queryRecepcion = DB::table('camionadas')
+                ->join('lotes', 'camionadas.lote_id', '=', 'lotes.id')
+                ->whereNotNull('camionadas.peso_real')
+                ->whereBetween('camionadas.fecha_recepcion', [$fechaInicio, $fechaFin]);
+            if ($idFaena) {
+                $queryRecepcion->where('lotes.id_faena', $idFaena);
+            }
+            $statsRecepcion = $queryRecepcion
+                ->select(
+                    DB::raw('COUNT(*) as total'),
+                    DB::raw('SUM(camionadas.peso_real) as tonelaje_recepcionado'),
+                    DB::raw('SUM(camionadas.peso) as tonelaje_teorico')
                 )
                 ->first();
 
@@ -173,13 +231,18 @@ class GerencialController extends Controller
                         'total' => $statsLotes->total ?? 0,
                         'tonelaje_total' => round($tonelajeLotes ?? 0, 2),
                         'abiertos' => $statsLotes->abiertos ?? 0,
-                        'cerrados' => $statsLotes->cerrados ?? 0,
+                        'cerrados' => $lotesCerrados ?? 0,
                     ],
                     'despachos' => [
                         'total' => $statsCamionadas->total ?? 0,
                         'tonelaje_despachado' => round($statsCamionadas->tonelaje_despachado ?? 0, 2),
                         'despachadas' => $statsCamionadas->despachadas ?? 0,
                         'recibidas' => $statsCamionadas->recibidas ?? 0,
+                    ],
+                    'recepcion' => [
+                        'total' => $statsRecepcion->total ?? 0,
+                        'tonelaje_recepcionado' => round($statsRecepcion->tonelaje_recepcionado ?? 0, 2),
+                        'tonelaje_teorico' => round($statsRecepcion->tonelaje_teorico ?? 0, 2),
                     ],
                     'stock' => [
                         'mezclas_disponibles' => $stock->mezclas_disponibles ?? 0,
@@ -222,7 +285,22 @@ class GerencialController extends Controller
                     DB::raw('COALESCE(SUM(camionadas.peso), 0) as tonelaje'),
                     DB::raw('CASE WHEN SUM(camionadas.peso) > 0
                         THEN SUM(camionadas.peso * COALESCE(camionadas.ley_mezcla, 0)) / SUM(camionadas.peso)
-                        ELSE NULL END as ley_ponderada')
+                        ELSE NULL END as ley_ponderada'),
+                    // Tonelaje pendiente: solo camionadas de lotes Abiertos que TODAVÍA no
+                    // se pesaron en destino (peso_real IS NULL) — no basta con que el lote
+                    // siga Abierto, porque puede tener camionadas ya recepcionadas esperando
+                    // que alguien cierre el lote formalmente. Antes se usaba
+                    // "peso - COALESCE(peso_real,0)" para toda camionada de un lote Abierto,
+                    // pero como peso_real casi siempre es MAYOR al peso declarado al despachar
+                    // (sin báscula en la mina), eso daba negativo para las ya recepcionadas y
+                    // netaba contra el pendiente real de las que sí faltan — subestimándolo
+                    // (verificado con datos reales: 3 grupos mostraban 8-18 t cuando el
+                    // pendiente real era 29 t).
+                    DB::raw('COALESCE(SUM(CASE WHEN lotes.estado = "Abierto" AND camionadas.peso_real IS NULL THEN camionadas.peso ELSE 0 END), 0) as tonelaje_pendiente'),
+                    // Tonelaje vendido: peso_real de camionadas cuyo lote ya cerró (Completado)
+                    // — a diferencia de "tonelaje" (despachado teórico, con lote cerrado o no),
+                    // esto es lo confirmado de verdad.
+                    DB::raw('COALESCE(SUM(CASE WHEN lotes.estado = "Completado" THEN camionadas.peso_real ELSE 0 END), 0) as tonelaje_vendido')
                 )
                 ->groupBy('lotes.empresa_id', 'lotes.planta_id', 'empresas.nombre', 'plantas.nombre')
                 ->orderBy('plantas.nombre')
@@ -234,39 +312,49 @@ class GerencialController extends Controller
             foreach ($filas as $fila) {
                 $p = $fila->planta;
                 if (!isset($porPlanta[$p])) {
-                    $porPlanta[$p] = ['planta' => $p, 'n_viajes' => 0, 'tonelaje' => 0, 'peso_x_ley' => 0];
+                    $porPlanta[$p] = ['planta' => $p, 'n_viajes' => 0, 'tonelaje' => 0, 'peso_x_ley' => 0, 'tonelaje_pendiente' => 0, 'tonelaje_vendido' => 0];
                 }
                 $porPlanta[$p]['n_viajes']  += $fila->n_viajes;
                 $porPlanta[$p]['tonelaje']  += $fila->tonelaje;
                 $porPlanta[$p]['peso_x_ley'] += $fila->tonelaje * ($fila->ley_ponderada ?? 0);
+                $porPlanta[$p]['tonelaje_pendiente'] += $fila->tonelaje_pendiente;
+                $porPlanta[$p]['tonelaje_vendido'] += $fila->tonelaje_vendido;
             }
 
             $totalesPlanta = array_values(array_map(fn($p) => [
-                'planta'        => $p['planta'],
-                'n_viajes'      => $p['n_viajes'],
-                'tonelaje'      => round($p['tonelaje'], 2),
-                'ley_ponderada' => $p['tonelaje'] > 0 ? round($p['peso_x_ley'] / $p['tonelaje'], 3) : null,
+                'planta'             => $p['planta'],
+                'n_viajes'           => $p['n_viajes'],
+                'tonelaje'           => round($p['tonelaje'], 2),
+                'ley_ponderada'      => $p['tonelaje'] > 0 ? round($p['peso_x_ley'] / $p['tonelaje'], 3) : null,
+                'tonelaje_pendiente' => round($p['tonelaje_pendiente'], 2),
+                'tonelaje_vendido'   => round($p['tonelaje_vendido'], 2),
             ], $porPlanta));
 
-            $totalTon    = array_sum(array_column($totalesPlanta, 'tonelaje'));
-            $totalViajes = array_sum(array_column($totalesPlanta, 'n_viajes'));
-            $totalPesLey = array_sum(array_map(fn($p) => $p['tonelaje'] * ($p['ley_ponderada'] ?? 0), $totalesPlanta));
+            $totalTon        = array_sum(array_column($totalesPlanta, 'tonelaje'));
+            $totalViajes     = array_sum(array_column($totalesPlanta, 'n_viajes'));
+            $totalPesLey     = array_sum(array_map(fn($p) => $p['tonelaje'] * ($p['ley_ponderada'] ?? 0), $totalesPlanta));
+            $totalPendiente  = array_sum(array_column($totalesPlanta, 'tonelaje_pendiente'));
+            $totalVendido    = array_sum(array_column($totalesPlanta, 'tonelaje_vendido'));
 
             return response()->json([
                 'success' => true,
                 'data' => [
                     'filas' => $filas->map(fn($r) => [
-                        'empresa'       => $r->empresa,
-                        'planta'        => $r->planta,
-                        'n_lotes'       => $r->n_lotes,
-                        'n_viajes'      => $r->n_viajes,
-                        'tonelaje'      => round($r->tonelaje, 2),
-                        'ley_ponderada' => $r->tonelaje > 0 ? round($r->ley_ponderada ?? 0, 3) : null,
+                        'empresa'            => $r->empresa,
+                        'planta'             => $r->planta,
+                        'n_lotes'            => $r->n_lotes,
+                        'n_viajes'           => $r->n_viajes,
+                        'tonelaje'           => round($r->tonelaje, 2),
+                        'ley_ponderada'      => $r->tonelaje > 0 ? round($r->ley_ponderada ?? 0, 3) : null,
+                        'tonelaje_pendiente' => round($r->tonelaje_pendiente, 2),
+                        'tonelaje_vendido'   => round($r->tonelaje_vendido, 2),
                     ]),
                     'totales_por_planta' => $totalesPlanta,
                     'total_general' => [
-                        'n_viajes'      => $totalViajes,
-                        'tonelaje'      => round($totalTon, 2),
+                        'n_viajes'           => $totalViajes,
+                        'tonelaje'           => round($totalTon, 2),
+                        'tonelaje_pendiente' => round($totalPendiente, 2),
+                        'tonelaje_vendido'   => round($totalVendido, 2),
                         'ley_ponderada' => $totalTon > 0 ? round($totalPesLey / $totalTon, 3) : null,
                     ],
                 ],
@@ -276,6 +364,102 @@ class GerencialController extends Controller
                 'success' => false,
                 'message' => 'Error al obtener reporte de producción',
                 'error'   => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * KPIs de eficiencia operacional: tonelaje (extraído/vendido) por tiro y por litro.
+     * Endpoint separado de resumen() a propósito: la llamada a litros cruza al sistema
+     * de Petróleo (HTTP externo) y no debe bloquear ni retrasar las 3 tarjetas KPI
+     * principales que dependen de resumen().
+     * GET /api/gerencial/eficiencia
+     */
+    public function eficiencia(Request $request)
+    {
+        try {
+            $fechaInicio = $request->get('fecha_inicio', Carbon::now()->startOfMonth()->format('Y-m-d'));
+            $fechaFin = $request->get('fecha_fin', Carbon::now()->format('Y-m-d'));
+            $idFaena = $request->get('id_faena');
+
+            // Tonelaje extraído: suma de dumpadas del período (mismo concepto que
+            // dumpadas.tonelaje_total en resumen()).
+            $tonelajeExtraido = DB::table('dumpadas')
+                ->whereBetween('fecha', [$fechaInicio, $fechaFin])
+                ->when($idFaena, fn($q) => $q->where('id_faena', $idFaena))
+                ->sum('ton');
+
+            // Tonelaje vendido: recepcionado (peso_real) Y perteneciente a un lote
+            // cerrado (Completado) — no basta con "despachado", tiene que estar vendido
+            // de verdad. Se filtra por fecha_recepcion (cuándo se vendió en el período),
+            // no por la fecha de creación del lote.
+            $tonelajeVendido = DB::table('camionadas')
+                ->join('lotes', 'camionadas.lote_id', '=', 'lotes.id')
+                ->where('lotes.estado', 'Completado')
+                ->whereNotNull('camionadas.peso_real')
+                ->whereBetween('camionadas.fecha_recepcion', [$fechaInicio, $fechaFin])
+                ->when($idFaena, fn($q) => $q->where('lotes.id_faena', $idFaena))
+                ->sum('camionadas.peso_real');
+
+            // Tiros: solo reportes de Perforación y Tronadura confirmados o cerrados —
+            // un reporte en Borrador no representa trabajo ejecutado ni consumo real.
+            $tiros = DB::table('lineas_reporte_perforacion')
+                ->join('reportes_perforacion', 'lineas_reporte_perforacion.id_reporte', '=', 'reportes_perforacion.id')
+                ->whereBetween('reportes_perforacion.fecha', [$fechaInicio, $fechaFin])
+                ->whereIn('reportes_perforacion.estado', ['confirmado', 'cerrado'])
+                ->when($idFaena, fn($q) => $q->where('reportes_perforacion.id_faena', $idFaena))
+                ->sum('lineas_reporte_perforacion.numero_tiros');
+
+            // Litros: consumo total de combustible de la faena, desde el sistema de
+            // Petróleo. Si Petróleo no responde, se devuelve litros=null y el resto del
+            // payload igual — no puede tumbar este endpoint (mismo criterio que el fix de
+            // PersonalAutorizadoController::disponible() para no propagar fallas externas).
+            $litros = null;
+            try {
+                $response = Http::timeout(10)
+                    ->withHeaders(['X-API-Key' => config('services.petroleo_api_key')])
+                    ->get(config('services.petroleo_api') . '/consumo-litros-disponible', [
+                        'id_faena' => $idFaena,
+                        'fecha_desde' => $fechaInicio,
+                        'fecha_hasta' => $fechaFin,
+                    ]);
+
+                if ($response->successful()) {
+                    $litros = $response->json('litros_consumidos');
+                } else {
+                    Log::warning('Fallo la conexión con el sistema de petroleo (litros)', [
+                        'status_petroleo' => $response->status(),
+                    ]);
+                }
+            } catch (\Exception $e) {
+                Log::warning('Excepción al consultar litros en el sistema de petroleo', [
+                    'error' => $e->getMessage(),
+                ]);
+            }
+
+            $dividir = fn($num, $den) => ($den !== null && $den > 0) ? round($num / $den, 3) : null;
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'periodo' => ['fecha_inicio' => $fechaInicio, 'fecha_fin' => $fechaFin],
+                    'tonelaje_extraido' => round($tonelajeExtraido ?? 0, 2),
+                    'tonelaje_vendido' => round($tonelajeVendido ?? 0, 2),
+                    'tiros' => (int) $tiros,
+                    'litros' => $litros !== null ? round($litros, 2) : null,
+                    'ratios' => [
+                        'extraido_por_tiro' => $dividir($tonelajeExtraido, $tiros),
+                        'vendido_por_tiro' => $dividir($tonelajeVendido, $tiros),
+                        'extraido_por_litro' => $dividir($tonelajeExtraido, $litros),
+                        'vendido_por_litro' => $dividir($tonelajeVendido, $litros),
+                    ],
+                ],
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Error al obtener KPIs de eficiencia',
+                'error' => $e->getMessage(),
             ], 500);
         }
     }
@@ -565,6 +749,12 @@ class GerencialController extends Controller
             ->select(
                 'd.fecha',
                 DB::raw('COALESCE(f.codigo_completo, CONCAT(f.manto, "-", COALESCE(f.calle, ""), COALESCE(f.hebra, ""))) as frente'),
+                // Grupo = túnel (o manto cuando el frente no tiene túnel cargado, ej.
+                // los "M3-"/"M5-"). Con 20-30+ frentes distintos, colorear/apilar por
+                // frente individual vuelve el gráfico ilegible (más de 7 caen todos en
+                // el mismo gris "Otros"); agrupando por túnel/manto quedan 5-6
+                // categorías reales — el detalle por frente se mantiene en el tooltip.
+                DB::raw('COALESCE(NULLIF(f.tunel, ""), f.manto) as grupo'),
                 DB::raw('COUNT(d.id) as cantidad'),
                 DB::raw('COALESCE(SUM(d.ton), 0) as toneladas'),
                 DB::raw('CASE WHEN SUM(d.ton) > 0 THEN SUM(d.ton * d.ley) / SUM(d.ton) ELSE NULL END as ley_promedio')
@@ -575,7 +765,7 @@ class GerencialController extends Controller
         if ($idFaena) $query->where('d.id_faena', $idFaena);
 
         $rows = $query
-            ->groupBy('d.fecha', 'frente')
+            ->groupBy('d.fecha', 'frente', 'grupo')
             ->orderBy('d.fecha')
             ->orderBy('frente')
             ->get();
@@ -585,6 +775,7 @@ class GerencialController extends Controller
             'data'    => $rows->map(fn($r) => [
                 'fecha'        => $r->fecha,
                 'frente'       => $r->frente,
+                'grupo'        => $r->grupo,
                 'cantidad'     => (int) $r->cantidad,
                 'toneladas'    => (float) $r->toneladas,
                 'ley_promedio' => $r->ley_promedio !== null ? round((float) $r->ley_promedio, 3) : null,
@@ -592,63 +783,4 @@ class GerencialController extends Controller
         ]);
     }
 
-    /**
-     * Producción agrupada por frente + fecha + jornada ("turno").
-     *
-     * No existe todavía el vínculo real dumpada→tronadura (tronadura_id) en los
-     * datos, así que "un disparo" no se puede reconstruir con certeza: un disparo
-     * real puede repartir sus dumpadas en más de un turno, o un turno puede
-     * mezclar dumpadas de más de un disparo. Por eso esto se expone como
-     * "producción por turno" (dato real y confiable: frente+fecha+jornada de cada
-     * dumpada), no como "por disparo".
-     *
-     * Regla de corte "día anterior": el turno más reciente puede seguir
-     * recibiendo dumpadas, así que la ventana nunca incluye el día de hoy —
-     * se recorta a ayer sin importar qué mande el frontend.
-     */
-    public function produccionPorTurno(Request $request)
-    {
-        $ayer = Carbon::yesterday()->format('Y-m-d');
-
-        $fechaHastaSolicitada = $request->get('fecha_hasta', $ayer);
-        $fechaHasta = min($fechaHastaSolicitada, $ayer);
-
-        $fechaDesde = $request->get('fecha_desde', Carbon::parse($fechaHasta)->subDays(6)->format('Y-m-d'));
-        $idFaena    = $request->get('id_faena');
-
-        $query = DB::table('dumpadas as d')
-            ->join('frentes_trabajo as f', 'f.id', '=', 'd.id_frente_trabajo')
-            ->select(
-                'd.fecha',
-                'd.jornada',
-                DB::raw('COALESCE(f.codigo_completo, CONCAT(f.manto, "-", COALESCE(f.calle, ""), COALESCE(f.hebra, ""))) as frente'),
-                DB::raw('COUNT(d.id) as n_dumpadas'),
-                DB::raw('COALESCE(SUM(d.ton), 0) as toneladas'),
-                DB::raw('CASE WHEN SUM(d.ton) > 0 THEN SUM(d.ton * d.ley) / SUM(d.ton) ELSE NULL END as ley_promedio')
-            )
-            ->whereNotNull('d.fecha')
-            ->whereNotNull('d.jornada')
-            ->whereBetween('d.fecha', [$fechaDesde, $fechaHasta]);
-
-        if ($idFaena) $query->where('d.id_faena', $idFaena);
-
-        $rows = $query
-            ->groupBy('d.fecha', 'd.jornada', 'frente')
-            ->orderBy('d.fecha', 'desc')
-            ->orderBy('frente')
-            ->get();
-
-        return response()->json([
-            'success' => true,
-            'data'    => $rows->map(fn($r) => [
-                'fecha'        => $r->fecha,
-                'jornada'      => $r->jornada,
-                'frente'       => $r->frente,
-                'n_dumpadas'   => (int) $r->n_dumpadas,
-                'toneladas'    => round((float) $r->toneladas, 2),
-                'ley_promedio' => $r->ley_promedio !== null ? round((float) $r->ley_promedio, 3) : null,
-            ]),
-            'periodo' => ['fecha_desde' => $fechaDesde, 'fecha_hasta' => $fechaHasta],
-        ]);
-    }
 }

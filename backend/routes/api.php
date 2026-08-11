@@ -25,11 +25,11 @@ Route::middleware(['validate.token'])->group(function () {
         Route::get('/resumen', [GerencialController::class, 'resumen']);
         Route::get('/faenas', [GerencialController::class, 'faenas']);
         Route::get('/reporte-produccion', [GerencialController::class, 'reporteProduccion']);
+        Route::get('/eficiencia', [GerencialController::class, 'eficiencia']);
         Route::get('/lotes', [GerencialController::class, 'buscarLotes']);
         Route::get('/lotes/{id}/reconstruccion', [GerencialController::class, 'reconstruccionLote']);
         Route::get('/analisis-lotes', [GerencialController::class, 'analisisLotes']);
         Route::get('/dumpadas-diarias', [GerencialController::class, 'dumpadasDiarias']);
-        Route::get('/produccion-turno', [GerencialController::class, 'produccionPorTurno']);
         Route::get('/plantas', [GerencialController::class, 'plantas']);
         Route::get('/empresas', [GerencialController::class, 'empresas']);
         Route::get('/certificados-resumen', [GerencialController::class, 'certificadosResumen']);

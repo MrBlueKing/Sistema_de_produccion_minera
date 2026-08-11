@@ -45,11 +45,6 @@ const SelectorFaenasGrid = ({
     }
   };
 
-  const activasMostradas =
-    mode === 'multi'
-      ? listaFaenas.filter((f) => selectedFaenas.includes(f.name))
-      : listaFaenas.filter((f) => selectedFaena === f.id);
-
   const countLabel =
     mode === 'multi'
       ? `${selectedFaenas.length}/${totalFaenas} faenas seleccionadas`
@@ -100,7 +95,6 @@ const SelectorFaenasGrid = ({
                   />
                   <div className="text-left">
                     <div className="flex items-center gap-1 mb-1">
-                      <span className="text-xs sm:text-lg">{f.emoji}</span>
                       <h5 className={`font-bold text-xs sm:text-sm truncate ${sel ? f.text : 'text-gray-600'}`}>
                         {f.name}
                       </h5>
@@ -114,26 +108,6 @@ const SelectorFaenasGrid = ({
                 </button>
               );
             })}
-          </div>
-
-          {/* Activas */}
-          <div className="mt-3 pt-3 border-t border-purple-200">
-            <div className="flex flex-wrap items-center gap-1 sm:gap-2 text-xs text-gray-600">
-              <span className="font-medium">Activas:</span>
-              {activasMostradas.length === 0 ? (
-                <span className="text-gray-500 font-medium">Todas las faenas</span>
-              ) : (
-                activasMostradas.map((f) => (
-                  <span
-                    key={f.id}
-                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-xs font-medium ${f.badge}`}
-                  >
-                    <span className="text-xs">{f.emoji}</span>
-                    <span className="hidden sm:inline">{f.name}</span>
-                  </span>
-                ))
-              )}
-            </div>
           </div>
         </div>
       </div>

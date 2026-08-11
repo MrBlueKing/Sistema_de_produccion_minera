@@ -94,7 +94,7 @@ api.interceptors.response.use(
     } else if (status === 404) {
       console.error('❌ Recurso no encontrado (404):', error.config?.url);
     } else if (status === 422) {
-      console.error('❌ Error de validación (422):', error.response?.data?.errors);
+      console.error('❌ Error de validación (422):', error.response?.data?.errors || error.response?.data?.mensaje);
     } else if (status >= 500) {
       console.error('❌ Error del servidor (5xx):', message);
     } else {
