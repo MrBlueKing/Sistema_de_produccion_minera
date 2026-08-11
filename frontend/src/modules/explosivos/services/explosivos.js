@@ -317,6 +317,11 @@ class ExplosivosService {
     return response.data;
   }
 
+  async reabrirReporte(id) {
+    const response = await api.post(`/explosivos/reportes-perforacion/${id}/reabrir`);
+    return response.data;
+  }
+
   async getEstadisticasReportes(params = {}) {
     const response = await api.get('/explosivos/reportes-perforacion/estadisticas', { params });
     return response.data;

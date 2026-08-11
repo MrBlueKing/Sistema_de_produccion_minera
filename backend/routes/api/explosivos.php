@@ -111,6 +111,7 @@ Route::prefix('reportes-perforacion')->group(function () {
     Route::post('/{id}/confirmar', [ReportePerforacionController::class, 'confirmar']);
     Route::post('/{id}/cerrar', [ReportePerforacionController::class, 'cerrar']);
     Route::post('/{id}/anular', [ReportePerforacionController::class, 'anular']);
+    Route::post('/{id}/reabrir', [ReportePerforacionController::class, 'reabrir']);
     Route::post('/{id}/devoluciones', [ReportePerforacionController::class, 'registrarDevoluciones']);
     Route::get('/{id}/historial', [ReportePerforacionController::class, 'historial']);
 });

@@ -280,4 +280,44 @@ class ReportePerforacion extends Model
             return $this;
         });
     }
+
+    /**
+     * Reabre un reporte Cerrado, devolviéndolo a Confirmado para poder anularlo
+     * y editar sus líneas. Revierte el efecto en stock de las devoluciones de
+     * este cierre con un movimiento de ajuste compensatorio — igual criterio que
+     * anular() con las salidas: no se borra el historial de devoluciones ni de
+     * movimientos, solo se compensa el stock.
+     */
+    public function reabrir()
+    {
+        return DB::transaction(function () {
+            foreach ($this->devoluciones as $dev) {
+                $stock = StockExplosivo::obtenerOCrear(
+                    $this->id_polvorin,
+                    $dev->id_tipo_explosivo,
+                    $this->id_faena
+                );
+                $stock->decrementar($dev->cantidad);
+
+                MovimientoExplosivo::create([
+                    'codigo' => MovimientoExplosivo::generarCodigo(),
+                    'tipo' => MovimientoExplosivo::TIPO_AJUSTE,
+                    'id_polvorin_origen' => $this->id_polvorin,
+                    'id_tipo_explosivo' => $dev->id_tipo_explosivo,
+                    'cantidad' => $dev->cantidad,
+                    'id_reporte_perforacion' => $this->id,
+                    'fecha' => Carbon::now()->toDateString(),
+                    'hora' => Carbon::now()->format('H:i'),
+                    'motivo' => "Reapertura reporte {$this->codigo}: revierte devolución previa",
+                    'id_faena' => $this->id_faena,
+                    'user_id' => auth()->id(),
+                ]);
+            }
+
+            $this->estado = self::ESTADO_CONFIRMADO;
+            $this->save();
+
+            return $this;
+        });
+    }
 }

@@ -508,6 +508,39 @@ class ReportePerforacionController extends Controller
     }
 
     /**
+     * POST /api/explosivos/reportes-perforacion/{id}/reabrir
+     */
+    public function reabrir($id)
+    {
+        $reporte = ReportePerforacion::findOrFail($id);
+
+        if ($reporte->estado !== ReportePerforacion::ESTADO_CERRADO) {
+            return response()->json(['mensaje' => 'Solo se pueden reabrir reportes en estado cerrado'], 422);
+        }
+
+        try {
+            $reporte->reabrir();
+
+            $this->registrarAuditoria($reporte, 'reabierto', null, 'Reporte reabierto. Devoluciones revertidas, vuelve a Confirmado.');
+
+            $reporte->load([
+                'lineas.explosivos.tipoExplosivo',
+                'devoluciones.tipoExplosivo',
+                'movimientos.tipoExplosivo',
+                'polvorin:id,codigo,nombre',
+            ]);
+            $reporte->totales_explosivos = $reporte->calcularTotalesExplosivos();
+
+            return response()->json([
+                'mensaje' => 'Reporte reabierto. Vuelve a estado Confirmado — puedes anularlo para editar sus líneas.',
+                'reporte' => $reporte,
+            ]);
+        } catch (Exception $e) {
+            return response()->json(['mensaje' => $e->getMessage()], 422);
+        }
+    }
+
+    /**
      * POST /api/explosivos/reportes-perforacion/{id}/cerrar
      */
     public function cerrar($id)
@@ -606,6 +639,17 @@ class ReportePerforacionController extends Controller
             ->orderBy('r.fecha')
             ->get();
 
+        // Tiros por dia
+        $tirosPorDia = DB::table('reportes_perforacion as r')
+            ->join('lineas_reporte_perforacion as l', 'l.id_reporte', '=', 'r.id')
+            ->where('r.id_faena', $idFaena)
+            ->where('r.estado', '!=', 'borrador')
+            ->whereBetween('r.fecha', [$fechaDesde, $fechaHasta])
+            ->selectRaw('r.fecha, SUM(l.numero_tiros) as total_tiros')
+            ->groupBy('r.fecha')
+            ->orderBy('r.fecha')
+            ->get();
+
         // Consumo por frente
         $consumoPorFrente = DB::table('reportes_perforacion as r')
             ->join('lineas_reporte_perforacion as l', 'l.id_reporte', '=', 'r.id')
@@ -635,6 +679,7 @@ class ReportePerforacionController extends Controller
         return response()->json([
             'totales_por_estado' => $totalesPorEstado,
             'consumo_por_periodo' => $consumoPorPeriodo,
+            'tiros_por_dia' => $tirosPorDia,
             'consumo_por_frente' => $consumoPorFrente,
             'eficiencia' => $eficiencia,
             'fecha_desde' => $fechaDesde,

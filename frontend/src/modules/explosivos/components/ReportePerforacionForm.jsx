@@ -73,6 +73,7 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
   const [showConfirmCerrar, setShowConfirmCerrar] = useState(false);
   const [showConfirmCerrarSinDev, setShowConfirmCerrarSinDev] = useState(false);
   const [showConfirmAnular, setShowConfirmAnular] = useState(false);
+  const [showConfirmReabrir, setShowConfirmReabrir] = useState(false);
   const [showConfirmSalir, setShowConfirmSalir] = useState(false);
 
   // Resumen post-accion
@@ -407,6 +408,27 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
       onRefresh?.();
     } catch (error) {
       toast.error('Error', error.response?.data?.mensaje || 'No se pudo anular el reporte');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Reabrir reporte cerrado (vuelve a Confirmado; desde ahí se puede Anular para editar líneas)
+  const ejecutarReabrir = async () => {
+    setShowConfirmReabrir(false);
+    setSubmitting(true);
+    try {
+      const res = await explosivosService.reabrirReporte(reporteId);
+      setEstado('confirmado');
+      toast.success('Reporte reabierto', res.mensaje);
+      const detalle = await explosivosService.getReporte(reporteId);
+      setLineas(detalle.lineas || []);
+      setDevoluciones(detalle.devoluciones || []);
+      setSinDevoluciones(false);
+      setShowDevoluciones(true);
+      onRefresh?.();
+    } catch (error) {
+      toast.error('Error', error.response?.data?.mensaje || 'No se pudo reabrir el reporte');
     } finally {
       setSubmitting(false);
     }
@@ -1192,6 +1214,16 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
                   Anular Reporte
                 </Button>
               )}
+              {esCerrado && (
+                <Button
+                  variant="danger"
+                  icon={HiXCircle}
+                  onClick={() => setShowConfirmReabrir(true)}
+                  disabled={submitting}
+                >
+                  Reabrir Reporte
+                </Button>
+              )}
             </div>
             <div className="flex flex-wrap gap-3">
               {esBorrador && lineas.filter((l) => !l._local).length > 0 && (
@@ -1267,6 +1299,16 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
         title="Anular Reporte"
         message={`ANULAR el reporte ${codigo}? Los movimientos de salida seran revertidos y el stock restaurado. El reporte volvera a estado borrador.`}
         confirmText="Anular Reporte"
+        confirmVariant="danger"
+      />
+
+      <ConfirmDialog
+        isOpen={showConfirmReabrir}
+        onClose={() => setShowConfirmReabrir(false)}
+        onConfirm={ejecutarReabrir}
+        title="Reabrir Reporte"
+        message={`REABRIR el reporte ${codigo}? Las devoluciones registradas en el cierre seran revertidas del stock y el reporte volvera a estado Confirmado. Desde ahi podras Anularlo para editar sus lineas.`}
+        confirmText="Reabrir Reporte"
         confirmVariant="danger"
       />
 
