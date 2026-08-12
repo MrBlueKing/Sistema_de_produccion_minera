@@ -100,9 +100,6 @@ class ReportePerforacion extends Model
 
     public static function generarCodigo($fecha, $turno, $polvorinNombre)
     {
-        $fechaFmt = Carbon::parse($fecha)->format('Y-m-d');
-        $prefijo = "{$fechaFmt}-{$turno}-{$polvorinNombre}-";
-
         // Correlativo global (no se reinicia por fecha/turno/polvorín/año): se extrae el
         // último segmento de CUALQUIER código existente, sin importar el prefijo, porque
         // el prefijo ahora cambia en cada reporte.
@@ -111,7 +108,13 @@ class ReportePerforacion extends Model
 
         $nuevoNumero = ($ultimoNumero ?? 0) + 1;
 
-        return $prefijo . str_pad($nuevoNumero, 4, '0', STR_PAD_LEFT);
+        return self::armarCodigo($fecha, $turno, $polvorinNombre, str_pad($nuevoNumero, 4, '0', STR_PAD_LEFT));
+    }
+
+    public static function armarCodigo($fecha, $turno, $polvorinNombre, $correlativo)
+    {
+        $fechaFmt = Carbon::parse($fecha)->format('Y-m-d');
+        return "{$fechaFmt}-{$turno}-{$polvorinNombre}-{$correlativo}";
     }
 
     // MÉTODOS DE NEGOCIO

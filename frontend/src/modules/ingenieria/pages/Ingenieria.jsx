@@ -195,7 +195,6 @@ function IngenieriaContent() {
                   <div className="w-10 h-10 bg-indigo-500 rounded-xl flex items-center justify-center group-hover:bg-indigo-600 transition-colors shadow-sm">
                     <HiClipboardDocumentList className="w-5 h-5 text-white" />
                   </div>
-                  <span className="text-[9px] font-bold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full">En desarrollo</span>
                 </div>
                 <p className="font-bold text-indigo-900 text-sm leading-tight">Estado de Frentes</p>
                 <p className="text-indigo-400 text-xs mt-0.5">Seguimiento y análisis</p>

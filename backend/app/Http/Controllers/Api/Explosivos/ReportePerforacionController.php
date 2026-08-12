@@ -185,6 +185,13 @@ class ReportePerforacionController extends Controller
 
         $reporte->update($request->only(['fecha', 'turno', 'observaciones']));
 
+        $cambioFechaOTurno = collect($cambios)->pluck('campo')->intersect(['fecha', 'turno'])->isNotEmpty();
+        if ($cambioFechaOTurno) {
+            $correlativo = substr($reporte->codigo, strrpos($reporte->codigo, '-') + 1);
+            $reporte->codigo = ReportePerforacion::armarCodigo($reporte->fecha, $reporte->turno, $reporte->polvorin->nombre, $correlativo);
+            $reporte->save();
+        }
+
         if (!empty($cambios)) {
             $this->registrarAuditoria($reporte, 'actualizado', $cambios);
         }

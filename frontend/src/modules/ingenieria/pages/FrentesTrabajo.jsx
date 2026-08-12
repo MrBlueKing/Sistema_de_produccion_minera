@@ -23,7 +23,7 @@ import { useAuth } from '../../../core/context/AuthContext';
 //CONFIGURACIÓN: IDs de faenas que se mostrarán en el selector
 // Para mostrar todas las faenas, dejar como null: const FAENAS_VISIBLES_INGENIERIA = null;
 // Para filtrar, especificar los IDs: const FAENAS_VISIBLES_INGENIERIA = [1, 2, 4];
-const FAENAS_VISIBLES_INGENIERIA = [1, 2, 4]; // Solo mostrar faenas 1, 2 y 4
+const FAENAS_VISIBLES_INGENIERIA = [1, 2]; // Solo mostrar faenas 1 y 2 (Cabildo y Catemu)
 
 // Roles con acceso directo SOLO a Reportes P&T — no deben poder navegar al resto del hub
 const ROLES_SOLO_REPORTES_PYT = ['admin_explosivos', 'jefe_mina'];
@@ -41,6 +41,10 @@ function FrentesTrabajoContent() {
   const [frentes, setFrentes] = useState([]);
   const [tiposFrente, setTiposFrente] = useState([]);
   const [faenas, setFaenas] = useState([]);
+  // Faenas que se pueden elegir en el formulario y en el filtro de tabla — mismo criterio que el selector multi-faena de arriba
+  const faenasSeleccionables = FAENAS_VISIBLES_INGENIERIA
+    ? faenas.filter(f => FAENAS_VISIBLES_INGENIERIA.includes(f.id))
+    : faenas;
   const [selectedFaenas, setSelectedFaenas] = useState([]); // IDs de faenas seleccionadas
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -604,7 +608,7 @@ function FrentesTrabajoContent() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <SearchableSelect
                   label="Faena"
-                  options={faenas.map(faena => ({
+                  options={faenasSeleccionables.map(faena => ({
                     value: faena.id,
                     label: `${faena.ubicacion}${faena.detalle ? ` - ${faena.detalle}` : ''}`
                   }))}
@@ -719,7 +723,7 @@ function FrentesTrabajoContent() {
                 name: 'id_faena',
                 label: 'Faena',
                 type: 'select',
-                options: faenas.map(faena => ({
+                options: faenasSeleccionables.map(faena => ({
                   value: faena.id,
                   label: `${faena.ubicacion}${faena.detalle ? ` - ${faena.detalle}` : ''}`
                 }))

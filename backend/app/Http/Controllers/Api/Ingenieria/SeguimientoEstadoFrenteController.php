@@ -50,7 +50,7 @@ class SeguimientoEstadoFrenteController extends Controller
         $validator = Validator::make($request->all(), [
             'frente_trabajo_id'     => 'required|exists:frentes_trabajo,id',
             'ventilacion'           => 'required|integer|min:1|max:5',
-            'estabilidad'           => 'required|in:FC,PM,AC,CH,FO',
+            'estabilidad'           => 'required|in:FC,AC,MP,PC,P,FO',
             'duracion_estimada'     => 'required|integer|min:1',
             'fecha_inicio_estimada' => 'required|date',
             'fecha_inicio_real'     => 'nullable|date',
@@ -80,7 +80,7 @@ class SeguimientoEstadoFrenteController extends Controller
 
         $validator = Validator::make($request->all(), [
             'ventilacion'           => 'sometimes|integer|min:1|max:5',
-            'estabilidad'           => 'sometimes|in:FC,PM,AC,CH,FO',
+            'estabilidad'           => 'sometimes|in:FC,AC,MP,PC,P,FO',
             'duracion_estimada'     => 'sometimes|integer|min:1',
             'fecha_inicio_estimada' => 'sometimes|date',
             'fecha_inicio_real'     => 'nullable|date',

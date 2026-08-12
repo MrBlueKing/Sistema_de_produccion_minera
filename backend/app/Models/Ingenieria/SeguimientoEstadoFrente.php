@@ -29,10 +29,11 @@ class SeguimientoEstadoFrente extends Model
     // Etiquetas legibles para estabilidad
     public const ESTABILIDAD_LABELS = [
         'FC' => 'Frente Cerrada',
-        'PM' => 'PM',
         'AC' => 'Acuñadura',
-        'CH' => 'CH',
-        'FO' => 'Frente Observación',
+        'MP' => 'Fortificación (Malla y perno)',
+        'PC' => 'Fortificación (Perno y cable)',
+        'P'  => 'Fortificación (Perno)',
+        'FO' => 'Frente en Observación',
     ];
 
     public function frenteTrabajo()

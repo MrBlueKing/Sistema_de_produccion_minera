@@ -256,7 +256,7 @@ const LANES = [
 const NODES = {
   inicio:        { type:'oval',    x:250,  y:132, w:100, h:60,  t:'INICIO' },
   crear_frente:  { type:'rect',    x:400,  y:122, w:210, h:80,  t:'Crear/Definir Frente de Trabajo:\ntúnel/manto/calle/tipo' },
-  seguimiento:   { type:'rect',    x:660,  y:122, w:220, h:80,  t:'Seguimiento de Estado\n(ventilación, estabilidad, fecha estimada operativa)' },
+  seguimiento:   { type:'rect',    x:660,  y:122, w:220, h:80,  t:'Seguimiento de Estado\n(ventilación, estabilidad, fecha estimada operativae e)' },
   frente_listo:  { type:'diamond', x:930,  y:100, w:180, h:124, t:'¿Frente listo\npara operar?' },
 
   perforacion:   { type:'rect',    x:940,  y:310, w:210, h:80,  t:'Registro de Perforación\ny Tronadura' },
@@ -275,7 +275,7 @@ const NODES = {
   procesamiento: { type:'rect',    x:250,  y:878, w:200, h:64,  t:'Procesamiento mineral\nen planta' },
   muestra_rep:   { type:'rect',    x:250,  y:954, w:200, h:64,  t:'Muestra representativa\n(paquete de segunda)' },
 
-  analisis:      { type:'rect',    x:560,  y:850, w:220, h:90,  t:'Análisis de muestras y\npaquetes de segunda\nEntrega de resultados' },
+  analisis:      { type:'rect',    x:560,  y:850, w:220, h:90,  t:'Análisis de muestras\nEntrega de resultados de ley de las muestras' },
   lote_interno:  { type:'rect',    x:890,  y:838, w:250, h:112, t:'Generar LOTE INTERNO\n• Objetivo = 1,3% Cu Insoluble\n• Mezcla de dumpadas = 100 Ton.\n• Aplicar error de muestra = 19%' },
   mezcla_cumple: { type:'diamond', x:1210, y:832, w:190, h:130, t:'¿Mezcla de\ndumpadas cumple?' },
 
@@ -303,7 +303,7 @@ const STEPS = [
   { from:'muestra', to:'envio_lab', desc:'La muestra se envía al laboratorio para su análisis.' },
   { from:'envio_lab', to:'analisis', startSide:'bottom', endSide:'top',
     viaPoints:[{x:820,y:580},{x:1000,y:580},{x:1000,y:700},{x:670,y:700}],
-    desc:'Laboratorio recibe la muestra y realiza el análisis, generando el paquete de segunda con los resultados.' },
+    desc:'Laboratorio recibe la muestra y realiza el análisis, entregando los resultados con la ley de la muestra.' },
   { from:'analisis', to:'lote_interno', label:'Ley dumpada', desc:'Con la ley de la dumpada confirmada, se genera el Lote Interno: objetivo 1,3% Cu insoluble, mezcla de 100 toneladas, con un margen de error de muestra del 19%.' },
   { from:'lote_interno', to:'mezcla_cumple', desc:'Se evalúa si la mezcla de dumpadas del lote interno cumple con la ley objetivo.' },
   { from:'mezcla_cumple', to:'muestra', label:'No', cls:'no', dashed:true, startSide:'top', endSide:'top', viaY:455, desc:'Si la mezcla no cumple, se reintenta el Proceso de Toma de Muestra — el material se mantiene en cancha mientras tanto — hasta alcanzar la ley objetivo.' },

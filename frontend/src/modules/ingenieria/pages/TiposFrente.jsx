@@ -307,7 +307,7 @@ export default function TiposFrente() {
                   type="text"
                   value={formData.nombre}
                   onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
-                  placeholder="Ej: Frente, Recuperación, Descuelgue"
+                  placeholder="Ej: Frente, Recuperación, Desquinche"
                   required
                   maxLength={100}
                 />

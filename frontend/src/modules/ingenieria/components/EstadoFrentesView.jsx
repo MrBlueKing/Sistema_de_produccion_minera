@@ -17,17 +17,19 @@ import ingenieriaService from '../services/ingenieria';
 
 const ESTABILIDAD_LABELS = {
   FC: 'Frente Cerrada',
-  PM: 'PM',
   AC: 'Acuñadura',
-  CH: 'CH',
-  FO: 'Frente Observación',
+  MP: 'Fortificación (Malla y perno)',
+  PC: 'Fortificación (Perno y cable)',
+  P: 'Fortificación (Perno)',
+  FO: 'Frente en Observación',
 };
 
 const ESTABILIDAD_COLORS = {
   FC: 'bg-red-100 text-red-700',
-  PM: 'bg-yellow-100 text-yellow-700',
   AC: 'bg-orange-100 text-orange-700',
-  CH: 'bg-purple-100 text-purple-700',
+  MP: 'bg-teal-100 text-teal-700',
+  PC: 'bg-indigo-100 text-indigo-700',
+  P: 'bg-cyan-100 text-cyan-700',
   FO: 'bg-blue-100 text-blue-700',
 };
 
@@ -391,6 +393,7 @@ export default function EstadoFrentesView({ frentes = [], faenaFiltro = null }) 
               <label className="block text-xs font-medium text-gray-700 mb-1">Ventilación (1–5) *</label>
               <SearchableSelect options={ventilacionOptions} value={formData.ventilacion}
                 onChange={v => setFormData(p => ({ ...p, ventilacion: v }))} placeholder="Seleccionar nivel..." />
+              <p className="text-[11px] text-gray-400 mt-1">1 = mala ventilación, 5 = buena ventilación</p>
             </div>
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">Estabilidad *</label>
