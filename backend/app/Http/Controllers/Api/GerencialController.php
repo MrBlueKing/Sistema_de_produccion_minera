@@ -413,32 +413,52 @@ class GerencialController extends Controller
                 ->when($idFaena, fn($q) => $q->where('reportes_perforacion.id_faena', $idFaena))
                 ->sum('lineas_reporte_perforacion.numero_tiros');
 
-            // Litros: consumo total de combustible de la faena, desde el sistema de
-            // Petróleo. Si Petróleo no responde, se devuelve litros=null y el resto del
-            // payload igual — no puede tumbar este endpoint (mismo criterio que el fix de
-            // PersonalAutorizadoController::disponible() para no propagar fallas externas).
-            $litros = null;
-            try {
-                $response = Http::timeout(10)
-                    ->withHeaders(['X-API-Key' => config('services.petroleo_api_key')])
-                    ->get(config('services.petroleo_api') . '/consumo-litros-disponible', [
+            // Litros: consumo de combustible de la faena, desde el sistema de Petróleo.
+            // Se piden 3 vistas del mismo período: total (para los ratios de tonelaje
+            // vendido/extraído), y 2 acotadas por categoría de máquina (para que
+            // Litros/Tiro y Litros/Ton Movida no mezclen consumo de equipos que no
+            // corresponden a esa operación). Si Petróleo no responde, cada una queda en
+            // null y el resto del payload sigue igual — no puede tumbar este endpoint
+            // (mismo criterio que el fix de PersonalAutorizadoController::disponible()
+            // para no propagar fallas externas).
+            $fetchLitros = function (?array $categorias = null) use ($idFaena, $fechaInicio, $fechaFin) {
+                try {
+                    $params = [
                         'id_faena' => $idFaena,
                         'fecha_desde' => $fechaInicio,
                         'fecha_hasta' => $fechaFin,
-                    ]);
+                    ];
+                    if ($categorias) {
+                        $params['categorias'] = implode(',', $categorias);
+                    }
 
-                if ($response->successful()) {
-                    $litros = $response->json('litros_consumidos');
-                } else {
+                    $response = Http::timeout(10)
+                        ->withHeaders(['X-API-Key' => config('services.petroleo_api_key')])
+                        ->get(config('services.petroleo_api') . '/consumo-litros-disponible', $params);
+
+                    if ($response->successful()) {
+                        return $response->json('litros_consumidos');
+                    }
+
                     Log::warning('Fallo la conexión con el sistema de petroleo (litros)', [
                         'status_petroleo' => $response->status(),
+                        'categorias' => $categorias,
+                    ]);
+                } catch (\Exception $e) {
+                    Log::warning('Excepción al consultar litros en el sistema de petroleo', [
+                        'error' => $e->getMessage(),
+                        'categorias' => $categorias,
                     ]);
                 }
-            } catch (\Exception $e) {
-                Log::warning('Excepción al consultar litros en el sistema de petroleo', [
-                    'error' => $e->getMessage(),
-                ]);
-            }
+
+                return null;
+            };
+
+            $litros = $fetchLitros();
+            // Perforación: compresores + grupos electrógenos.
+            $litrosPerforacion = $fetchLitros(['Compresor De Aire', 'Compresor De Aire Arrendado', 'Grupo Electrogeno']);
+            // Equipos que mueven tonelaje: pala, excavadora y camiones (tolva + dumper).
+            $litrosMovida = $fetchLitros(['Pala', 'Excavadora', 'Camion Tolva', 'Dumper']);
 
             $dividir = fn($num, $den) => ($den !== null && $den > 0) ? round($num / $den, 3) : null;
 
@@ -450,12 +470,15 @@ class GerencialController extends Controller
                     'tonelaje_vendido' => round($tonelajeVendido ?? 0, 2),
                     'tiros' => (int) $tiros,
                     'litros' => $litros !== null ? round($litros, 2) : null,
+                    'litros_perforacion' => $litrosPerforacion !== null ? round($litrosPerforacion, 2) : null,
+                    'litros_movida' => $litrosMovida !== null ? round($litrosMovida, 2) : null,
                     'ratios' => [
                         'extraido_por_tiro' => $dividir($tonelajeExtraido, $tiros),
                         'vendido_por_tiro' => $dividir($tonelajeVendido, $tiros),
-                        'extraido_por_litro' => $dividir($tonelajeExtraido, $litros),
-                        'vendido_por_litro' => $dividir($tonelajeVendido, $litros),
-                        'litros_por_tiro' => $dividir($litros, $tiros),
+                        'litros_por_ton_extraido' => $dividir($litros, $tonelajeExtraido),
+                        'litros_por_ton_vendido' => $dividir($litros, $tonelajeVendido),
+                        'litros_por_tiro' => $dividir($litrosPerforacion, $tiros),
+                        'litros_por_ton_movida' => $dividir($litrosMovida, $tonelajeExtraido),
                     ],
                 ],
             ]);
