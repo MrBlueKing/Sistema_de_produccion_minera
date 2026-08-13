@@ -163,8 +163,11 @@ class Lote extends Model
             }
 
             // Cambiar estado del lote a Completado
+            // fecha_cierre = fecha real de la última camionada recepcionada, no now():
+            // si el lote se reabre y se vuelve a cerrar sin agregar camionadas nuevas,
+            // queda con la fecha operativa real en vez de la fecha de la acción administrativa.
             $this->estado = self::ESTADO_COMPLETADO;
-            $this->fecha_cierre = now()->toDateString();
+            $this->fecha_cierre = $this->camionadas()->max('fecha_recepcion') ?? now()->toDateString();
             $this->save();
 
             \DB::commit();

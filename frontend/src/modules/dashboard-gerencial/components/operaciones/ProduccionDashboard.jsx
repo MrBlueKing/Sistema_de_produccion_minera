@@ -5,7 +5,7 @@ import SelectorFaenasGrid from '../../../../shared/components/molecules/Selector
 import {
   BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  ComposedChart, Line, ReferenceLine, LabelList,
+  ComposedChart, Line, ReferenceLine, ReferenceDot, LabelList,
   ScatterChart, Scatter,
 } from 'recharts';
 import {
@@ -73,6 +73,26 @@ const TendenciaSinDato = ({ ratioAnterior, denominadorAnterior, etiqueta }) => {
 const PuntoLote = (props) => {
   const { cx, cy, fill } = props;
   return <circle cx={cx} cy={cy} r={5} fill={fill} stroke="#fff" strokeWidth={2} />;
+};
+
+// Etiqueta única en el cruce de las 2 líneas de promedio (ReferenceDot en
+// x=avgTon, y=avgLey) en vez de una etiqueta por línea — más fácil de leer
+// de un vistazo, y con fondo oscuro para que no se pierda entre los puntos.
+const EtiquetaCruceDePromedios = ({ viewBox, texto }) => {
+  if (!viewBox) return null;
+  const { x, y } = viewBox;
+  const ancho = texto.length * 6 + 16;
+  const alto = 20;
+  const lx = x + 10;
+  const ly = y - alto - 8;
+  return (
+    <g>
+      <rect x={lx} y={ly} width={ancho} height={alto} rx={5} fill="#111827" />
+      <text x={lx + ancho / 2} y={ly + alto / 2 + 4} textAnchor="middle" fontSize={11} fontWeight={600} fill="#fff">
+        {texto}
+      </text>
+    </g>
+  );
 };
 
 const CustomTooltip = ({ active, payload, label }) => {
@@ -373,11 +393,13 @@ export const ProduccionCompleta = () => {
   const [dumpDiarias, setDumpDiarias]       = useState([]);
   const [dumpLoading, setDumpLoading]       = useState(false);
   const [dumpMetrica, setDumpMetrica]       = useState('toneladas'); // 'toneladas' | 'cantidad'
+  const [dumpJornada, setDumpJornada]       = useState('Todos'); // 'Todos' | 'AM' | 'PM' | 'Madrugada' | 'Noche' — filtro instantáneo, sin recargar
   const [mostrarTendencia, setMostrarTendencia] = useState(false); // línea de promedio móvil en "Avance Diario"
   const [eficiencia, setEficiencia]         = useState(null);
   const [eficienciaLoading, setEficienciaLoading] = useState(false);
   const [lotesAnalisis, setLotesAnalisis]   = useState([]);
   const [lotesAnalisisLoading, setLotesAnalisisLoading] = useState(false);
+  const [hoverCruceLotes, setHoverCruceLotes] = useState(false); // etiqueta del cruce de promedios solo al pasar el mouse
   // Comparativa vs período anterior (mismo largo de días, inmediatamente antes
   // del rango elegido) — reutiliza los mismos 3 endpoints que ya se usan para
   // los KPIs actuales, solo con otro rango de fechas. Sin cambios de backend.
@@ -670,7 +692,7 @@ export const ProduccionCompleta = () => {
                   <TendenciaAnterior actual={datos.recepcion?.tonelaje_recepcionado} anterior={comparativa?.tonelaje_recepcionado} unidad=" t" />
                   <p className="text-sm text-gray-500 mt-1">peso real, confirmado al recepcionar en el período</p>
                   <p className="text-xs text-gray-400 mt-2">
-                    {formatNumber(datos.recepcion?.tonelaje_teorico)} t con las que salieron despachadas · {formatInteger(datos.recepcion?.total)} camionadas
+                    {formatInteger(datos.recepcion?.total)} camionadas recepcionadas en el período
                   </p>
                 </div>
 
@@ -961,7 +983,13 @@ export const ProduccionCompleta = () => {
                 // en el mismo gris "Otros" de la paleta y el gráfico quedaba ilegible. El detalle por
                 // frente se conserva completo dentro de _detalle, para desglosarlo en el tooltip.
                 // _leyDia es la ley ponderada por tonelaje de TODOS los frentes ese día (etiqueta sobre la barra).
-                const grupos = [...new Set(dumpDiarias.map(d => d.grupo))].sort();
+                // Jornadas presentes en el período (para no mostrar botones de jornadas sin datos)
+                const jornadasDisponibles = [...new Set(dumpDiarias.map(d => d.jornada))].sort();
+                const dumpDiariasFiltradas = dumpJornada === 'Todos'
+                  ? dumpDiarias
+                  : dumpDiarias.filter(d => d.jornada === dumpJornada);
+
+                const grupos = [...new Set(dumpDiariasFiltradas.map(d => d.grupo))].sort();
 
                 // Se arranca con TODOS los días del rango elegido (aunque no tengan dumpadas), para que
                 // un día sin producción se vea como barra vacía en vez de desaparecer del eje X.
@@ -969,7 +997,7 @@ export const ProduccionCompleta = () => {
                 generarRangoFechas(debouncedFechaInicio, debouncedFechaFin).forEach((fechaISO) => {
                   byFecha[fechaISO] = { fechaISO, fecha: formatFechaCorta(fechaISO), _detalle: {}, _tonTotal: 0, _tonLeyTotal: 0, _total: 0 };
                 });
-                dumpDiarias.forEach(d => {
+                dumpDiariasFiltradas.forEach(d => {
                   if (!byFecha[d.fecha]) {
                     byFecha[d.fecha] = { fechaISO: d.fecha, fecha: formatFechaCorta(d.fecha), _detalle: {}, _tonTotal: 0, _tonLeyTotal: 0, _total: 0 };
                   }
@@ -1029,6 +1057,21 @@ export const ProduccionCompleta = () => {
                           className={`px-3 py-1 rounded-full font-semibold transition-colors ${mostrarTendencia ? 'bg-gray-700 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
                           Tendencia
                         </button>
+                        {jornadasDisponibles.length > 1 && (
+                          <>
+                            <span className="w-px bg-gray-200 mx-1" />
+                            <button onClick={() => setDumpJornada('Todos')}
+                              className={`px-3 py-1 rounded-full font-semibold transition-colors ${dumpJornada === 'Todos' ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
+                              Todos
+                            </button>
+                            {jornadasDisponibles.map((j) => (
+                              <button key={j} onClick={() => setDumpJornada(j)}
+                                className={`px-3 py-1 rounded-full font-semibold transition-colors ${dumpJornada === j ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
+                                {j}
+                              </button>
+                            ))}
+                          </>
+                        )}
                       </div>
                     </div>
                     {dumpLoading ? (
@@ -1229,13 +1272,50 @@ export const ProduccionCompleta = () => {
                         ) : puntos.length === 0 ? (
                           <div className="p-8 text-center text-gray-400 text-sm">Sin lotes con ley y tonelaje registrados en el período.</div>
                         ) : (
-                          <ResponsiveContainer width="100%" height={320}>
-                            <ScatterChart margin={{ top: 20, right: 20, left: 0, bottom: 20 }}>
-                              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-                              <XAxis type="number" dataKey="peso_total" name="Tonelaje" unit=" t" tick={{ fontSize: 11 }} />
-                              <YAxis type="number" dataKey="ley_ponderada" name="Ley Cu" unit="%" tick={{ fontSize: 11 }} />
-                              <ReferenceLine x={avgTon} stroke="#9ca3af" strokeDasharray="4 4" />
-                              <ReferenceLine y={avgLey} stroke="#9ca3af" strokeDasharray="4 4" />
+                          <ResponsiveContainer width="100%" height={340}>
+                            <ScatterChart margin={{ top: 24, right: 24, left: 4, bottom: 28 }}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="#d1d5db" />
+                              <XAxis
+                                type="number"
+                                dataKey="peso_total"
+                                name="Tonelaje"
+                                unit=" t"
+                                tick={{ fontSize: 11 }}
+                                domain={['auto', 'auto']}
+                                label={{ value: 'Tonelaje (t)', position: 'insideBottom', offset: -18, fontSize: 12, fill: '#6b7280' }}
+                              />
+                              <YAxis
+                                type="number"
+                                dataKey="ley_ponderada"
+                                name="Ley Cu"
+                                unit="%"
+                                tick={{ fontSize: 11 }}
+                                domain={['auto', 'auto']}
+                                label={{ value: 'Ley Cu (%)', angle: -90, position: 'insideLeft', fontSize: 12, fill: '#6b7280' }}
+                              />
+                              <ReferenceLine x={avgTon} stroke="#6366f1" strokeWidth={2} strokeDasharray="6 3" />
+                              <ReferenceLine y={avgLey} stroke="#e11d48" strokeWidth={2} strokeDasharray="6 3" />
+                              <ReferenceDot
+                                x={avgTon}
+                                y={avgLey}
+                                shape={(props) => (
+                                  <g
+                                    onMouseEnter={() => setHoverCruceLotes(true)}
+                                    onMouseLeave={() => setHoverCruceLotes(false)}
+                                    style={{ cursor: 'pointer' }}
+                                  >
+                                    {/* Círculo invisible más grande: área de hover fácil de acertar con el mouse */}
+                                    <circle cx={props.cx} cy={props.cy} r={14} fill="transparent" />
+                                    <circle cx={props.cx} cy={props.cy} r={6} fill="#111827" stroke="#fff" strokeWidth={2} />
+                                  </g>
+                                )}
+                                label={hoverCruceLotes ? (props) => (
+                                  <EtiquetaCruceDePromedios
+                                    {...props}
+                                    texto={`Promedio: ${formatNumber(avgTon)} t · ${formatNumber(avgLey)}%`}
+                                  />
+                                ) : undefined}
+                              />
                               <Tooltip
                                 cursor={{ strokeDasharray: '3 3' }}
                                 content={({ active, payload }) => {
@@ -1254,7 +1334,9 @@ export const ProduccionCompleta = () => {
                                 }}
                               />
                               <Legend wrapperStyle={{ fontSize: 11 }} />
-                              <Scatter name="Abierto" data={abiertos} fill={COLOR_LOTE_ABIERTO} shape={PuntoLote} />
+                              {abiertos.length > 0 && (
+                                <Scatter name="Abierto" data={abiertos} fill={COLOR_LOTE_ABIERTO} shape={PuntoLote} />
+                              )}
                               <Scatter name="Completado" data={completados} fill={COLOR_LOTE_COMPLETADO} shape={PuntoLote} />
                             </ScatterChart>
                           </ResponsiveContainer>

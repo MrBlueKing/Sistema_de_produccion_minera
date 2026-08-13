@@ -756,6 +756,10 @@ class GerencialController extends Controller
                 // el mismo gris "Otros"); agrupando por túnel/manto quedan 5-6
                 // categorías reales — el detalle por frente se mantiene en el tooltip.
                 DB::raw('COALESCE(NULLIF(f.tunel, ""), f.manto) as grupo'),
+                // jornada (AM/PM/Madrugada/Noche) va SIEMPRE en el resultado (no como filtro
+                // aparte) para que el toggle en el frontend sea instantáneo sin recargar del
+                // servidor, igual que el toggle Toneladas/Cantidad que ya existe.
+                DB::raw('COALESCE(d.jornada, "Sin jornada") as jornada'),
                 DB::raw('COUNT(d.id) as cantidad'),
                 DB::raw('COALESCE(SUM(d.ton), 0) as toneladas'),
                 DB::raw('CASE WHEN SUM(d.ton) > 0 THEN SUM(d.ton * d.ley) / SUM(d.ton) ELSE NULL END as ley_promedio')
@@ -766,7 +770,7 @@ class GerencialController extends Controller
         if ($idFaena) $query->where('d.id_faena', $idFaena);
 
         $rows = $query
-            ->groupBy('d.fecha', 'frente', 'grupo')
+            ->groupBy('d.fecha', 'frente', 'grupo', 'jornada')
             ->orderBy('d.fecha')
             ->orderBy('frente')
             ->get();
@@ -777,6 +781,7 @@ class GerencialController extends Controller
                 'fecha'        => $r->fecha,
                 'frente'       => $r->frente,
                 'grupo'        => $r->grupo,
+                'jornada'      => $r->jornada,
                 'cantidad'     => (int) $r->cantidad,
                 'toneladas'    => (float) $r->toneladas,
                 'ley_promedio' => $r->ley_promedio !== null ? round((float) $r->ley_promedio, 3) : null,

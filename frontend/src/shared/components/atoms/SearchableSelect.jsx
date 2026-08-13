@@ -54,7 +54,11 @@ export default function SearchableSelect({
   useEffect(() => {
     if (!isOpen) return;
 
-    const cerrarPorScroll = () => {
+    const cerrarPorScroll = (event) => {
+      // Ignorar el scroll dentro del propio listado de opciones (o del buscador):
+      // el evento 'scroll' no burbujea pero sí se captura en window, así que sin este
+      // chequeo, scrollear la lista para ver más opciones cerraba el dropdown solo.
+      if (dropdownRef.current && dropdownRef.current.contains(event.target)) return;
       setIsOpen(false);
       setSearchTerm('');
     };
