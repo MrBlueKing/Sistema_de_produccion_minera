@@ -139,18 +139,21 @@ class GerencialController extends Controller
                 )
                 ->first();
 
-            // Tonelaje RECEPCIONADO: KPI aparte de "despachado" — filtra por
-            // camionadas.fecha_recepcion (no fecha_despacho), porque acá lo que
-            // importa es "cuánto se confirmó recibido EN este período", sin
-            // importar cuándo salió. peso_real es el peso real confirmado al
-            // recepcionar; peso_teorico es el peso con el que salió esa MISMA
-            // camionada, para poder comparar ambos sin mezclar poblaciones
-            // distintas (a diferencia de comparar contra el total despachado,
-            // que puede incluir camionadas todavía en tránsito).
+            // Tonelaje RECEPCIONADO: filtra por lotes.fecha_creacion (no por
+            // camionadas.fecha_recepcion) para agrupar igual que el reporte manual
+            // en Excel — TODO el lote cuenta para el mes en que se creó, aunque
+            // alguna de sus camionadas se haya recepcionado recién al mes siguiente.
+            // Antes filtraba por fecha_recepcion de cada camionada individual, lo que
+            // partía un mismo lote entre dos períodos distintos y no cuadraba con el
+            // Excel (verificado con datos reales de Catemu junio 2026: un lote creado
+            // en mayo con su última camionada recepcionada el 28 de junio aparecía en
+            // el KPI de junio del sistema, pero el Excel lo reporta completo en mayo).
+            // peso_real es el peso real confirmado al recepcionar cada camionada;
+            // solo se cuentan las camionadas YA recepcionadas (whereNotNull).
             $queryRecepcion = DB::table('camionadas')
                 ->join('lotes', 'camionadas.lote_id', '=', 'lotes.id')
                 ->whereNotNull('camionadas.peso_real')
-                ->whereBetween('camionadas.fecha_recepcion', [$fechaInicio, $fechaFin]);
+                ->whereBetween('lotes.fecha_creacion', [$fechaInicio, $fechaFin]);
             if ($idFaena) {
                 $queryRecepcion->where('lotes.id_faena', $idFaena);
             }

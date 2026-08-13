@@ -690,9 +690,9 @@ export const ProduccionCompleta = () => {
                     <TendenciaBadge actual={datos.recepcion?.tonelaje_recepcionado} anterior={comparativa?.tonelaje_recepcionado} />
                   </div>
                   <TendenciaAnterior actual={datos.recepcion?.tonelaje_recepcionado} anterior={comparativa?.tonelaje_recepcionado} unidad=" t" />
-                  <p className="text-sm text-gray-500 mt-1">peso real, confirmado al recepcionar en el período</p>
+                  <p className="text-sm text-gray-500 mt-1">peso real recepcionado, de los lotes creados en el período</p>
                   <p className="text-xs text-gray-400 mt-2">
-                    {formatInteger(datos.recepcion?.total)} camionadas recepcionadas en el período
+                    {formatInteger(datos.recepcion?.total)} camionadas recepcionadas
                   </p>
                 </div>
 
