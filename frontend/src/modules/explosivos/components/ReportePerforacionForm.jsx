@@ -651,6 +651,7 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
               <option value="AM">AM</option>
               <option value="PM">PM</option>
               <option value="Noche">Noche</option>
+              <option value="Madrugada">Madrugada</option>
             </select>
           </div>
           <div>

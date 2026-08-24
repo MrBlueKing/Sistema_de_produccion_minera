@@ -83,7 +83,7 @@ class ReportePerforacionController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'fecha' => 'required|date',
-            'turno' => 'required|in:AM,PM,Noche',
+            'turno' => 'required|in:AM,PM,Noche,Madrugada',
             'id_polvorin' => 'required|exists:polvorines,id',
             'observaciones' => 'nullable|string',
         ]);
@@ -168,7 +168,7 @@ class ReportePerforacionController extends Controller
 
         $validator = Validator::make($request->all(), [
             'fecha' => 'sometimes|date',
-            'turno' => 'sometimes|in:AM,PM,Noche',
+            'turno' => 'sometimes|in:AM,PM,Noche,Madrugada',
             'observaciones' => 'nullable|string',
         ]);
 

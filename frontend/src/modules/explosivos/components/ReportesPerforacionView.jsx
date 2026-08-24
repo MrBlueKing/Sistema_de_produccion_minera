@@ -206,6 +206,7 @@ export default function ReportesPerforacionView({ polvorin, polvorines = [], tip
             <option value="AM">AM</option>
             <option value="PM">PM</option>
             <option value="Noche">Noche</option>
+            <option value="Madrugada">Madrugada</option>
           </select>
           <SearchableSelect
             options={frentesTrabajo.map((f) => ({ value: f.id, label: f.codigo_completo }))}
