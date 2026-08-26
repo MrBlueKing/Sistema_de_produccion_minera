@@ -31,12 +31,18 @@ class ImportarDumpadasController extends Controller
 
     /**
      * Normaliza un nombre de frente para comparación:
-     * quita espacios internos y convierte a minúsculas.
-     * "M3 -12S RP" y "M3-12SRP" quedan igual → "m3-12srp"
+     * quita espacios y guiones internos, y convierte a minúsculas.
+     * "M3 -12S RP", "M3-12SRP" y "M312SRP" quedan igual → "m312srp"
+     *
+     * IMPORTANTE: se quitan los guiones porque el Excel de origen escribe
+     * el mismo frente de forma inconsistente (con y sin guión, ej.
+     * "M5-1SH2REC" vs "M51SH2REC"). Antes de este fix, esa inconsistencia
+     * hacía que el importador creara un frente_trabajo fantasma nuevo cada
+     * vez que aparecía la variante distinta, duplicando el frente real.
      */
     private function normalizarFrente(string $nombre): string
     {
-        return strtolower(preg_replace('/\s+/', '', $nombre));
+        return strtolower(preg_replace('/[\s\-]+/', '', $nombre));
     }
 
     /**
@@ -120,7 +126,9 @@ class ImportarDumpadasController extends Controller
         $creadas      = 0;
         $saltadas     = 0;
         $actualizadas = 0;
+        $duplicadosEnArchivo = 0;
         $errores      = [];
+        $frentesCreados = [];
 
         // Cache frentes BD indexado por nombre normalizado (sin espacios, lowercase)
         $frentesCache = FrenteTrabajo::where('id_faena', $faenaId)
@@ -138,9 +146,24 @@ class ImportarDumpadasController extends Controller
         // Precarga el máximo actual por frente+jornada+fecha
         $jornadaCounter = [];
 
+        // Numero_dumpada ya vistos dentro de ESTA corrida (ver nota mas abajo)
+        $vistosEnEsteImport = [];
+
         foreach ($dumpadasInput as $i => $d) {
             try {
                 $numeroDumpada = (string) ($d['numero_dumpada'] ?? '');
+
+                // Detecta si este numero_dumpada ya aparecio antes DENTRO de este
+                // mismo archivo (no contra la BD) - el Excel de origen es propenso
+                // a traer el mismo N°Acop repetido. Sin este chequeo, la fila repetida
+                // se procesaria contra el estado de la BD ANTES de correr el import
+                // (el cache no se reflejaba con lo creado en la misma corrida), creando
+                // un duplicado real en la tabla - el mismo tipo de error que ya se
+                // corrigio manualmente para Cabildo el 25-jul.
+                if (isset($vistosEnEsteImport[$numeroDumpada])) {
+                    $duplicadosEnArchivo++;
+                }
+                $vistosEnEsteImport[$numeroDumpada] = true;
 
                 $dumpadaExistente = $dumpadasExistentes->get($numeroDumpada);
                 if ($dumpadaExistente !== null && $dumpadaExistente->ley !== null) {
@@ -177,6 +200,7 @@ class ImportarDumpadasController extends Controller
                         'estado'          => 'activo',
                     ]);
                     $frentesCache->put($puntoNorm, $nuevoFrente);
+                    $frentesCreados[$puntoNorm] = $nuevoFrente->codigo_completo;
                 }
 
                 $frente  = $frentesCache->get($puntoNorm);
@@ -244,7 +268,7 @@ class ImportarDumpadasController extends Controller
                     continue;
                 }
 
-                Dumpada::create([
+                $nuevaDumpada = Dumpada::create([
                     'id_frente_trabajo' => $frente->id,
                     'id_faena'          => $faenaId,
                     'faena'             => $nombreFaena,
@@ -265,6 +289,12 @@ class ImportarDumpadasController extends Controller
                     'user_id'           => $request->auth_user_id,
                 ]);
 
+                // Registrar la fila recien creada en el cache: si el mismo
+                // numero_dumpada vuelve a aparecer mas abajo en este mismo
+                // archivo, la proxima vuelta del loop la debe encontrar aqui
+                // (y actualizarla o saltarla) en vez de crear un duplicado.
+                $dumpadasExistentes->put($numeroDumpada, $nuevaDumpada);
+
                 $creadas++;
 
             } catch (\Exception $e) {
@@ -283,11 +313,13 @@ class ImportarDumpadasController extends Controller
         }
 
         return response()->json([
-            'success'      => true,
-            'creadas'      => $creadas,
-            'actualizadas' => $actualizadas,
-            'saltadas'     => $saltadas,
-            'errores'      => $errores,
+            'success'              => true,
+            'creadas'              => $creadas,
+            'actualizadas'         => $actualizadas,
+            'saltadas'             => $saltadas,
+            'duplicados_en_archivo' => $duplicadosEnArchivo,
+            'frentes_creados'      => array_values($frentesCreados),
+            'errores'              => $errores,
         ]);
     }
 }
