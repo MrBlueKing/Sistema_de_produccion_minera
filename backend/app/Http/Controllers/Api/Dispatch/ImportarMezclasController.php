@@ -254,6 +254,15 @@ class ImportarMezclasController extends Controller
                     ]);
                 }
 
+                // Registrar el código recién creado en el cache: si el mismo código
+                // vuelve a aparecer más abajo en este mismo archivo, la próxima
+                // vuelta del loop lo debe encontrar aquí y saltarlo, en vez de crear
+                // un duplicado real — mismo bug que se corrigió en el importador de
+                // dumpadas (commit 6a9117c, 26-ago-2026): sin esto, el chequeo de
+                // "existe" solo se comparaba contra el estado de la BD ANTES de
+                // correr el import, no contra lo que la propia corrida ya creó.
+                $mezclasExistentes->put($codigo, $mezcla->id);
+
                 $creadas++;
 
             } catch (\Exception $e) {
