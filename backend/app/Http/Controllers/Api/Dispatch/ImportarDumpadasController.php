@@ -228,7 +228,7 @@ class ImportarDumpadasController extends Controller
 
                 // Código de acopio (mismo formato que el ingreso manual, no el texto crudo del Excel)
                 $fechaFormateada = $fecha ? Carbon::parse($fecha)->format('d.m.Y') : '';
-                $acopiosGenerado = trim("{$frente->codigo_completo} {$jornada} {$numeroJornada} {$numeroDumpada} {$fechaFormateada}");
+                $acopiosGenerado = trim("{$frente->codigo_completo} {$numeroDumpada} {$fechaFormateada} {$jornada}-{$numeroJornada}");
 
                 // Ley (ya viene como porcentaje desde el frontend, ej: 2.64)
                 $ley      = isset($d['ley'])      ? (float) $d['ley']      : null;

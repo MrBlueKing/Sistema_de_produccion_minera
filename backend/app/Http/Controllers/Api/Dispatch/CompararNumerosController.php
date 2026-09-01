@@ -271,7 +271,7 @@ class CompararNumerosController extends Controller
                 $fechaFormateada = Carbon::parse($dumpada->fecha)->format('d.m.Y');
 
                 $nuevosAcopios = trim(
-                    "{$frente->codigo_completo} {$dumpada->jornada} {$dumpada->numero_jornada} {$nuevoNumero} {$fechaFormateada}"
+                    "{$frente->codigo_completo} {$nuevoNumero} {$fechaFormateada} {$dumpada->jornada}-{$dumpada->numero_jornada}"
                 );
 
                 $dumpada->update([
