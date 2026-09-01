@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 use App\Models\ConfiguracionSistema;
 use Carbon\Carbon;
 
@@ -225,7 +226,7 @@ class DumpadaController extends Controller
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'id_frente_trabajo'  => 'required|exists:frentes_trabajo,id',
+            'id_frente_trabajo'  => ['required', Rule::exists('frentes_trabajo', 'id')->where('estado', 'activo')],
             'jornada'            => 'required|in:AM,PM,Madrugada,Noche',
             'fecha'              => 'nullable|date',
             'ton'                => 'nullable|numeric|min:0',
@@ -235,6 +236,8 @@ class DumpadaController extends Controller
             'ley_visual'         => 'required|numeric|min:0',
             'id_maquina'         => 'nullable|integer',
             'nombre_maquina'     => 'nullable|string|max:150',
+        ], [
+            'id_frente_trabajo.exists' => 'El frente de trabajo seleccionado no existe o está inactivo. Actualiza la página e intenta de nuevo.',
         ]);
 
         if ($validator->fails()) {
@@ -329,7 +332,7 @@ class DumpadaController extends Controller
         // Validar que venga un array de dumpadas
         $validator = Validator::make($request->all(), [
             'dumpadas'                       => 'required|array|min:1|max:100',
-            'dumpadas.*.id_frente_trabajo'   => 'required|exists:frentes_trabajo,id',
+            'dumpadas.*.id_frente_trabajo'   => ['required', Rule::exists('frentes_trabajo', 'id')->where('estado', 'activo')],
             'dumpadas.*.jornada'             => 'required|in:AM,PM,Madrugada,Noche',
             'dumpadas.*.fecha'               => 'nullable|date',
             'dumpadas.*.ton'                 => 'nullable|numeric|min:0',
@@ -339,6 +342,8 @@ class DumpadaController extends Controller
             'dumpadas.*.ley_visual'          => 'required|numeric|min:0',
             'dumpadas.*.id_maquina'          => 'nullable|integer',
             'dumpadas.*.nombre_maquina'      => 'nullable|string|max:150',
+        ], [
+            'dumpadas.*.id_frente_trabajo.exists' => 'Uno de los frentes de trabajo seleccionados no existe o está inactivo. Actualiza la página e intenta de nuevo.',
         ]);
 
         if ($validator->fails()) {
@@ -525,6 +530,18 @@ class DumpadaController extends Controller
                 'success' => false,
                 'errors' => $validator->errors()
             ], 422);
+        }
+
+        // No permitir mover la dumpada a un frente inactivo (sí se permite dejarla
+        // en el frente que ya tenía, aunque ese frente se haya desactivado después)
+        if ($request->id_frente_trabajo != $dumpada->id_frente_trabajo) {
+            $frenteNuevo = FrenteTrabajo::find($request->id_frente_trabajo);
+            if (!$frenteNuevo || $frenteNuevo->estado !== 'activo') {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'El frente de trabajo seleccionado está inactivo. Actualiza la página e intenta de nuevo.'
+                ], 422);
+            }
         }
 
         // Obtener el frente de trabajo
