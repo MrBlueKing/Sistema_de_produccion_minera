@@ -546,9 +546,9 @@ class DumpadaController extends Controller
             );
         }
 
-        // Regenerar código de acopio con los datos actualizados
+        // Regenerar código de acopio con los datos actualizados (mismo formato que al crear, con numero_dumpada incluido)
         $fechaFormateada = Carbon::parse($fecha)->format('d.m.Y');
-        $acopios = trim("{$frente->codigo_completo} {$fechaFormateada} {$request->jornada} {$numeroJornada}");
+        $acopios = trim("{$frente->codigo_completo} {$request->jornada} {$numeroJornada} {$dumpada->numero_dumpada} {$fechaFormateada}");
 
         // Determinar el rango automáticamente si cambió la ley
         $rango = $request->ley ? Dumpada::determinarRango($request->ley) : $dumpada->rango;
