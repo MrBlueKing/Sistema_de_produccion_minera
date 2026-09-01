@@ -22,17 +22,75 @@ class Lote extends Model
         'fecha_cierre',
         'observaciones',
         'user_id',
+        'ley_paquete_primera',
+        'fecha_ley_paquete_primera',
+        'ley_paquete_segunda',
+        'fecha_ley_paquete_segunda',
+        'ley_paquete_segunda_prima',
+        'fecha_ley_paquete_segunda_prima',
+        'ley_canje',
+        'fecha_ley_canje',
+        'enviado_a_tercero',
+        'ley_paquete_tercera',
+        'fecha_ley_paquete_tercera',
+        'estado_laboratorio',
+        'liquidacion_numero',
+        'liquidacion_tasa_cambio',
+        'liquidacion_saldo_real_usd',
+        'liquidacion_saldo_real_clp',
+        'liquidacion_saldo_calculado_usd',
+        'liquidacion_saldo_calculado_clp',
+        'fecha_liquidacion',
+        'anticipo_monto',
+        'fecha_anticipo',
+        'pago_monto',
+        'fecha_pago',
     ];
 
     protected $casts = [
         'fecha_creacion' => 'date',
         'fecha_estimada_llegada' => 'date',
         'fecha_cierre' => 'date',
+        'ley_paquete_primera' => 'float',
+        'fecha_ley_paquete_primera' => 'datetime',
+        'ley_paquete_segunda' => 'float',
+        'fecha_ley_paquete_segunda' => 'datetime',
+        'ley_paquete_segunda_prima' => 'float',
+        'fecha_ley_paquete_segunda_prima' => 'datetime',
+        'ley_canje' => 'float',
+        'fecha_ley_canje' => 'datetime',
+        'enviado_a_tercero' => 'boolean',
+        'ley_paquete_tercera' => 'float',
+        'fecha_ley_paquete_tercera' => 'datetime',
+        'liquidacion_tasa_cambio' => 'float',
+        'liquidacion_saldo_real_usd' => 'float',
+        'liquidacion_saldo_real_clp' => 'float',
+        'liquidacion_saldo_calculado_usd' => 'float',
+        'liquidacion_saldo_calculado_clp' => 'float',
+        'fecha_liquidacion' => 'datetime',
+        'anticipo_monto' => 'float',
+        'fecha_anticipo' => 'datetime',
+        'pago_monto' => 'float',
+        'fecha_pago' => 'datetime',
     ];
 
-    // Estados del lote
+    // Estados del lote (Dispatch)
     const ESTADO_ABIERTO = 'Abierto';
     const ESTADO_COMPLETADO = 'Completado';
+
+    // Estados de la reconciliación de leyes (Laboratorio) — independientes de `estado`.
+    // Solo cambian en 2 hitos: cargar Segunda, y cargar Canje (o mandar a Tercero).
+    // Cargar Segunda Prima o Primera NO mueve el estado — son pasos intermedios.
+    const ESTADO_LAB_CERRADO = 'Cerrado';
+    const ESTADO_LAB_CON_SEGUNDA = 'Con Paquete Segunda';
+    const ESTADO_LAB_CANJEADO = 'Canjeado';
+    const ESTADO_LAB_EN_TERCERO = 'En Tercero';
+    const ESTADO_LAB_RESUELTO_TERCERO = 'Resuelto por Tercero';
+
+    // Continuación comercial (cuaderno del usuario), después de resuelto el canje.
+    const ESTADO_LAB_LIQUIDADO = 'Liquidado';
+    const ESTADO_LAB_CON_ANTICIPO = 'Con Anticipo';
+    const ESTADO_LAB_PAGADO = 'Pagado';
 
     public function planta()
     {
@@ -448,5 +506,292 @@ class Lote extends Model
         }
 
         return $sumaToneladas == 0 ? null : round($sumaProductos / $sumaToneladas, 2);
+    }
+
+    /**
+     * Recalcular `estado_laboratorio`. Solo cambia en hitos concretos: cargar
+     * la Ley Paquete Segunda, llegar a Canje (o mandar a Tercero cuando no
+     * hay acuerdo), y después la parte comercial (Liquidado -> Con Anticipo
+     * -> Pagado). Cargar Segunda Prima o Primera NO mueve el estado — son
+     * datos intermedios que se acumulan antes del canje, no un hito propio.
+     */
+    public function actualizarEstadoLaboratorio(): void
+    {
+        if ($this->pago_monto !== null) {
+            $this->estado_laboratorio = self::ESTADO_LAB_PAGADO;
+        } elseif ($this->anticipo_monto !== null) {
+            $this->estado_laboratorio = self::ESTADO_LAB_CON_ANTICIPO;
+        } elseif ($this->liquidacion_numero !== null) {
+            $this->estado_laboratorio = self::ESTADO_LAB_LIQUIDADO;
+        } elseif ($this->ley_paquete_tercera !== null) {
+            $this->estado_laboratorio = self::ESTADO_LAB_RESUELTO_TERCERO;
+        } elseif ($this->enviado_a_tercero) {
+            $this->estado_laboratorio = self::ESTADO_LAB_EN_TERCERO;
+        } elseif ($this->ley_canje !== null) {
+            $this->estado_laboratorio = self::ESTADO_LAB_CANJEADO;
+        } elseif ($this->ley_paquete_segunda !== null) {
+            $this->estado_laboratorio = self::ESTADO_LAB_CON_SEGUNDA;
+        } else {
+            $this->estado_laboratorio = self::ESTADO_LAB_CERRADO;
+        }
+
+        $this->save();
+    }
+
+    /**
+     * Calcula el Saldo Líquido esperado de la liquidación de este lote,
+     * replicando la fórmula de la Circular de Tarifas ENAMI (ver Excel de
+     * verificación del usuario, calza 100% contra la liquidación real L
+     * 41356). Usa la ley YA RESUELTA del paquete (Canje, o Tercera si no
+     * hubo acuerdo) y el peso realmente recibido de las camionadas.
+     *
+     * Sin `$tasaCambio` (es semanal, no vive en la Tarifa mensual) solo se
+     * puede devolver el valor en USD — sirve como preview antes de tener la
+     * liquidación real, que es la que trae la tasa de cambio aplicada.
+     *
+     * @param float|null $tasaCambio
+     * @return array{valor_unitario_cobre: float, importe_usd: float, iva_usd: float, fondo_estabilizacion_usd: float, saldo_liquido_usd: float, saldo_liquido_clp: float|null}|array{error: string}
+     */
+    public function calcularSaldoLiquidoEsperado(?float $tasaCambio = null): array
+    {
+        $leyResuelta = $this->ley_canje ?? $this->ley_paquete_tercera;
+        if ($leyResuelta === null) {
+            return ['error' => 'El lote todavía no tiene una ley resuelta (Canje o Tercera).'];
+        }
+
+        $pesoRecibido = $this->getPesoRecibido();
+        if (!$pesoRecibido) {
+            return ['error' => 'El lote no tiene peso recibido (camionadas sin recepcionar).'];
+        }
+
+        $tarifa = Tarifa::vigentePara($this->fecha_cierre);
+        if (!$tarifa) {
+            $mesAnio = $this->fecha_cierre ? \Carbon\Carbon::parse($this->fecha_cierre)->format('m/Y') : 'sin fecha de cierre';
+            return ['error' => "No hay una tarifa cargada para {$mesAnio}."];
+        }
+
+        $diferenciaLey = $tarifa->ley_base - $leyResuelta;
+        $ajusteEscala = $diferenciaLey * $tarifa->escala;
+        $valorUnitarioCobre = $tarifa->tarifa_base - $ajusteEscala;
+        $importeUsd = $valorUnitarioCobre * $pesoRecibido;
+        $ivaUsd = $importeUsd * $tarifa->iva_porcentaje;
+        $totalFacturaUsd = $importeUsd + $ivaUsd;
+        // El Fondo de Estabilización se SUMA al Subtotal y se RESTA como descuento en la
+        // liquidación real de ENAMI — efecto neto CERO. No se resta del saldo líquido; se
+        // sigue calculando/mostrando solo como referencia. Verificado contra 2 liquidaciones
+        // reales (L 41356 y L 41394, ver session_produccion_2026_08_28) — restarlo dejaba el
+        // saldo ~8% bajo lo que ENAMI realmente paga.
+        $fondoEstabilizacionUsd = $leyResuelta * $tarifa->fondo_estabilizacion * $pesoRecibido;
+        $saldoLiquidoUsd = $totalFacturaUsd;
+
+        return [
+            'ley_usada' => $leyResuelta,
+            'diferencia_ley' => round($diferenciaLey, 4),
+            'ajuste_escala' => round($ajusteEscala, 2),
+            'valor_unitario_cobre' => round($valorUnitarioCobre, 2),
+            'importe_usd' => round($importeUsd, 2),
+            'iva_usd' => round($ivaUsd, 2),
+            'total_factura_usd' => round($totalFacturaUsd, 2),
+            'fondo_estabilizacion_usd' => round($fondoEstabilizacionUsd, 2),
+            'saldo_liquido_usd' => round($saldoLiquidoUsd, 2),
+            'saldo_liquido_clp' => $tasaCambio ? round($saldoLiquidoUsd * $tasaCambio, 2) : null,
+            'peso_recibido' => round($pesoRecibido, 2),
+            'tarifa' => [
+                'tarifa_base' => $tarifa->tarifa_base,
+                'escala' => $tarifa->escala,
+                'fondo_estabilizacion' => $tarifa->fondo_estabilizacion,
+                'ley_base' => $tarifa->ley_base,
+                'iva_porcentaje' => $tarifa->iva_porcentaje,
+            ],
+        ];
+    }
+
+    /**
+     * Saldo Líquido preliminar ANTES de que exista Canje o Tercera — usa la
+     * misma fórmula de calcularSaldoLiquidoEsperado() pero con las leyes que
+     * ya haya disponibles del lado de Laboratorio (Segunda/Segunda Prima) y
+     * de la Planta (Primera). Pedido explícito de gerencia: saber cuánto se
+     * va a pagar aproximadamente antes de que se resuelva el Canje.
+     *
+     * Si hay Segunda Y Primera (las dos posiciones reales de la negociación),
+     * devuelve un RANGO entre ambas en vez de un solo número — es más honesto
+     * que un valor único, porque el Canje es justamente la negociación entre
+     * esos dos extremos. Con una sola ley disponible, devuelve un solo valor
+     * identificando de qué etapa salió.
+     *
+     * @return array{tipo: 'rango', min: array, max: array}|array{tipo: 'unico', etapa: string, valor: array}|array{error: string}
+     */
+    public function calcularSaldoPreliminar(): array
+    {
+        $candidatos = [];
+        if ($this->ley_paquete_primera !== null) {
+            $candidatos['Primera'] = $this->ley_paquete_primera;
+        }
+        if ($this->ley_paquete_segunda_prima !== null) {
+            $candidatos['Segunda Prima'] = $this->ley_paquete_segunda_prima;
+        }
+        if ($this->ley_paquete_segunda !== null) {
+            $candidatos['Segunda'] = $this->ley_paquete_segunda;
+        }
+
+        if (empty($candidatos)) {
+            return ['error' => 'El lote todavía no tiene ninguna ley cargada.'];
+        }
+
+        $pesoRecibido = $this->getPesoRecibido();
+        if (!$pesoRecibido) {
+            return ['error' => 'El lote no tiene peso recibido (camionadas sin recepcionar).'];
+        }
+
+        $tarifa = Tarifa::vigentePara($this->fecha_cierre);
+        if (!$tarifa) {
+            $mesAnio = $this->fecha_cierre ? \Carbon\Carbon::parse($this->fecha_cierre)->format('m/Y') : 'sin fecha de cierre';
+            return ['error' => "No hay una tarifa cargada para {$mesAnio}."];
+        }
+
+        // Devuelve también los pasos intermedios (no solo el saldo final) para poder
+        // mostrar el mismo desglose paso a paso del Excel de verificación del usuario.
+        $calcularConLey = function (float $ley) use ($tarifa, $pesoRecibido): array {
+            $diferenciaLey = $tarifa->ley_base - $ley;
+            $ajusteEscala = $diferenciaLey * $tarifa->escala;
+            $valorUnitarioCobre = $tarifa->tarifa_base - $ajusteEscala;
+            $importeUsd = $valorUnitarioCobre * $pesoRecibido;
+            $ivaUsd = $importeUsd * $tarifa->iva_porcentaje;
+            $totalFacturaUsd = $importeUsd + $ivaUsd;
+            // Mismo criterio que calcularSaldoLiquidoEsperado(): el Fondo se suma y se resta
+            // en la liquidación real (neto cero), no se descuenta acá — ver esa función.
+            $fondoEstabilizacionUsd = $ley * $tarifa->fondo_estabilizacion * $pesoRecibido;
+            $saldoLiquidoUsd = $totalFacturaUsd;
+            return [
+                'ley' => $ley,
+                'diferencia_ley' => round($diferenciaLey, 4),
+                'ajuste_escala' => round($ajusteEscala, 2),
+                'valor_unitario_cobre' => round($valorUnitarioCobre, 2),
+                'importe_usd' => round($importeUsd, 2),
+                'iva_usd' => round($ivaUsd, 2),
+                'total_factura_usd' => round($totalFacturaUsd, 2),
+                'fondo_estabilizacion_usd' => round($fondoEstabilizacionUsd, 2),
+                'saldo_liquido_usd' => round($saldoLiquidoUsd, 2),
+            ];
+        };
+
+        $tarifaSnapshot = [
+            'tarifa_base' => $tarifa->tarifa_base,
+            'escala' => $tarifa->escala,
+            'fondo_estabilizacion' => $tarifa->fondo_estabilizacion,
+            'ley_base' => $tarifa->ley_base,
+            'iva_porcentaje' => $tarifa->iva_porcentaje,
+        ];
+
+        // Rango solo tiene sentido entre las 2 posiciones reales de la negociación:
+        // la propia (Segunda) y la de la contraparte (Primera). Segunda Prima es un
+        // ajuste interno antes de ir a la mesa, no un dato independiente para el rango.
+        if (isset($candidatos['Segunda']) && isset($candidatos['Primera'])) {
+            $conSegunda = $calcularConLey($candidatos['Segunda']);
+            $conPrimera = $calcularConLey($candidatos['Primera']);
+            $min = $conSegunda['saldo_liquido_usd'] <= $conPrimera['saldo_liquido_usd'] ? $conSegunda : $conPrimera;
+            $max = $conSegunda['saldo_liquido_usd'] <= $conPrimera['saldo_liquido_usd'] ? $conPrimera : $conSegunda;
+            $min['etapa'] = $min === $conSegunda ? 'Segunda' : 'Primera';
+            $max['etapa'] = $max === $conSegunda ? 'Segunda' : 'Primera';
+            return [
+                'tipo' => 'rango',
+                'min' => $min,
+                'max' => $max,
+                'peso_recibido' => round($pesoRecibido, 2),
+                'tarifa' => $tarifaSnapshot,
+            ];
+        }
+
+        // Una sola ley disponible: se usa la más avanzada (Primera > Segunda Prima > Segunda).
+        $etapa = array_key_first($candidatos);
+        $valor = $calcularConLey($candidatos[$etapa]);
+        return [
+            'tipo' => 'unico',
+            'etapa' => $etapa,
+            'valor' => $valor,
+            'peso_recibido' => round($pesoRecibido, 2),
+            'tarifa' => $tarifaSnapshot,
+        ];
+    }
+
+    /**
+     * Registrar la liquidación real del lote (documento de ENAMI). Calcula
+     * el saldo esperado con la tasa de cambio informada y lo guarda como
+     * snapshot junto al saldo real, para poder comparar ambos después sin
+     * que un cambio posterior en la Tarifa altere la comparación ya hecha.
+     */
+    public function registrarLiquidacion(string $numero, float $tasaCambio, ?float $saldoRealUsd, ?float $saldoRealClp): void
+    {
+        if ($this->ley_canje === null && $this->ley_paquete_tercera === null) {
+            throw new \Exception('El lote todavía no tiene una ley resuelta (Canje o Tercera), no se puede liquidar.');
+        }
+
+        $calculado = $this->calcularSaldoLiquidoEsperado($tasaCambio);
+        if (isset($calculado['error'])) {
+            throw new \Exception($calculado['error']);
+        }
+
+        $this->liquidacion_numero = $numero;
+        $this->liquidacion_tasa_cambio = $tasaCambio;
+        $this->liquidacion_saldo_real_usd = $saldoRealUsd;
+        $this->liquidacion_saldo_real_clp = $saldoRealClp;
+        $this->liquidacion_saldo_calculado_usd = $calculado['saldo_liquido_usd'];
+        $this->liquidacion_saldo_calculado_clp = $calculado['saldo_liquido_clp'];
+        $this->fecha_liquidacion = now();
+
+        $this->actualizarEstadoLaboratorio();
+    }
+
+    /**
+     * Registrar el anticipo pagado. Requiere que ya exista la liquidación
+     * (según el cuaderno del usuario, la liquidación llega antes del anticipo).
+     */
+    public function registrarAnticipo(float $monto): void
+    {
+        if ($this->liquidacion_numero === null) {
+            throw new \Exception('Falta cargar la Liquidación antes de registrar el Anticipo.');
+        }
+
+        $this->anticipo_monto = $monto;
+        $this->fecha_anticipo = now();
+
+        $this->actualizarEstadoLaboratorio();
+    }
+
+    /**
+     * Registrar el pago final. Requiere que ya exista el anticipo.
+     */
+    public function registrarPago(float $monto): void
+    {
+        if ($this->anticipo_monto === null) {
+            throw new \Exception('Falta registrar el Anticipo antes de registrar el Pago.');
+        }
+
+        $this->pago_monto = $monto;
+        $this->fecha_pago = now();
+
+        $this->actualizarEstadoLaboratorio();
+    }
+
+    /**
+     * Marcar el lote como enviado a laboratorio externo (Paquete Tercera).
+     * Es la alternativa a llegar a acuerdo en el canje: requiere que ya esté
+     * cargada la Ley Paquete Primera (último paso antes del canje en el
+     * orden secuencial: Segunda → Segunda Prima → Primera → Canje/Tercero).
+     */
+    public function enviarATercero(): void
+    {
+        if ($this->ley_paquete_primera === null) {
+            throw new \Exception('Falta cargar la Ley Paquete Primera antes de poder enviar a Tercero.');
+        }
+        if ($this->ley_canje !== null) {
+            throw new \Exception('Este lote ya fue canjeado, no corresponde enviarlo a Tercero.');
+        }
+        if ($this->enviado_a_tercero) {
+            throw new \Exception('Este lote ya fue enviado a Tercero.');
+        }
+
+        $this->enviado_a_tercero = true;
+        $this->actualizarEstadoLaboratorio();
     }
 }

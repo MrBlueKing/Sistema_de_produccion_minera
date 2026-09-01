@@ -1,11 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   HiPlus,
   HiDocumentText,
   HiFunnel,
   HiTrash,
-  HiEye,
-  HiPencil,
+  HiPencilSquare,
+  HiMagnifyingGlass,
+  HiXMark,
 } from 'react-icons/hi2';
 import Card from '../../../shared/components/atoms/Card';
 import Button from '../../../shared/components/atoms/Button';
@@ -17,39 +18,137 @@ import ingenieriaService from '../../ingenieria/services/ingenieria';
 import useToast from '../../../hooks/useToast';
 import ReportePerforacionForm from './ReportePerforacionForm';
 
+// "2026-08-27T04:00:00.000000Z" o "2026-08-27" -> "27-08-2026"
+function fmtFecha(v) {
+  if (!v) return '—';
+  const iso = String(v).slice(0, 10);
+  const [y, m, d] = iso.split('-');
+  return d && m && y ? `${d}-${m}-${y}` : iso;
+}
+
+const FILTROS_VACIOS = {
+  buscar: '',
+  estado: '',
+  turno: '',
+  fecha_desde: '',
+  fecha_hasta: '',
+  id_frente_trabajo: '',
+};
+
+// Se guardan los filtros y la página por faena, para que al reentrar al módulo
+// (o recargar) la operadora siga donde estaba y no tenga que rearmar el filtro.
+const claveStorage = (faenaId) => `reportes_pt_filtros_${faenaId || 'all'}`;
+
+function cargarFiltrosGuardados(faenaId) {
+  try {
+    const raw = localStorage.getItem(claveStorage(faenaId));
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    return {
+      filtros: { ...FILTROS_VACIOS, ...(data.filtros || {}) },
+      pagina: data.pagina || 1,
+      preset: data.preset || '',
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Presets de fecha: devuelven { fecha_desde, fecha_hasta } en formato YYYY-MM-DD.
+function rangoPreset(preset) {
+  const hoy = new Date();
+  const fmt = (d) => d.toISOString().slice(0, 10);
+  const primerDiaMes = (y, m) => new Date(y, m, 1);
+  const ultimoDiaMes = (y, m) => new Date(y, m + 1, 0);
+
+  switch (preset) {
+    case 'hoy':
+      return { fecha_desde: fmt(hoy), fecha_hasta: fmt(hoy) };
+    case 'semana': {
+      const diaSemana = (hoy.getDay() + 6) % 7; // lunes = 0
+      const lunes = new Date(hoy);
+      lunes.setDate(hoy.getDate() - diaSemana);
+      return { fecha_desde: fmt(lunes), fecha_hasta: fmt(hoy) };
+    }
+    case 'mes':
+      return {
+        fecha_desde: fmt(primerDiaMes(hoy.getFullYear(), hoy.getMonth())),
+        fecha_hasta: fmt(hoy),
+      };
+    case 'mes_pasado': {
+      const y = hoy.getMonth() === 0 ? hoy.getFullYear() - 1 : hoy.getFullYear();
+      const m = hoy.getMonth() === 0 ? 11 : hoy.getMonth() - 1;
+      return { fecha_desde: fmt(primerDiaMes(y, m)), fecha_hasta: fmt(ultimoDiaMes(y, m)) };
+    }
+    default:
+      return { fecha_desde: '', fecha_hasta: '' };
+  }
+}
+
+const PRESETS = [
+  { id: 'hoy', label: 'Hoy' },
+  { id: 'semana', label: 'Esta semana' },
+  { id: 'mes', label: 'Este mes' },
+  { id: 'mes_pasado', label: 'Mes pasado' },
+];
+
 export default function ReportesPerforacionView({ polvorin, polvorines = [], tipos, faenaActual, onRefresh }) {
   const toast = useToast();
+  const faenaId = faenaActual?.id || null;
+
+  const guardado = useRef(cargarFiltrosGuardados(faenaId)).current;
 
   const [loading, setLoading] = useState(true);
   const [reportes, setReportes] = useState([]);
-  const [currentPage, setCurrentPage] = useState(1);
+  const [currentPage, setCurrentPage] = useState(guardado?.pagina || 1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalRecords, setTotalRecords] = useState(0);
   const [frentesTrabajo, setFrentesTrabajo] = useState([]);
 
-  // Filtros
-  const [filtros, setFiltros] = useState({
-    estado: '',
-    turno: '',
-    fecha_desde: '',
-    fecha_hasta: '',
-    id_frente_trabajo: '',
-  });
+  const [filtros, setFiltros] = useState(guardado?.filtros || FILTROS_VACIOS);
+  const [presetActivo, setPresetActivo] = useState(guardado?.preset || '');
+  // `buscar` se teclea sin disparar la búsqueda en cada letra
+  const [buscarTexto, setBuscarTexto] = useState(guardado?.filtros?.buscar || '');
 
-  // Vista de detalle/formulario
   const [reporteActual, setReporteActual] = useState(null);
   const [vistaFormulario, setVistaFormulario] = useState(false);
   const [modoCrear, setModoCrear] = useState(false);
 
-  // Confirmar eliminación
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
   const [reporteAEliminar, setReporteAEliminar] = useState(null);
+
+  // Para restaurar contexto al volver del formulario
+  const scrollAlVolver = useRef(0);
+  const [filaResaltada, setFilaResaltada] = useState(null);
+  const filaRefs = useRef({});
+
+  // Debounce del buscador de texto
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setFiltros((prev) => (prev.buscar === buscarTexto ? prev : { ...prev, buscar: buscarTexto }));
+      setCurrentPage(1);
+    }, 350);
+    return () => clearTimeout(t);
+  }, [buscarTexto]);
 
   useEffect(() => {
     if ((polvorin?.id || polvorines.length > 0) && !vistaFormulario) {
       loadReportes();
     }
-  }, [polvorin, polvorines, currentPage, filtros, vistaFormulario]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [polvorin, polvorines, currentPage, filtros, vistaFormulario, faenaId]);
+
+  // Persistir filtros + página
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        claveStorage(faenaId),
+        JSON.stringify({ filtros, pagina: currentPage, preset: presetActivo }),
+      );
+    } catch {
+      /* localStorage lleno o bloqueado — no es crítico */
+    }
+  }, [filtros, currentPage, presetActivo, faenaId]);
 
   useEffect(() => {
     const loadFrentes = async () => {
@@ -71,11 +170,12 @@ export default function ReportesPerforacionView({ polvorin, polvorines = [], tip
         per_page: 15,
         ...Object.fromEntries(Object.entries(filtros).filter(([, v]) => v !== '')),
       };
+      if (faenaId) params.faena_id = faenaId;
       const response = await explosivosService.getReportes(params);
       setReportes(response.data || []);
       setTotalPages(response.last_page || 1);
       setTotalRecords(response.total || 0);
-    } catch (error) {
+    } catch {
       toast.error('Error', 'No se pudieron cargar los reportes');
     } finally {
       setLoading(false);
@@ -87,24 +187,44 @@ export default function ReportesPerforacionView({ polvorin, polvorines = [], tip
     setCurrentPage(1);
   };
 
-  const limpiarFiltros = () => {
-    setFiltros({ estado: '', turno: '', fecha_desde: '', fecha_hasta: '', id_frente_trabajo: '' });
+  const aplicarPreset = (preset) => {
+    if (presetActivo === preset) {
+      // segundo click = desactivar
+      setPresetActivo('');
+      setFiltros((prev) => ({ ...prev, fecha_desde: '', fecha_hasta: '' }));
+    } else {
+      setPresetActivo(preset);
+      const rango = rangoPreset(preset);
+      setFiltros((prev) => ({ ...prev, ...rango }));
+    }
     setCurrentPage(1);
   };
 
+  const limpiarFiltros = () => {
+    setFiltros(FILTROS_VACIOS);
+    setBuscarTexto('');
+    setPresetActivo('');
+    setCurrentPage(1);
+  };
+
+  const hayFiltros =
+    Object.values(filtros).some((v) => v !== '') || presetActivo !== '';
+
   const crearReporte = () => {
+    scrollAlVolver.current = window.scrollY;
     setModoCrear(true);
     setReporteActual(null);
     setVistaFormulario(true);
   };
 
   const verReporte = async (reporte) => {
+    scrollAlVolver.current = window.scrollY;
     try {
       const detalle = await explosivosService.getReporte(reporte.id);
       setReporteActual(detalle);
       setModoCrear(false);
       setVistaFormulario(true);
-    } catch (error) {
+    } catch {
       toast.error('Error', 'No se pudo cargar el reporte');
     }
   };
@@ -125,31 +245,63 @@ export default function ReportesPerforacionView({ polvorin, polvorines = [], tip
     }
   };
 
-  const volverALista = () => {
+  const volverALista = useCallback((idReporteTocado) => {
     setVistaFormulario(false);
     setReporteActual(null);
     setModoCrear(false);
-  };
+    if (idReporteTocado) {
+      setFilaResaltada(idReporteTocado);
+    }
+  }, []);
 
-  const getEstadoBadge = (estado) => {
+  // Al volver a la lista: restaurar scroll y resaltar/scrollear a la fila tocada
+  useEffect(() => {
+    if (vistaFormulario) return;
+    if (filaResaltada && filaRefs.current[filaResaltada]) {
+      filaRefs.current[filaResaltada].scrollIntoView({ block: 'center', behavior: 'smooth' });
+      const t = setTimeout(() => setFilaResaltada(null), 2600);
+      return () => clearTimeout(t);
+    }
+    if (scrollAlVolver.current) {
+      window.scrollTo({ top: scrollAlVolver.current });
+    }
+  }, [vistaFormulario, reportes, filaResaltada]);
+
+  const getEstadoBadge = (reporte) => {
+    if (reporte.en_correccion) {
+      return (
+        <span
+          className="inline-flex px-2 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800"
+          title={`En corrección${reporte.correccion_por ? ` por ${reporte.correccion_por}` : ''}`}
+        >
+          En corrección
+        </span>
+      );
+    }
     const estilos = {
       borrador: 'bg-yellow-100 text-yellow-700',
       confirmado: 'bg-blue-100 text-blue-700',
       cerrado: 'bg-green-100 text-green-700',
     };
-    const nombres = {
-      borrador: 'Borrador',
-      confirmado: 'Confirmado',
-      cerrado: 'Cerrado',
-    };
+    const nombres = { borrador: 'Borrador', confirmado: 'Confirmado', cerrado: 'Cerrado' };
     return (
-      <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${estilos[estado] || 'bg-gray-100 text-gray-700'}`}>
-        {nombres[estado] || estado}
-      </span>
+      <div className="inline-flex flex-col items-center gap-0.5">
+        <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${estilos[reporte.estado] || 'bg-gray-100 text-gray-700'}`}>
+          {nombres[reporte.estado] || reporte.estado}
+        </span>
+        {reporte.corregido_en && (
+          <span
+            className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-700"
+            title={`Corregido el ${new Date(reporte.corregido_en).toLocaleDateString('es-CL')}${reporte.corregido_por ? ` por ${reporte.corregido_por}` : ''}${reporte.corregido_toco_devoluciones ? ' — devoluciones ajustadas' : ''}`}
+          >
+            <HiPencilSquare className="w-3 h-3" />
+            corregido{reporte.corregido_toco_devoluciones ? ' · dev.' : ''}
+          </span>
+        )}
+      </div>
     );
   };
 
-  // Si estamos en vista formulario
   if (vistaFormulario) {
     return (
       <ReportePerforacionForm
@@ -180,13 +332,55 @@ export default function ReportesPerforacionView({ polvorin, polvorines = [], tip
         </div>
       </Card>
 
-      {/* Filtros */}
+      {/* Buscador + Filtros */}
       <Card>
         <div className="flex items-center gap-2 mb-4">
           <HiFunnel className="w-5 h-5 text-gray-500" />
-          <span className="font-medium text-gray-700">Filtros</span>
+          <span className="font-medium text-gray-700">Buscar y filtrar</span>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+
+        {/* Buscador de texto por código */}
+        <div className="relative mb-4">
+          <HiMagnifyingGlass className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <input
+            type="text"
+            value={buscarTexto}
+            onChange={(e) => setBuscarTexto(e.target.value)}
+            placeholder="Buscar por código de reporte (ej: 0155, Madrugada-Cabildo)…"
+            className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:outline-none"
+          />
+          {buscarTexto && (
+            <button
+              type="button"
+              onClick={() => setBuscarTexto('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              title="Limpiar"
+            >
+              <HiXMark className="w-5 h-5" />
+            </button>
+          )}
+        </div>
+
+        {/* Presets de fecha */}
+        <div className="flex flex-wrap gap-2 mb-4">
+          {PRESETS.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => aplicarPreset(p.id)}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+                presetActivo === p.id
+                  ? 'bg-red-600 text-white border-red-600'
+                  : 'bg-white text-gray-600 border-gray-300 hover:border-red-400'
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+          <span className="text-xs text-gray-400 self-center ml-1">o rango manual:</span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <select
             value={filtros.estado}
             onChange={(e) => handleFiltroChange('estado', e.target.value)}
@@ -214,23 +408,26 @@ export default function ReportesPerforacionView({ polvorin, polvorines = [], tip
             onChange={(val) => handleFiltroChange('id_frente_trabajo', val || '')}
             placeholder="Todos los frentes"
           />
-          <input
-            type="date"
-            value={filtros.fecha_desde}
-            onChange={(e) => handleFiltroChange('fecha_desde', e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
-          />
-          <input
-            type="date"
-            value={filtros.fecha_hasta}
-            onChange={(e) => handleFiltroChange('fecha_hasta', e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
-          />
+          <div className="flex gap-2">
+            <input
+              type="date"
+              value={filtros.fecha_desde}
+              onChange={(e) => { setPresetActivo(''); handleFiltroChange('fecha_desde', e.target.value); }}
+              className="w-full px-2 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 text-sm"
+            />
+            <input
+              type="date"
+              value={filtros.fecha_hasta}
+              onChange={(e) => { setPresetActivo(''); handleFiltroChange('fecha_hasta', e.target.value); }}
+              className="w-full px-2 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 text-sm"
+            />
+          </div>
         </div>
-        {Object.values(filtros).some((v) => v !== '') && (
+
+        {hayFiltros && (
           <div className="mt-3">
             <Button variant="outline" size="sm" onClick={limpiarFiltros}>
-              Limpiar filtros
+              Limpiar todo
             </Button>
           </div>
         )}
@@ -245,8 +442,14 @@ export default function ReportesPerforacionView({ polvorin, polvorines = [], tip
         ) : reportes.length === 0 ? (
           <div className="text-center py-12">
             <HiDocumentText className="w-20 h-20 text-gray-300 mx-auto mb-4" />
-            <p className="text-gray-500 text-lg">No hay reportes registrados</p>
-            <p className="text-sm text-gray-400 mt-2">Cree su primer reporte de perforación y tronadura</p>
+            <p className="text-gray-500 text-lg">
+              {hayFiltros ? 'Ningún reporte coincide con la búsqueda' : 'No hay reportes registrados'}
+            </p>
+            {hayFiltros && (
+              <button onClick={limpiarFiltros} className="text-sm text-red-600 hover:underline mt-2">
+                Limpiar búsqueda
+              </button>
+            )}
           </div>
         ) : (
           <>
@@ -265,15 +468,33 @@ export default function ReportesPerforacionView({ polvorin, polvorines = [], tip
                 </thead>
                 <tbody>
                   {reportes.map((reporte) => (
-                    <tr key={reporte.id} className="border-b hover:bg-red-50/50 even:bg-gray-50/30">
+                    <tr
+                      key={reporte.id}
+                      ref={(el) => { filaRefs.current[reporte.id] = el; }}
+                      className={`border-b transition-colors ${
+                        filaResaltada === reporte.id
+                          ? 'bg-amber-50 ring-2 ring-inset ring-amber-300'
+                          : 'hover:bg-red-50/50 even:bg-gray-50/30'
+                      }`}
+                    >
                       <td className="px-4 py-3">
-                        <span className="font-mono text-xs bg-gray-100 px-2 py-1 rounded">{reporte.codigo}</span>
+                        {(() => {
+                          const partes = String(reporte.codigo || '').split('-');
+                          const corr = partes.length > 1 ? partes[partes.length - 1] : '';
+                          const resto = corr ? reporte.codigo.slice(0, -(corr.length + 1)) : reporte.codigo;
+                          return (
+                            <span className="font-mono text-xs bg-gray-100 px-2 py-1 rounded whitespace-nowrap">
+                              {resto}<span className="text-gray-400">-</span>
+                              <span className="font-semibold text-gray-900">{corr}</span>
+                            </span>
+                          );
+                        })()}
                       </td>
-                      <td className="px-4 py-3 text-gray-900">{reporte.fecha}</td>
+                      <td className="px-4 py-3 text-gray-900 tabular-nums">{fmtFecha(reporte.fecha)}</td>
                       <td className="px-4 py-3 text-center">
                         <span className="px-2 py-1 bg-gray-100 rounded text-xs font-medium">{reporte.turno}</span>
                       </td>
-                      <td className="px-4 py-3 text-center">{getEstadoBadge(reporte.estado)}</td>
+                      <td className="px-4 py-3 text-center">{getEstadoBadge(reporte)}</td>
                       <td className="px-4 py-3 text-center font-medium">{reporte.lineas_count || 0}</td>
                       <td className="px-4 py-3">
                         <div className="flex flex-wrap gap-1">
@@ -291,16 +512,16 @@ export default function ReportesPerforacionView({ polvorin, polvorines = [], tip
                         <div className="flex items-center justify-center gap-1">
                           <button
                             onClick={() => verReporte(reporte)}
-                            className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
-                            title="Ver detalle"
+                            className="p-1.5 text-red-600 hover:bg-red-50 rounded"
+                            title="Abrir reporte"
                           >
-                            {reporte.estado === 'borrador' ? <HiPencil className="w-5 h-5" /> : <HiEye className="w-5 h-5" />}
+                            <HiPencilSquare className="w-5 h-5" />
                           </button>
-                          {reporte.estado === 'borrador' && (
+                          {!reporte.en_correccion && (
                             <button
                               onClick={() => confirmarEliminar(reporte)}
                               className="p-1.5 text-red-600 hover:bg-red-50 rounded"
-                              title="Eliminar"
+                              title="Eliminar reporte"
                             >
                               <HiTrash className="w-5 h-5" />
                             </button>
@@ -328,9 +549,13 @@ export default function ReportesPerforacionView({ polvorin, polvorines = [], tip
         isOpen={showConfirmDelete}
         onClose={() => setShowConfirmDelete(false)}
         onConfirm={eliminarReporte}
-        title="Eliminar Reporte"
-        message={`¿Está seguro de eliminar el reporte "${reporteAEliminar?.codigo}"? Esta acción no se puede deshacer.`}
-        confirmText="Eliminar"
+        title="Eliminar reporte"
+        message={
+          reporteAEliminar && reporteAEliminar.estado !== 'borrador'
+            ? `Eliminar el reporte "${reporteAEliminar?.codigo}"? Se revierten sus movimientos de stock y se borra con todas sus líneas. Esta acción no se puede deshacer.`
+            : `¿Está seguro de eliminar el reporte "${reporteAEliminar?.codigo}"? Esta acción no se puede deshacer.`
+        }
+        confirmText="Eliminar reporte"
         confirmVariant="danger"
       />
     </div>

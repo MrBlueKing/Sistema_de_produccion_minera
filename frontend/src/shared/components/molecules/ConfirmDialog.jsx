@@ -1,6 +1,5 @@
 import { HiExclamationTriangle, HiXMark } from 'react-icons/hi2';
 import Button from '../atoms/Button';
-import Card from '../atoms/Card';
 
 /**
  * ConfirmDialog Component
@@ -57,8 +56,14 @@ export default function ConfirmDialog({
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <Card className="max-w-md w-full animate-fadeIn">
+    <div
+      className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center p-4 z-50"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-lg shadow-2xl p-6 max-w-md w-full animate-fadeIn"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="flex items-start justify-between mb-4">
           <div className="flex items-center gap-3">
@@ -95,7 +100,7 @@ export default function ConfirmDialog({
             {confirmText}
           </Button>
         </div>
-      </Card>
+      </div>
     </div>
   );
 }

@@ -149,8 +149,8 @@ class LaboratorioService {
   }
 
   // Enviar certificado ya aprobado por correo electrónico
-  async enviarCorreoCertificado(numeroCertificado, destinatario, mensaje = null) {
-    const response = await api.post(`/laboratorio/certificados/${numeroCertificado}/enviar-correo`, { destinatario, mensaje });
+  async enviarCorreoCertificado(numeroCertificado, destinatarios, mensaje = null) {
+    const response = await api.post(`/laboratorio/certificados/${numeroCertificado}/enviar-correo`, { destinatarios, mensaje });
     return response.data;
   }
 

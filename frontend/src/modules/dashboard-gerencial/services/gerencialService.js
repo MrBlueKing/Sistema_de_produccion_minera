@@ -83,6 +83,66 @@ const gerencialService = {
     });
     return response;
   },
+
+  // ── Tarifas y Liquidación/Anticipo/Pago (apartado "Tarifas y Liquidaciones") ──
+  // Estos pegan directo a /dispatch/lotes y /dispatch/tarifas: es el mismo
+  // Lote/Tarifa que usa Laboratorio, no un controller paralelo bajo /gerencial.
+  getLotesComercial: async (params = {}) => {
+    const response = await api.get('/dispatch/lotes', {
+      params: {
+        estado: 'Completado',
+        estado_laboratorio: 'Con Paquete Segunda,Canjeado,En Tercero,Resuelto por Tercero,Liquidado,Con Anticipo,Pagado',
+        ...params,
+      },
+    });
+    return response.data;
+  },
+
+  getTarifas: async () => {
+    const response = await api.get('/dispatch/tarifas');
+    return response.data;
+  },
+
+  crearTarifa: async (data) => {
+    const response = await api.post('/dispatch/tarifas', data);
+    return response.data;
+  },
+
+  actualizarTarifa: async (id, data) => {
+    const response = await api.put(`/dispatch/tarifas/${id}`, data);
+    return response.data;
+  },
+
+  eliminarTarifa: async (id) => {
+    const response = await api.delete(`/dispatch/tarifas/${id}`);
+    return response.data;
+  },
+
+  // Extrae los valores desde el PDF de la Circular ENAMI — solo previsualiza,
+  // no guarda nada (el usuario revisa y confirma con crearTarifa()).
+  previsualizarTarifaPdf: async (file) => {
+    const formData = new FormData();
+    formData.append('pdf', file);
+    const response = await api.post('/dispatch/tarifas/previsualizar-pdf', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return response.data;
+  },
+
+  actualizarLiquidacion: async (loteId, data) => {
+    const response = await api.put(`/dispatch/lotes/${loteId}/liquidacion`, data);
+    return response.data;
+  },
+
+  registrarAnticipo: async (loteId, data) => {
+    const response = await api.put(`/dispatch/lotes/${loteId}/anticipo`, data);
+    return response.data;
+  },
+
+  registrarPago: async (loteId, data) => {
+    const response = await api.put(`/dispatch/lotes/${loteId}/pago`, data);
+    return response.data;
+  },
 };
 
 export default gerencialService;

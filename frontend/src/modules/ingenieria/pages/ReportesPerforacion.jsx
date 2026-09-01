@@ -19,14 +19,12 @@ import ReportesPerforacionView from '../../explosivos/components/ReportesPerfora
 import DashboardPerforacion from '../../explosivos/components/DashboardPerforacion';
 import ConfiguracionView from '../../explosivos/components/ConfiguracionView';
 
-// Roles que ven todas las faenas (necesitan elegir una antes de operar). jefe_mina se queda
-// SIEMPRE con su faena por defecto (la asignada a su cuenta en el SAC), sin selector — EXCEPTO
-// si esa misma cuenta también tiene asignado el rol `ingeniero` en este módulo (verificado con
-// hasRole() contra la lista completa de roles del usuario, no solo el rol activo de la sesión):
-// en ese caso ve el selector aunque haya entrado por el acceso directo "Reporte de Perforación y
-// Tronadura" (rol_sistema_externo=jefe_mina), sin cambiar el comportamiento del resto de los
-// jefe_mina que no tienen también ingeniero.
-const ROLES_MULTI_FAENA = ['ingeniero'];
+// Roles que ven todas las faenas y deben elegir una antes de operar (selector previo,
+// se puede cambiar en cualquier momento con "Cambiar faena"). jefe_mina entra aquí porque
+// puede necesitar hacer el ingreso en una faena distinta a la asignada por defecto en su
+// cuenta SAC — el backend ya deja filtrar por cualquier faena (ver faenaParaIngenieria()
+// en ReportePerforacionController), así que esto es solo una decisión de UI.
+const ROLES_MULTI_FAENA = ['ingeniero', 'jefe_mina'];
 // Rol con poderes completos de Administrador de Explosivos (crear polvorín, ver todas las
 // faenas a la vez) — misma experiencia que tenía dentro de Explosivos antes del movimiento.
 const ROLES_ADMIN_COMPLETO = ['admin_explosivos'];
@@ -74,8 +72,11 @@ function ReportesPerforacionContent() {
     }
   }, [esAdminCompleto, faenaId]);
 
-  const loadDatos = async () => {
-    setLoading(true);
+  // `silent` = refresco en segundo plano: no muestra el spinner de página, para
+  // no desmontar la vista de formulario que esté abierta (una acción como
+  // "Habilitar corrección" pide un refresco pero el usuario debe quedarse adentro).
+  const loadDatos = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const [polvorinRes, categoriasRes, tiposRes] = await Promise.all([
         explosivosService.getPolvorinPorFaena(faenaId),
@@ -88,14 +89,14 @@ function ReportesPerforacionContent() {
     } catch (error) {
       console.error('Error cargando datos:', error);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   // Administrador de Explosivos: ve todos los polvorines de todas las faenas a la vez,
   // igual que dentro del módulo Explosivos (esAdmin=true), no queda atado a una sola faena.
-  const loadDatosAdmin = async () => {
-    setLoading(true);
+  const loadDatosAdmin = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const [polvorinesRes, categoriasRes, tiposRes] = await Promise.all([
         explosivosService.getPolvorines(),
@@ -108,11 +109,11 @@ function ReportesPerforacionContent() {
     } catch (error) {
       console.error('Error cargando datos de administrador:', error);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
-  const onRefresh = esAdminCompleto ? loadDatosAdmin : loadDatos;
+  const onRefresh = () => (esAdminCompleto ? loadDatosAdmin(true) : loadDatos(true));
 
   const tabs = [
     { id: 'reportes', label: 'Reportes P&T', icon: HiDocumentText },

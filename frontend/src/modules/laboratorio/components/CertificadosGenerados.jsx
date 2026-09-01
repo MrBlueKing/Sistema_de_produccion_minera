@@ -10,7 +10,11 @@ import Pagination from '../../../shared/components/molecules/Pagination';
 import useDebounce from '../../../hooks/useDebounce';
 import useToast from '../../../hooks/useToast';
 import laboratorioService from '../services/laboratorio';
+import configuracionService from '../../../services/configuracion';
 import { useAuth } from '../../../core/context/AuthContext';
+import extraerMensajeError from '../../../core/services/apiError';
+
+const REGEX_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const ESTADO_BADGE = {
   Pendiente: 'bg-yellow-100 text-yellow-800',
@@ -39,7 +43,17 @@ export default function CertificadosGenerados({ idFaena }) {
   const [aprobando, setAprobando] = useState(null);
   const [detalleModal, setDetalleModal] = useState({ show: false, numero: null, items: [], loading: false });
   const [rechazarModal, setRechazarModal] = useState({ show: false, numero: null, motivo: '', loading: false, estadoActual: null });
-  const [correoModal, setCorreoModal] = useState({ show: false, numero: null, destinatario: '', mensaje: '', loading: false });
+  const [correoModal, setCorreoModal] = useState({ show: false, numero: null, destinatarios: [], mensaje: '', loading: false });
+
+  // Lista de correos frecuentes para enviar certificados — mismo patrón que
+  // "Para" en Laboratorio.jsx, pero acá cada valor debe ser un email real
+  // (el backend valida `destinatario` como email al enviar).
+  const [correosFrecuentes, setCorreosFrecuentes] = useState([]);
+  const [mostrarGestionCorreos, setMostrarGestionCorreos] = useState(true);
+  const [nuevoCorreo, setNuevoCorreo] = useState('');
+  const [editandoCorreo, setEditandoCorreo] = useState(null);
+  const [valorCorreoEditado, setValorCorreoEditado] = useState('');
+  const [guardandoCorreos, setGuardandoCorreos] = useState(false);
 
   // Paginación
   const [currentPage, setCurrentPage] = useState(1);
@@ -89,6 +103,92 @@ export default function CertificadosGenerados({ idFaena }) {
   useEffect(() => {
     cargar();
   }, [cargar]);
+
+  useEffect(() => {
+    loadCorreosFrecuentes();
+  }, []);
+
+  const loadCorreosFrecuentes = async () => {
+    try {
+      const lista = await configuracionService.get('certificado_correos_frecuentes');
+      setCorreosFrecuentes(Array.isArray(lista) ? lista : []);
+    } catch (error) {
+      console.error('Error cargando correos frecuentes:', error);
+    }
+  };
+
+  // Agrega el correo a la lista guardada (si no estaba) y de paso lo deja
+  // seleccionado para este envío — un solo clic hace las dos cosas.
+  const handleAgregarCorreo = async () => {
+    const valor = nuevoCorreo.trim().toLowerCase();
+    if (!valor) return;
+    if (!REGEX_EMAIL.test(valor)) {
+      toast.error('Correo inválido', 'Escribe un correo con formato válido (ej: nombre@empresa.cl)');
+      return;
+    }
+
+    if (!correoModal.destinatarios.includes(valor)) {
+      setCorreoModal((prev) => ({ ...prev, destinatarios: [...prev.destinatarios, valor] }));
+    }
+
+    if (correosFrecuentes.includes(valor)) {
+      setNuevoCorreo('');
+      return;
+    }
+
+    const nuevaLista = [...correosFrecuentes, valor];
+    setGuardandoCorreos(true);
+    try {
+      await configuracionService.update('certificado_correos_frecuentes', JSON.stringify(nuevaLista));
+      setCorreosFrecuentes(nuevaLista);
+      setNuevoCorreo('');
+    } catch (error) {
+      toast.error('Error', 'No se pudo guardar el correo');
+    } finally {
+      setGuardandoCorreos(false);
+    }
+  };
+
+  const handleGuardarEdicionCorreo = async () => {
+    const valorNuevo = valorCorreoEditado.trim().toLowerCase();
+    if (!valorNuevo || valorNuevo === editandoCorreo) {
+      setEditandoCorreo(null);
+      return;
+    }
+    if (!REGEX_EMAIL.test(valorNuevo)) {
+      toast.error('Correo inválido', 'Escribe un correo con formato válido (ej: nombre@empresa.cl)');
+      return;
+    }
+    if (correosFrecuentes.includes(valorNuevo)) {
+      toast.error('Ya existe', 'Ese correo ya está en la lista');
+      return;
+    }
+
+    const nuevaLista = correosFrecuentes.map((c) => (c === editandoCorreo ? valorNuevo : c));
+    setGuardandoCorreos(true);
+    try {
+      await configuracionService.update('certificado_correos_frecuentes', JSON.stringify(nuevaLista));
+      setCorreosFrecuentes(nuevaLista);
+      setEditandoCorreo(null);
+    } catch (error) {
+      toast.error('Error', 'No se pudo actualizar el correo');
+    } finally {
+      setGuardandoCorreos(false);
+    }
+  };
+
+  const handleEliminarCorreo = async (valor) => {
+    const nuevaLista = correosFrecuentes.filter((c) => c !== valor);
+    setGuardandoCorreos(true);
+    try {
+      await configuracionService.update('certificado_correos_frecuentes', JSON.stringify(nuevaLista));
+      setCorreosFrecuentes(nuevaLista);
+    } catch (error) {
+      toast.error('Error', 'No se pudo eliminar el correo');
+    } finally {
+      setGuardandoCorreos(false);
+    }
+  };
 
   const handleSearchChange = (value) => {
     setSearchTerm(value);
@@ -141,7 +241,8 @@ export default function CertificadosGenerados({ idFaena }) {
       window.open(url, '_blank');
       setTimeout(() => window.URL.revokeObjectURL(url), 60000);
     } catch (error) {
-      toast.error('Error al previsualizar', error.response?.data?.message || error.message);
+      const mensaje = await extraerMensajeError(error, 'No se pudo generar la vista previa');
+      toast.error('Error al previsualizar', mensaje);
     } finally {
       setPrevisualizando(null);
     }
@@ -161,7 +262,8 @@ export default function CertificadosGenerados({ idFaena }) {
       document.body.removeChild(link);
       window.URL.revokeObjectURL(url);
     } catch (error) {
-      toast.error('Error al descargar', error.response?.data?.message || error.message);
+      const mensaje = await extraerMensajeError(error, `No se pudo descargar el certificado ${numero}`);
+      toast.error('Error al descargar', mensaje);
     } finally {
       setDescargando(null);
     }
@@ -194,13 +296,29 @@ export default function CertificadosGenerados({ idFaena }) {
     }
   };
 
+  const cerrarCorreoModal = () => {
+    setCorreoModal({ show: false, numero: null, destinatarios: [], mensaje: '', loading: false });
+    setMostrarGestionCorreos(true);
+    setEditandoCorreo(null);
+  };
+
+  // Marca/desmarca un correo de la selección para este envío (multi-destinatario).
+  const toggleDestinatarioSeleccionado = (correo) => {
+    setCorreoModal((prev) => ({
+      ...prev,
+      destinatarios: prev.destinatarios.includes(correo)
+        ? prev.destinatarios.filter((c) => c !== correo)
+        : [...prev.destinatarios, correo],
+    }));
+  };
+
   const confirmarEnvioCorreo = async () => {
-    if (!correoModal.destinatario.trim()) return;
+    if (correoModal.destinatarios.length === 0) return;
     setCorreoModal((prev) => ({ ...prev, loading: true }));
     try {
-      await laboratorioService.enviarCorreoCertificado(correoModal.numero, correoModal.destinatario.trim(), correoModal.mensaje.trim() || null);
+      await laboratorioService.enviarCorreoCertificado(correoModal.numero, correoModal.destinatarios, correoModal.mensaje.trim() || null);
       toast.success('Certificado enviado por correo');
-      setCorreoModal({ show: false, numero: null, destinatario: '', mensaje: '', loading: false });
+      cerrarCorreoModal();
     } catch (error) {
       toast.error('Error al enviar correo', error.response?.data?.message || error.message);
       setCorreoModal((prev) => ({ ...prev, loading: false }));
@@ -325,7 +443,11 @@ export default function CertificadosGenerados({ idFaena }) {
                           variant="secondary"
                           size="sm"
                           icon={HiEnvelope}
-                          onClick={() => setCorreoModal({ show: true, numero: c.certificado, destinatario: '', mensaje: '', loading: false })}
+                          onClick={() => {
+                            setCorreoModal({ show: true, numero: c.certificado, destinatarios: [], mensaje: '', loading: false });
+                            setMostrarGestionCorreos(true);
+                            setEditandoCorreo(null);
+                          }}
                         >
                           Enviar correo
                         </Button>
@@ -455,7 +577,7 @@ export default function CertificadosGenerados({ idFaena }) {
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
               <h3 className="text-lg font-bold text-gray-900">Enviar certificado {correoModal.numero}</h3>
               <button
-                onClick={() => setCorreoModal({ show: false, numero: null, destinatario: '', mensaje: '', loading: false })}
+                onClick={cerrarCorreoModal}
                 className="text-gray-400 hover:text-gray-600"
               >
                 <HiXMark className="w-5 h-5" />
@@ -463,13 +585,107 @@ export default function CertificadosGenerados({ idFaena }) {
             </div>
             <div className="p-6">
               <label className="block text-sm font-medium text-gray-700 mb-1">Correo del destinatario *</label>
-              <input
-                type="email"
-                className="w-full border border-gray-300 rounded-lg p-2 text-sm mb-3"
-                value={correoModal.destinatario}
-                onChange={(e) => setCorreoModal((prev) => ({ ...prev, destinatario: e.target.value }))}
-                placeholder="cliente@empresa.cl"
-              />
+              <p className="text-sm text-gray-700 mb-2 min-h-[1.25rem]">
+                {correoModal.destinatarios.length > 0
+                  ? correoModal.destinatarios.join(', ')
+                  : <span className="text-gray-400 italic">Ningún correo seleccionado</span>}
+              </p>
+
+              <button
+                type="button"
+                onClick={() => setMostrarGestionCorreos((prev) => !prev)}
+                className="text-xs text-gray-500 underline mb-2 block"
+              >
+                {mostrarGestionCorreos ? 'Ocultar' : 'Mostrar'} lista de correos
+              </button>
+
+              {mostrarGestionCorreos && (
+                <div className="mb-3 border border-gray-200 rounded-lg p-2 bg-gray-50">
+                  {correosFrecuentes.length === 0 && (
+                    <p className="text-xs text-gray-400 italic mb-2 px-1">Sin correos guardados todavía</p>
+                  )}
+                  <ul className="space-y-1 mb-2">
+                    {correosFrecuentes.map((c) => {
+                      const seleccionado = correoModal.destinatarios.includes(c);
+                      return (
+                        <li key={c}>
+                          {editandoCorreo === c ? (
+                            <div className="flex items-center gap-2 bg-white border border-gray-200 rounded px-2 py-1.5 text-sm">
+                              <input
+                                type="email"
+                                value={valorCorreoEditado}
+                                onChange={(e) => setValorCorreoEditado(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && handleGuardarEdicionCorreo()}
+                                className="flex-1 border border-gray-300 rounded px-1.5 py-0.5 text-sm"
+                                autoFocus
+                              />
+                              <button type="button" onClick={handleGuardarEdicionCorreo} disabled={guardandoCorreos || !valorCorreoEditado.trim()} className="text-green-600 hover:text-green-800" title="Guardar">
+                                <HiCheckCircle className="w-4 h-4" />
+                              </button>
+                              <button type="button" onClick={() => setEditandoCorreo(null)} className="text-gray-400 hover:text-gray-600" title="Cancelar">
+                                <HiXMark className="w-4 h-4" />
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => toggleDestinatarioSeleccionado(c)}
+                              className={`w-full flex items-center justify-between gap-2 border rounded px-2 py-1.5 text-sm text-left transition-colors ${
+                                seleccionado ? 'bg-blue-50 border-blue-300' : 'bg-white border-gray-200 hover:border-gray-300'
+                              }`}
+                            >
+                              <span className="flex items-center gap-2 min-w-0">
+                                <span className={`flex-shrink-0 w-4 h-4 rounded border flex items-center justify-center ${seleccionado ? 'bg-blue-600 border-blue-600' : 'border-gray-300'}`}>
+                                  {seleccionado && <HiCheckCircle className="w-4 h-4 text-white -m-0.5" />}
+                                </span>
+                                <span className="text-gray-800 truncate">{c}</span>
+                              </span>
+                              <span className="flex items-center gap-2 flex-shrink-0">
+                                <span
+                                  role="button"
+                                  tabIndex={0}
+                                  onClick={(e) => { e.stopPropagation(); setEditandoCorreo(c); setValorCorreoEditado(c); }}
+                                  className="text-blue-500 hover:text-blue-700 text-xs font-medium"
+                                >
+                                  Editar
+                                </span>
+                                <span
+                                  role="button"
+                                  tabIndex={0}
+                                  onClick={(e) => { e.stopPropagation(); handleEliminarCorreo(c); }}
+                                  className="text-red-400 hover:text-red-600"
+                                  title="Eliminar de la lista"
+                                >
+                                  <HiXMark className="w-4 h-4" />
+                                </span>
+                              </span>
+                            </button>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  <div className="flex gap-2">
+                    <input
+                      type="email"
+                      value={nuevoCorreo}
+                      onChange={(e) => setNuevoCorreo(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleAgregarCorreo()}
+                      placeholder="Nuevo correo..."
+                      className="flex-1 border border-gray-300 rounded px-2 py-1 text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAgregarCorreo}
+                      disabled={guardandoCorreos || !nuevoCorreo.trim()}
+                      className="text-sm font-semibold text-blue-700 disabled:text-gray-300"
+                    >
+                      Agregar
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <label className="block text-sm font-medium text-gray-700 mb-1">Mensaje (opcional)</label>
               <textarea
                 className="w-full border border-gray-300 rounded-lg p-2 text-sm"
@@ -482,7 +698,7 @@ export default function CertificadosGenerados({ idFaena }) {
                 <Button
                   variant="secondary"
                   size="sm"
-                  onClick={() => setCorreoModal({ show: false, numero: null, destinatario: '', mensaje: '', loading: false })}
+                  onClick={cerrarCorreoModal}
                 >
                   Cancelar
                 </Button>
@@ -491,7 +707,7 @@ export default function CertificadosGenerados({ idFaena }) {
                   size="sm"
                   icon={HiEnvelope}
                   onClick={confirmarEnvioCorreo}
-                  disabled={!correoModal.destinatario.trim() || correoModal.loading}
+                  disabled={correoModal.destinatarios.length === 0 || correoModal.loading}
                 >
                   {correoModal.loading ? 'Enviando...' : 'Enviar'}
                 </Button>

@@ -9,6 +9,8 @@ import {
   HiInformationCircle,
   HiTag,
   HiCalendar,
+  HiPencilSquare,
+  HiMagnifyingGlass,
 } from 'react-icons/hi2';
 import Card from '../../../shared/components/atoms/Card';
 import Button from '../../../shared/components/atoms/Button';
@@ -32,27 +34,42 @@ function formatNum(val) {
 }
 
 const TURNO_CONFIG = {
-  dia:   { label: 'Turno Día',   bg: 'bg-amber-100 text-amber-700',  dot: 'bg-amber-400' },
-  noche: { label: 'Turno Noche', bg: 'bg-indigo-100 text-indigo-700', dot: 'bg-indigo-400' },
+  AM:        { label: 'AM',        bg: 'bg-amber-100 text-amber-700',   dot: 'bg-amber-400' },
+  PM:        { label: 'PM',        bg: 'bg-orange-100 text-orange-700',  dot: 'bg-orange-400' },
+  Noche:     { label: 'Noche',     bg: 'bg-indigo-100 text-indigo-700', dot: 'bg-indigo-400' },
+  Madrugada: { label: 'Madrugada', bg: 'bg-violet-100 text-violet-700', dot: 'bg-violet-400' },
+  // valores legados
+  dia:   { label: 'Día',   bg: 'bg-amber-100 text-amber-700',  dot: 'bg-amber-400' },
+  noche: { label: 'Noche', bg: 'bg-indigo-100 text-indigo-700', dot: 'bg-indigo-400' },
 };
 
 // ─── OrdenTrabajo ─────────────────────────────────────────────────────────────
-// Vista tipo "hoja de orden" — todo visible sin interacción
+// Hoja de orden: encabezado + totales siempre visibles; el desglose por frente
+// se carga y muestra solo si se pide (antes venía siempre y la lista era enorme).
 
 function OrdenTrabajo({ reporte, onCerrar }) {
   const [lineas, setLineas] = useState([]);
-  const [loadingLineas, setLoadingLineas] = useState(true);
+  const [loadingLineas, setLoadingLineas] = useState(false);
+  const [expandido, setExpandido] = useState(false);
+  const [yaCargado, setYaCargado] = useState(false);
 
   const esPendiente = reporte.estado === 'confirmado';
-  const turno = TURNO_CONFIG[reporte.turno] || TURNO_CONFIG.dia;
+  const turno = TURNO_CONFIG[reporte.turno]
+    || { label: reporte.turno || '—', bg: 'bg-gray-100 text-gray-600', dot: 'bg-gray-400' };
   const totales = reporte.totales_explosivos || [];
+  const nFrentes = reporte.lineas_count ?? 0;
 
-  useEffect(() => {
-    explosivosService.getReporte(reporte.id)
-      .then(d => setLineas(d.lineas || []))
-      .catch(() => setLineas([]))
-      .finally(() => setLoadingLineas(false));
-  }, [reporte.id]);
+  const toggleDesglose = () => {
+    const abrir = !expandido;
+    setExpandido(abrir);
+    if (abrir && !yaCargado) {
+      setLoadingLineas(true);
+      explosivosService.getReporte(reporte.id)
+        .then(d => setLineas(d.lineas || []))
+        .catch(() => setLineas([]))
+        .finally(() => { setLoadingLineas(false); setYaCargado(true); });
+    }
+  };
 
   return (
     <div className={`bg-white rounded-xl overflow-hidden border ${
@@ -60,27 +77,23 @@ function OrdenTrabajo({ reporte, onCerrar }) {
     }`}>
 
       {/* ── Encabezado ─────────────────────────────────────────────────────── */}
-      <div className={`px-5 py-3 flex flex-wrap items-center justify-between gap-3 ${
-        esPendiente
-          ? 'bg-gradient-to-r from-blue-600 to-blue-700 text-white'
-          : 'bg-gray-100 text-gray-600'
+      <div className={`px-5 py-3 flex flex-wrap items-center justify-between gap-3 border-b ${
+        esPendiente ? 'bg-blue-50 border-blue-200' : 'bg-gray-50 border-gray-100'
       }`}>
         <div className="flex items-center gap-3 flex-wrap">
-          <span className={`font-mono text-sm font-bold ${esPendiente ? 'text-white' : 'text-gray-700'}`}>
+          <span className="font-mono text-sm font-bold text-gray-800">
             {reporte.codigo}
           </span>
-          <span className={`flex items-center gap-1.5 text-xs ${esPendiente ? 'text-blue-100' : 'text-gray-500'}`}>
+          <span className="flex items-center gap-1.5 text-xs text-gray-500">
             <HiCalendar className="w-3.5 h-3.5" />
             {formatFecha(reporte.fecha)}
           </span>
-          <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full ${
-            esPendiente ? 'bg-white/20 text-white' : turno.bg
-          }`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${esPendiente ? 'bg-white' : turno.dot}`} />
+          <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full ${turno.bg}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${turno.dot}`} />
             {turno.label}
           </span>
           {reporte.confirmado_por && (
-            <span className={`flex items-center gap-1 text-xs ${esPendiente ? 'text-blue-100' : 'text-gray-400'}`}>
+            <span className="flex items-center gap-1 text-xs text-gray-400">
               <HiUser className="w-3.5 h-3.5" />
               {reporte.confirmado_por}
             </span>
@@ -90,26 +103,40 @@ function OrdenTrabajo({ reporte, onCerrar }) {
         {esPendiente ? (
           <button
             onClick={() => onCerrar(reporte)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold bg-white text-blue-700 hover:bg-blue-50 rounded-lg transition-colors shrink-0"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-semibold bg-blue-600 text-white hover:bg-blue-700 rounded-lg transition-colors shrink-0"
           >
             <HiCheckCircle className="w-4 h-4" />
             Marcar preparado
           </button>
         ) : (
-          <span className="flex items-center gap-1.5 text-xs text-gray-400">
-            <HiCheckCircle className="w-4 h-4 text-green-500" />
+          <span className="flex items-center gap-1.5 text-xs text-green-600 font-medium">
+            <HiCheckCircle className="w-4 h-4" />
             Preparado
           </span>
         )}
       </div>
 
-      {/* ── Totales ────────────────────────────────────────────────────────── */}
-      <div className={`px-5 py-3 border-b flex flex-wrap items-center gap-x-6 gap-y-2 ${
-        esPendiente ? 'bg-amber-50 border-amber-100' : 'bg-gray-50 border-gray-100'
-      }`}>
-        <span className={`text-xs font-semibold uppercase tracking-wider shrink-0 flex items-center gap-1.5 ${
-          esPendiente ? 'text-amber-700' : 'text-gray-400'
+      {/* ── Aviso de corrección ───────────────────────────────────────────── */}
+      {reporte.corregido_en && (
+        <div className={`px-5 py-2.5 border-b text-xs flex items-start gap-2 ${
+          reporte.corregido_toco_devoluciones
+            ? 'bg-amber-50 border-amber-200 text-amber-800'
+            : 'bg-blue-50 border-blue-100 text-blue-700'
         }`}>
+          <HiPencilSquare className="w-4 h-4 shrink-0 mt-0.5" />
+          <span>
+            <strong>Reporte corregido</strong> el {formatFecha(reporte.corregido_en)}
+            {reporte.corregido_por ? ` por ${reporte.corregido_por}` : ''}.
+            {reporte.corregido_toco_devoluciones
+              ? ' Las devoluciones fueron ajustadas — revisá que el conteo físico siga siendo correcto.'
+              : ' Los datos de perforación cambiaron; las devoluciones no se tocaron.'}
+          </span>
+        </div>
+      )}
+
+      {/* ── Totales ────────────────────────────────────────────────────────── */}
+      <div className="px-5 py-3 border-b border-gray-100 bg-white flex flex-wrap items-center gap-x-6 gap-y-2">
+        <span className="text-xs font-semibold uppercase tracking-wider shrink-0 flex items-center gap-1.5 text-gray-500">
           <HiCube className="w-3.5 h-3.5" />
           {esPendiente ? 'Total a preparar' : 'Total preparado'}
         </span>
@@ -118,13 +145,13 @@ function OrdenTrabajo({ reporte, onCerrar }) {
         ) : (
           totales.map((t) => (
             <div key={t.id_tipo_explosivo} className="flex items-baseline gap-1.5">
-              <span className={`font-mono text-xs font-medium ${esPendiente ? 'text-amber-600' : 'text-gray-500'}`}>
+              <span className="font-mono text-xs font-medium text-gray-500">
                 {t.tipo_explosivo?.codigo}
               </span>
-              <span className={`text-lg font-bold leading-none ${esPendiente ? 'text-amber-900' : 'text-gray-700'}`}>
+              <span className="text-lg font-bold leading-none text-gray-800 tabular-nums">
                 {formatNum(t.cantidad_total)}
               </span>
-              <span className={`text-xs ${esPendiente ? 'text-amber-500' : 'text-gray-400'}`}>
+              <span className="text-xs text-gray-400">
                 {t.tipo_explosivo?.unidad_medida}
               </span>
             </div>
@@ -132,24 +159,34 @@ function OrdenTrabajo({ reporte, onCerrar }) {
         )}
       </div>
 
-      {/* ── Desglose por frente ────────────────────────────────────────────── */}
-      {loadingLineas ? (
+      {/* ── Desglose por frente (colapsable) ───────────────────────────────── */}
+      {nFrentes > 0 && (
+        <button
+          onClick={toggleDesglose}
+          className="w-full px-5 py-2 bg-gray-50 border-b border-gray-100 flex items-center gap-1.5 hover:bg-gray-100 transition-colors text-left"
+        >
+          <HiTag className="w-3.5 h-3.5 text-gray-400" />
+          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+            {expandido ? 'Ocultar desglose por frente' : 'Ver desglose por frente'}
+          </span>
+          <span className="text-xs text-gray-400 font-normal ml-1">
+            ({nFrentes} {nFrentes === 1 ? 'frente' : 'frentes'})
+          </span>
+          <span className="ml-auto text-gray-400 text-xs">{expandido ? '▾' : '▸'}</span>
+        </button>
+      )}
+
+      {expandido && loadingLineas && (
         <div className="flex justify-center py-6">
           <div className="w-5 h-5 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
         </div>
-      ) : lineas.length === 0 ? (
+      )}
+      {expandido && !loadingLineas && lineas.length === 0 && (
         <div className="px-5 py-4 text-xs text-gray-400 italic text-center">
           Sin desglose por frente disponible
         </div>
-      ) : (
-        <>
-        <div className="px-5 py-2 bg-gray-50 border-b border-gray-100 flex items-center gap-1.5">
-          <HiTag className="w-3.5 h-3.5 text-gray-400" />
-          <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-            Desglose por frente
-          </span>
-          <span className="text-xs text-gray-400 font-normal ml-1">({lineas.length} {lineas.length === 1 ? 'frente' : 'frentes'})</span>
-        </div>
+      )}
+      {expandido && !loadingLineas && lineas.length > 0 && (
         <div className="divide-y divide-gray-100">
           {lineas.map((linea, idx) => (
             <div key={linea.id} className={`px-5 py-3 flex flex-col sm:flex-row sm:items-start gap-3 ${
@@ -199,11 +236,7 @@ function OrdenTrabajo({ reporte, onCerrar }) {
                   return (
                     <div
                       key={exp.id}
-                      className={`w-20 rounded-lg py-2 px-1 border-2 text-center shrink-0 ${
-                        esPendiente
-                          ? 'bg-amber-50 border-amber-400 text-amber-900'
-                          : 'bg-gray-100 border-gray-300 text-gray-700'
-                      }`}
+                      className="w-20 rounded-lg py-2 px-1 border border-gray-200 bg-gray-50 text-gray-700 text-center shrink-0"
                     >
                       <p className="font-mono text-xs font-semibold leading-tight truncate px-1">
                         {exp.tipo_explosivo?.codigo}
@@ -211,7 +244,7 @@ function OrdenTrabajo({ reporte, onCerrar }) {
                       <p className="text-lg font-bold leading-none tabular-nums mt-1">
                         {formatNum(exp.cantidad_final ?? exp.cantidad_calculada)}
                       </p>
-                      <p className={`text-xs leading-tight mt-0.5 truncate px-1 ${esPendiente ? 'text-amber-600' : 'text-gray-400'}`}>
+                      <p className="text-xs leading-tight mt-0.5 truncate px-1 text-gray-400">
                         {exp.tipo_explosivo?.unidad_medida}
                       </p>
                     </div>
@@ -221,7 +254,6 @@ function OrdenTrabajo({ reporte, onCerrar }) {
             </div>
           ))}
         </div>
-        </>
       )}
 
       {/* Observaciones */}
@@ -267,7 +299,7 @@ function CerrarModal({ reporte, onClose, onConfirm, submitting }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm p-4">
       <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full max-h-[90vh] flex flex-col">
         <div className="px-6 py-4 border-b flex items-center justify-between">
           <div>
@@ -354,34 +386,50 @@ function CerrarModal({ reporte, onClose, onConfirm, submitting }) {
 
 // ─── SolicitudesView principal ─────────────────────────────────────────────────
 
-export default function SolicitudesView({ polvorin, tipos, faenaActual, onRefresh }) {
+export default function SolicitudesView({ polvorin, onRefresh }) {
   const toast = useToast();
 
   const [loading, setLoading] = useState(true);
   const [reportes, setReportes] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [totalRecords, setTotalRecords] = useState(0);
 
   const [filtroEstado, setFiltroEstado] = useState('confirmado');
-  const [filtroFecha, setFiltroFecha] = useState('');
+  const [fechaDesde, setFechaDesde] = useState('');
+  const [fechaHasta, setFechaHasta] = useState('');
+  const [preset, setPreset] = useState('');
+  const [buscar, setBuscar] = useState('');
+  const [buscarInput, setBuscarInput] = useState('');
 
   const [reporteACerrar, setReporteACerrar] = useState(null);
   const [submittingCerrar, setSubmittingCerrar] = useState(false);
+  const [resumenSalida, setResumenSalida] = useState(null);
+
+  // debounce del buscador
+  useEffect(() => {
+    const t = setTimeout(() => { setBuscar(buscarInput); setCurrentPage(1); }, 350);
+    return () => clearTimeout(t);
+  }, [buscarInput]);
 
   useEffect(() => {
     if (polvorin?.id) loadReportes();
-  }, [polvorin, currentPage, filtroEstado, filtroFecha]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [polvorin, currentPage, filtroEstado, fechaDesde, fechaHasta, buscar]);
 
   const loadReportes = async () => {
     setLoading(true);
     try {
       const params = { id_polvorin: polvorin.id, page: currentPage, per_page: 10 };
       if (filtroEstado) params.estado = filtroEstado;
-      if (filtroFecha) { params.fecha_desde = filtroFecha; params.fecha_hasta = filtroFecha; }
+      if (fechaDesde) params.fecha_desde = fechaDesde;
+      if (fechaHasta) params.fecha_hasta = fechaHasta;
+      if (buscar) params.buscar = buscar;
 
       const response = await explosivosService.getReportes(params);
       setReportes(response.data || []);
       setTotalPages(response.last_page || 1);
+      setTotalRecords(response.total || 0);
     } catch {
       toast.error('Error', 'No se pudieron cargar las solicitudes');
     } finally {
@@ -389,15 +437,41 @@ export default function SolicitudesView({ polvorin, tipos, faenaActual, onRefres
     }
   };
 
+  const aplicarPreset = (id) => {
+    const hoy = new Date();
+    const f = (d) => d.toISOString().slice(0, 10);
+    let desde = '', hasta = '';
+    if (id === preset) { setPreset(''); setFechaDesde(''); setFechaHasta(''); setCurrentPage(1); return; }
+    if (id === 'hoy') { desde = hasta = f(hoy); }
+    else if (id === 'semana') {
+      const lunes = new Date(hoy); lunes.setDate(hoy.getDate() - ((hoy.getDay() + 6) % 7));
+      desde = f(lunes); hasta = f(hoy);
+    } else if (id === 'mes') { desde = f(new Date(hoy.getFullYear(), hoy.getMonth(), 1)); hasta = f(hoy); }
+    else if (id === 'mes_pasado') {
+      const y = hoy.getMonth() === 0 ? hoy.getFullYear() - 1 : hoy.getFullYear();
+      const m = hoy.getMonth() === 0 ? 11 : hoy.getMonth() - 1;
+      desde = f(new Date(y, m, 1)); hasta = f(new Date(y, m + 1, 0));
+    }
+    setPreset(id); setFechaDesde(desde); setFechaHasta(hasta); setCurrentPage(1);
+  };
+
   const handleCerrar = async (devoluciones) => {
     if (!reporteACerrar) return;
     setSubmittingCerrar(true);
     try {
-      if (devoluciones.length > 0) {
-        await explosivosService.registrarDevoluciones(reporteACerrar.id, devoluciones);
-      }
-      await explosivosService.cerrarReporte(reporteACerrar.id);
+      // registrarDevoluciones ya cierra el reporte; cerrarReporte es solo para el
+      // caso sin devoluciones. Llamar a los dos deja el segundo en 422.
+      // Acá recién se genera la salida real de stock (planificado - devuelto),
+      // así que mostramos el resumen de movimientos generados en este paso.
+      const res = devoluciones.length > 0
+        ? await explosivosService.registrarDevoluciones(reporteACerrar.id, devoluciones)
+        : await explosivosService.cerrarReporte(reporteACerrar.id);
+
       toast.success('Solicitud cerrada', `${reporteACerrar.codigo} fue marcada como preparada`);
+      setResumenSalida({
+        codigo: reporteACerrar.codigo,
+        movimientos: (res.reporte?.movimientos || []).filter((m) => m.tipo === 'salida'),
+      });
       setReporteACerrar(null);
       loadReportes();
       onRefresh?.();
@@ -450,31 +524,66 @@ export default function SolicitudesView({ polvorin, tipos, faenaActual, onRefres
         </div>
 
         {/* Filtros */}
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          {FILTROS.map(f => (
-            <button
-              key={f.value}
-              onClick={() => { setFiltroEstado(f.value); setCurrentPage(1); }}
-              className={`text-sm px-3 py-1 rounded-full border transition-all ${
-                filtroEstado === f.value
-                  ? 'bg-red-600 text-white border-red-600'
-                  : 'bg-white text-gray-600 border-gray-300 hover:border-red-300 hover:text-red-600'
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
-          <input
-            type="date"
-            value={filtroFecha}
-            onChange={(e) => { setFiltroFecha(e.target.value); setCurrentPage(1); }}
-            className="ml-auto text-sm px-3 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500"
-          />
-          {filtroFecha && (
-            <button onClick={() => setFiltroFecha('')} className="text-gray-400 hover:text-gray-600">
-              <HiXMark className="w-4 h-4" />
-            </button>
-          )}
+        <div className="mt-3 space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {FILTROS.map(f => (
+              <button
+                key={f.value}
+                onClick={() => { setFiltroEstado(f.value); setCurrentPage(1); }}
+                className={`text-sm px-3 py-1 rounded-full border transition-all ${
+                  filtroEstado === f.value
+                    ? 'bg-red-600 text-white border-red-600'
+                    : 'bg-white text-gray-600 border-gray-300 hover:border-red-300 hover:text-red-600'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+            <div className="ml-auto relative">
+              <HiMagnifyingGlass className="w-4 h-4 text-gray-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={buscarInput}
+                onChange={(e) => setBuscarInput(e.target.value)}
+                placeholder="Buscar por código…"
+                className="text-sm pl-8 pr-7 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 w-52"
+              />
+              {buscarInput && (
+                <button onClick={() => setBuscarInput('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                  <HiXMark className="w-4 h-4" />
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {[
+              { id: 'hoy', l: 'Hoy' }, { id: 'semana', l: 'Esta semana' },
+              { id: 'mes', l: 'Este mes' }, { id: 'mes_pasado', l: 'Mes pasado' },
+            ].map(p => (
+              <button
+                key={p.id}
+                onClick={() => aplicarPreset(p.id)}
+                className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                  preset === p.id ? 'bg-gray-700 text-white border-gray-700' : 'bg-white text-gray-500 border-gray-300 hover:border-gray-400'
+                }`}
+              >
+                {p.l}
+              </button>
+            ))}
+            <span className="text-xs text-gray-400 mx-1">o rango:</span>
+            <input type="date" value={fechaDesde}
+              onChange={(e) => { setPreset(''); setFechaDesde(e.target.value); setCurrentPage(1); }}
+              className="text-xs px-2 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500" />
+            <input type="date" value={fechaHasta}
+              onChange={(e) => { setPreset(''); setFechaHasta(e.target.value); setCurrentPage(1); }}
+              className="text-xs px-2 py-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500" />
+            {(fechaDesde || fechaHasta) && (
+              <button onClick={() => { setPreset(''); setFechaDesde(''); setFechaHasta(''); setCurrentPage(1); }}
+                className="text-gray-400 hover:text-gray-600">
+                <HiXMark className="w-4 h-4" />
+              </button>
+            )}
+          </div>
         </div>
       </Card>
 
@@ -506,7 +615,13 @@ export default function SolicitudesView({ polvorin, tipos, faenaActual, onRefres
               />
             ))}
           </div>
-          <Pagination currentPage={currentPage} totalPages={totalPages} onPageChange={setCurrentPage} />
+          <Pagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            totalRecords={totalRecords}
+            perPage={10}
+            onPageChange={setCurrentPage}
+          />
         </>
       )}
 
@@ -518,6 +633,33 @@ export default function SolicitudesView({ polvorin, tipos, faenaActual, onRefres
           onConfirm={handleCerrar}
           submitting={submittingCerrar}
         />
+      )}
+
+      {/* Resumen de la salida real generada al cerrar (recién acá se descuenta stock) */}
+      {resumenSalida && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6">
+            <h3 className="text-lg font-bold text-gray-800 mb-1">Movimientos de Salida Generados</h3>
+            <p className="text-xs text-gray-500 mb-4">{resumenSalida.codigo} — recién ahora se descontó del stock del polvorín.</p>
+            {resumenSalida.movimientos.length === 0 ? (
+              <p className="text-sm text-gray-500">No hubo salida neta (todo lo planificado fue devuelto).</p>
+            ) : (
+              <div className="space-y-2">
+                {resumenSalida.movimientos.map((m, i) => (
+                  <div key={i} className="flex justify-between items-center p-2 bg-red-50 rounded">
+                    <span className="text-sm font-medium">{m.tipo_explosivo?.codigo} - {m.tipo_explosivo?.nombre}</span>
+                    <span className="text-sm font-bold text-red-700">-{parseFloat(m.cantidad).toLocaleString('es-CL')}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="mt-4 flex justify-end">
+              <Button variant="primary" onClick={() => setResumenSalida(null)}>
+                Entendido
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

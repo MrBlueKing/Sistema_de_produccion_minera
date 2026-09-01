@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { HiHome, HiCheckCircle, HiInformationCircle, HiBeaker, HiArrowPath, HiDocumentText, HiDocumentArrowDown, HiPencil, HiXMark, HiCheck } from 'react-icons/hi2';
+import { HiHome, HiCheckCircle, HiInformationCircle, HiBeaker, HiArrowPath, HiDocumentText, HiDocumentArrowDown, HiPencil, HiXMark, HiCheck, HiCube } from 'react-icons/hi2';
 import Header from '../../../shared/components/organisms/Header';
 import Button from '../../../shared/components/atoms/Button';
 import Card from '../../../shared/components/atoms/Card';
@@ -10,8 +10,10 @@ import TableFilters from '../../../shared/components/molecules/TableFilters';
 import useDebounce from '../../../hooks/useDebounce';
 import useToast from '../../../hooks/useToast';
 import laboratorioService from '../services/laboratorio';
+import extraerMensajeError from '../../../core/services/apiError';
 import configuracionService from '../../../services/configuracion';
 import CertificadosGenerados from '../components/CertificadosGenerados';
+import LotesLaboratorio from '../components/LotesLaboratorio';
 import ingenieriaService from '../../ingenieria/services/ingenieria';
 import api from '../../../core/services/api';
 
@@ -170,8 +172,8 @@ export default function Laboratorio() {
 
       Object.keys(params).forEach(key => params[key] === undefined && delete params[key]);
 
-      if (vistaActual === 'certificados') {
-        // Esta vista carga sus propios datos en <CertificadosGenerados />
+      if (vistaActual === 'certificados' || vistaActual === 'lotes') {
+        // Estas vistas cargan sus propios datos en su componente
         setLoading(false);
         return;
       }
@@ -222,6 +224,57 @@ export default function Laboratorio() {
 
     return `${dia}-${mes}-${anio}`;
   };
+
+  // Color estable por N° de certificado (para distinguir de un vistazo qué filas
+  // pertenecen al mismo certificado en Historial — no son consecutivas, se mezclan
+  // con filas "Pendiente" sin certificado, así que no sirve alternar por índice).
+  const PALETA_CERTIFICADOS = ['#fef3c7', '#dbeafe', '#fce7f3', '#e0e7ff', '#d1fae5', '#fed7aa'];
+  const indicePorCertificado = (numeroCertificado) => {
+    const texto = String(numeroCertificado);
+    let hash = 0;
+    for (let i = 0; i < texto.length; i++) {
+      hash = (hash * 31 + texto.charCodeAt(i)) % PALETA_CERTIFICADOS.length;
+    }
+    return hash;
+  };
+
+  // Colores ya resueltos por fila: el hash de arriba es estable por certificado, pero
+  // no garantiza que 2 certificados *distintos* que caen uno justo al lado del otro se
+  // vean diferentes (ej. 289002 y 289011 podían "hashear" al mismo color por casualidad).
+  // Acá se recorre en orden y, si un certificado nuevo empieza con el mismo color que la
+  // fila anterior, se corre al siguiente color de la paleta — sin romper que el mismo
+  // certificado mantenga su color mientras se repite en filas consecutivas.
+  const coloresPorCertificado = (() => {
+    const colores = [];
+    let certificadoAnterior = null;
+    let colorAnterior = null;
+    dumpadas.forEach((d) => {
+      if (!d.certificado) {
+        colores.push(null);
+        certificadoAnterior = null;
+        colorAnterior = null;
+        return;
+      }
+      let color;
+      if (d.certificado === certificadoAnterior) {
+        // Sigue el mismo bloque de certificado: mantener el color ya asignado,
+        // no recalcularlo (si no, un bloque largo del mismo certificado podía
+        // "perder" el color corrido a mitad de camino).
+        color = colorAnterior;
+      } else {
+        let idx = indicePorCertificado(d.certificado);
+        color = PALETA_CERTIFICADOS[idx];
+        if (color === colorAnterior) {
+          idx = (idx + 1) % PALETA_CERTIFICADOS.length;
+          color = PALETA_CERTIFICADOS[idx];
+        }
+      }
+      colores.push(color);
+      certificadoAnterior = d.certificado;
+      colorAnterior = color;
+    });
+    return colores;
+  })();
 
   // Handlers para filtros
   const handleSearchChange = (value) => {
@@ -356,8 +409,11 @@ export default function Laboratorio() {
     const sinCertificado = dumpadasList.filter(d => !d.certificado);
 
     // Si todas las sin certificado están seleccionadas, deseleccionar
-    const allSinCertificadoIds = sinCertificado.map(d => d.id);
-    const todasSeleccionadas = allSinCertificadoIds.every(id => selectedHistorialIds.includes(id));
+    // (comparar por _key, no por id: selectedHistorialIds guarda _key para no
+    // colisionar entre dumpadas y muestras libres — comparar por id acá nunca
+    // matcheaba y el checkbox de "seleccionar todo" no deseleccionaba nunca)
+    const allSinCertificadoKeys = sinCertificado.map(d => d._key);
+    const todasSeleccionadas = allSinCertificadoKeys.every(key => selectedHistorialIds.includes(key));
 
     if (todasSeleccionadas && selectedHistorialIds.length > 0) {
       setSelectedHistorialIds([]);
@@ -437,7 +493,8 @@ export default function Laboratorio() {
       setTimeout(() => window.URL.revokeObjectURL(url), 60000);
     } catch (error) {
       console.error('Error previsualizando certificado:', error);
-      toast.error('Error al previsualizar', error.response?.data?.message || error.message || 'No se pudo generar la vista previa');
+      const mensaje = await extraerMensajeError(error, 'No se pudo generar la vista previa');
+      toast.error('Error al previsualizar', mensaje);
     } finally {
       setPrevisualizando(false);
     }
@@ -689,10 +746,8 @@ export default function Laboratorio() {
       toast.success('PDF descargado', `Certificado ${numeroCertificado} descargado correctamente`);
     } catch (error) {
       console.error('Error regenerando certificado:', error);
-      toast.error(
-        'Error al descargar',
-        error.response?.data?.message || `No se pudo descargar el certificado ${numeroCertificado}`
-      );
+      const mensaje = await extraerMensajeError(error, `No se pudo descargar el certificado ${numeroCertificado}`);
+      toast.error('Error al descargar', mensaje);
     } finally {
       setRegenerandoCertificado(null);
     }
@@ -1273,6 +1328,18 @@ export default function Laboratorio() {
                 <HiDocumentArrowDown className="w-4 h-4" />
                 Certificados
               </button>
+              <button
+                onClick={() => handleCambiarVista('lotes')}
+                disabled={loading}
+                className={`py-3 px-4 text-sm font-semibold border-b-2 transition-colors flex items-center gap-2 ${
+                  vistaActual === 'lotes'
+                    ? 'border-purple-600 text-purple-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                } ${loading ? 'cursor-wait' : ''}`}
+              >
+                <HiCube className="w-4 h-4" />
+                Lotes
+              </button>
             </nav>
           </div>
         </div>
@@ -1320,6 +1387,8 @@ export default function Laboratorio() {
         {/* Listado */}
         {vistaActual === 'certificados' ? (
           <CertificadosGenerados idFaena={filters.id_faena} />
+        ) : vistaActual === 'lotes' ? (
+          <LotesLaboratorio />
         ) : (
         <Card className={`border-l-4 ${vistaActual === 'pendientes' ? 'border-orange-400' : 'border-green-400'}`}>
           <div className="mb-6 flex items-start justify-between flex-wrap gap-3">
@@ -1686,7 +1755,7 @@ export default function Laboratorio() {
                             <tr
                               key={dumpada._key}
                               style={{
-                                backgroundColor: isSelected ? '#dcfce7' : (tieneCertificado ? '#fefce8' : backgroundColor),
+                                backgroundColor: isSelected ? '#dcfce7' : (tieneCertificado ? coloresPorCertificado[index] : backgroundColor),
                               }}
                               className={`border-b border-gray-200 transition-all ${
                                 esSeleccionable ? 'hover:bg-green-50 cursor-pointer' : 'cursor-default'

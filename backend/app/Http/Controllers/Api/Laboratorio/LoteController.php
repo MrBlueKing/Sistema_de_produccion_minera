@@ -24,6 +24,17 @@ class LoteController extends Controller
     }
 
     /**
+     * Mismo permiso que habilita aprobar/rechazar certificados (ver
+     * CertificadoController::tienePermisoAprobacion) — Jefe de Laboratorio
+     * lo tiene, Análisis de Muestras no. Debe coincidir exactamente con el
+     * permiso creado en el SAC (módulo Laboratorio).
+     */
+    private function tienePermisoGestionarLeyes(Request $request): bool
+    {
+        return in_array('aprobar_certificados_laboratorio', $request->input('auth_permisos') ?? []);
+    }
+
+    /**
      * Listar todos los lotes con paginación y búsqueda
      * GET /api/dispatch/lotes
      *
@@ -73,6 +84,14 @@ class LoteController extends Controller
 
         if ($request->has('estado') && !empty($request->estado)) {
             $query->where('estado', $request->estado);
+        }
+
+        // Filtro por estado_laboratorio: acepta uno o varios separados por coma
+        // (usado por el apartado comercial de Gerencial, para no traer lotes
+        // que todavia ni siquiera tienen Ley Paquete Segunda cargada).
+        if ($request->has('estado_laboratorio') && !empty($request->estado_laboratorio)) {
+            $estados = array_filter(array_map('trim', explode(',', $request->estado_laboratorio)));
+            $query->whereIn('estado_laboratorio', $estados);
         }
 
         if ($request->has('fecha_desde') && !empty($request->fecha_desde)) {
@@ -135,6 +154,32 @@ class LoteController extends Controller
         $loteData['ley_lote_promedio'] = $lote->getLeyLotePromedio();
         $loteData['ley_lab_promedio'] = $lote->getLeyLabPromedio();
         $loteData['ley_visual_promedio'] = $lote->getLeyVisualPromedio();
+
+        // Preview del Saldo Líquido esperado (solo USD, sin tasa de cambio)
+        // una vez que el lote ya tiene ley resuelta pero aún no se carga la
+        // liquidación real — para "adelantar" el dato antes de que llegue el PDF.
+        $loteData['saldo_preliminar'] = null;
+        $loteData['saldo_detalle'] = null;
+        if ($lote->liquidacion_numero === null && ($lote->ley_canje !== null || $lote->ley_paquete_tercera !== null)) {
+            $preview = $lote->calcularSaldoLiquidoEsperado();
+            $loteData['saldo_liquido_estimado_usd'] = $preview['saldo_liquido_usd'] ?? null;
+            $loteData['saldo_detalle'] = isset($preview['error']) ? null : $preview;
+        } else {
+            $loteData['saldo_liquido_estimado_usd'] = null;
+            // Antes de que exista Canje/Tercera: estimado con lo que ya haya de
+            // Laboratorio (Segunda) y/o Planta (Primera) — pedido de gerencia
+            // para saber cuánto se va a pagar aproximadamente antes del Canje.
+            if ($lote->liquidacion_numero === null) {
+                $preliminar = $lote->calcularSaldoPreliminar();
+                if (!isset($preliminar['error'])) {
+                    $loteData['saldo_preliminar'] = $preliminar;
+                }
+            }
+        }
+
+        // Ley resuelta (la que usa el calculo de liquidacion): Canje si hubo
+        // acuerdo directo, si no la de Tercero. Null mientras siga sin resolver.
+        $loteData['ley_resuelta'] = $lote->ley_canje ?? $lote->ley_paquete_tercera;
 
         // Agregar nombres para cuando no se cargan las relaciones
         if ($lote->planta) {
@@ -419,6 +464,198 @@ class LoteController extends Controller
         } catch (Exception $e) {
             return response()->json([
                 'error' => 'Error al reabrir el lote',
+                'mensaje' => $e->getMessage()
+            ], 400);
+        }
+    }
+
+    /**
+     * Registrar/actualizar las leyes de la reconciliación de Laboratorio
+     * (Paquete Primera, Paquete Segunda, Segunda Prima, Ley Canje).
+     * Cada bloque se guarda por separado desde el frontend — solo se
+     * actualizan los campos que vienen en el request.
+     * PUT /api/dispatch/lotes/{id}/leyes-laboratorio
+     */
+    public function actualizarLeyesLaboratorio(Request $request, $id)
+    {
+        if (!$this->tienePermisoGestionarLeyes($request)) {
+            return response()->json(['error' => 'No tiene permiso para gestionar leyes de laboratorio.'], 403);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'ley_paquete_primera' => 'nullable|numeric|min:0|max:100',
+            'ley_paquete_segunda' => 'nullable|numeric|min:0|max:100',
+            'ley_paquete_segunda_prima' => 'nullable|numeric|min:0|max:100',
+            'ley_canje' => 'nullable|numeric|min:0|max:100',
+            'ley_paquete_tercera' => 'nullable|numeric|min:0|max:100',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'error' => 'Datos inválidos',
+                'detalles' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            $lote = Lote::findOrFail($id);
+
+            $campos = $request->only([
+                'ley_paquete_primera',
+                'ley_paquete_segunda',
+                'ley_paquete_segunda_prima',
+                'ley_canje',
+                'ley_paquete_tercera',
+            ]);
+            $lote->fill($campos);
+
+            // Cada ley guarda la fecha en que se cargó/actualizó ese dato puntual
+            foreach (array_keys($campos) as $campo) {
+                $lote->{"fecha_{$campo}"} = now();
+            }
+
+            $lote->actualizarEstadoLaboratorio();
+
+            return response()->json([
+                'mensaje' => 'Leyes actualizadas correctamente',
+                'lote' => $this->agregarCamposCalculados($lote->fresh(['planta', 'empresa', 'camionadas.mezclas'])),
+            ]);
+        } catch (Exception $e) {
+            return response()->json([
+                'error' => 'Error al actualizar las leyes',
+                'mensaje' => $e->getMessage()
+            ], 400);
+        }
+    }
+
+    /**
+     * Marcar el lote como enviado a laboratorio externo (Paquete Tercera)
+     * POST /api/dispatch/lotes/{id}/enviar-a-tercero
+     */
+    public function enviarATercero(Request $request, $id)
+    {
+        if (!$this->tienePermisoGestionarLeyes($request)) {
+            return response()->json(['error' => 'No tiene permiso para gestionar leyes de laboratorio.'], 403);
+        }
+
+        try {
+            $lote = Lote::findOrFail($id);
+            $lote->enviarATercero();
+
+            return response()->json([
+                'mensaje' => 'Lote marcado como enviado a Tercero',
+                'lote' => $this->agregarCamposCalculados($lote->fresh(['planta', 'empresa', 'camionadas.mezclas'])),
+            ]);
+        } catch (Exception $e) {
+            return response()->json([
+                'error' => 'Error al enviar a Tercero',
+                'mensaje' => $e->getMessage()
+            ], 400);
+        }
+    }
+
+    /**
+     * Registrar la liquidación real (documento ENAMI) de un lote.
+     * PUT /api/dispatch/lotes/{id}/liquidacion
+     */
+    public function actualizarLiquidacion(Request $request, $id)
+    {
+        $validator = Validator::make($request->all(), [
+            'numero' => 'required|string|max:50',
+            'tasa_cambio' => 'required|numeric|min:0',
+            'saldo_real_usd' => 'nullable|numeric',
+            'saldo_real_clp' => 'nullable|numeric',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'error' => 'Datos inválidos',
+                'detalles' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            $lote = Lote::findOrFail($id);
+            $lote->registrarLiquidacion(
+                $request->numero,
+                (float) $request->tasa_cambio,
+                $request->saldo_real_usd !== null ? (float) $request->saldo_real_usd : null,
+                $request->saldo_real_clp !== null ? (float) $request->saldo_real_clp : null,
+            );
+
+            return response()->json([
+                'mensaje' => 'Liquidación registrada correctamente',
+                'lote' => $this->agregarCamposCalculados($lote->fresh(['planta', 'empresa', 'camionadas.mezclas'])),
+            ]);
+        } catch (Exception $e) {
+            return response()->json([
+                'error' => 'Error al registrar la liquidación',
+                'mensaje' => $e->getMessage()
+            ], 400);
+        }
+    }
+
+    /**
+     * Registrar el anticipo pagado de un lote.
+     * PUT /api/dispatch/lotes/{id}/anticipo
+     */
+    public function actualizarAnticipo(Request $request, $id)
+    {
+        $validator = Validator::make($request->all(), [
+            'monto' => 'required|numeric|min:0',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'error' => 'Datos inválidos',
+                'detalles' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            $lote = Lote::findOrFail($id);
+            $lote->registrarAnticipo((float) $request->monto);
+
+            return response()->json([
+                'mensaje' => 'Anticipo registrado correctamente',
+                'lote' => $this->agregarCamposCalculados($lote->fresh(['planta', 'empresa', 'camionadas.mezclas'])),
+            ]);
+        } catch (Exception $e) {
+            return response()->json([
+                'error' => 'Error al registrar el anticipo',
+                'mensaje' => $e->getMessage()
+            ], 400);
+        }
+    }
+
+    /**
+     * Registrar el pago final de un lote.
+     * PUT /api/dispatch/lotes/{id}/pago
+     */
+    public function actualizarPago(Request $request, $id)
+    {
+        $validator = Validator::make($request->all(), [
+            'monto' => 'required|numeric|min:0',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'error' => 'Datos inválidos',
+                'detalles' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            $lote = Lote::findOrFail($id);
+            $lote->registrarPago((float) $request->monto);
+
+            return response()->json([
+                'mensaje' => 'Pago registrado correctamente',
+                'lote' => $this->agregarCamposCalculados($lote->fresh(['planta', 'empresa', 'camionadas.mezclas'])),
+            ]);
+        } catch (Exception $e) {
+            return response()->json([
+                'error' => 'Error al registrar el pago',
                 'mensaje' => $e->getMessage()
             ], 400);
         }

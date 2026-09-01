@@ -1,6 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
 import { HiChevronDown, HiMagnifyingGlass, HiXMark } from 'react-icons/hi2';
 
+const BREAKPOINT_MOBILE = 640; // Tailwind 'sm'
+const ALTO_PANEL_ESTIMADO = 320; // coincide con el max-h-80 que tenía el panel desktop
+
 /**
  * SearchableSelect - Select con búsqueda integrada
  *
@@ -26,13 +29,24 @@ export default function SearchableSelect({
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [coords, setCoords] = useState({ top: 0, left: 0, width: 0 });
+  const [coords, setCoords] = useState({ top: 0, left: 0, width: 0, maxHeight: ALTO_PANEL_ESTIMADO });
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== 'undefined' && window.innerWidth < BREAKPOINT_MOBILE
+  );
   const dropdownRef = useRef(null);
   const triggerRef = useRef(null);
   const searchInputRef = useRef(null);
 
-  // Cerrar dropdown al hacer click fuera
   useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < BREAKPOINT_MOBILE);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  // Cerrar dropdown al hacer click fuera (solo aplica al modo desktop — en mobile
+  // el selector es una hoja de pantalla completa, se cierra con el botón X)
+  useEffect(() => {
+    if (isMobile) return;
     const handleClickOutside = (event) => {
       if (
         dropdownRef.current && !dropdownRef.current.contains(event.target) &&
@@ -45,14 +59,15 @@ export default function SearchableSelect({
 
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
+  }, [isMobile]);
 
-  // El dropdown usa position:fixed (ver más abajo) para no quedar recortado cuando este
-  // select vive dentro de un contenedor con scroll (ej. tabla de líneas de reportes con
-  // overflow-x-auto) — por eso hay que recalcular su posición contra el viewport al abrir,
-  // y cerrarlo si la página/tabla se mueve para no dejarlo "flotando" en el lugar viejo.
+  // El dropdown desktop usa position:fixed (ver más abajo) para no quedar recortado
+  // cuando este select vive dentro de un contenedor con scroll (ej. tabla de líneas
+  // de reportes con overflow-x-auto) — por eso hay que recalcular su posición contra
+  // el viewport al abrir, y cerrarlo si la página/tabla se mueve para no dejarlo
+  // "flotando" en el lugar viejo. En mobile no aplica (hoja fija a pantalla completa).
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || isMobile) return;
 
     const cerrarPorScroll = (event) => {
       // Ignorar el scroll dentro del propio listado de opciones (o del buscador):
@@ -68,7 +83,16 @@ export default function SearchableSelect({
       window.removeEventListener('scroll', cerrarPorScroll, true);
       window.removeEventListener('resize', cerrarPorScroll);
     };
-  }, [isOpen]);
+  }, [isOpen, isMobile]);
+
+  // Bloquea el scroll del fondo mientras la hoja mobile está abierta (cubre toda
+  // la pantalla, sin esto la página de atrás se alcanza a mover por debajo).
+  useEffect(() => {
+    if (!isOpen || !isMobile) return;
+    const previo = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previo; };
+  }, [isOpen, isMobile]);
 
   // Focus en input al abrir
   useEffect(() => {
@@ -96,14 +120,71 @@ export default function SearchableSelect({
     onChange('');
   };
 
+  const handleClose = () => {
+    setIsOpen(false);
+    setSearchTerm('');
+  };
+
+  // Calcula si el panel desktop cabe abajo del trigger; si no, lo abre hacia arriba
+  // y en ambos casos acota su alto máximo al espacio realmente disponible, para que
+  // nunca quede cortado contra el borde de la ventana (antes siempre abría hacia
+  // abajo sin chequear el espacio disponible).
   const toggleOpen = () => {
     if (disabled) return;
-    if (!isOpen && triggerRef.current) {
+    if (!isOpen && triggerRef.current && !isMobile) {
       const rect = triggerRef.current.getBoundingClientRect();
-      setCoords({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+      const espacioAbajo = window.innerHeight - rect.bottom - 8;
+      const espacioArriba = rect.top - 8;
+      const abreHaciaArriba = espacioAbajo < ALTO_PANEL_ESTIMADO && espacioArriba > espacioAbajo;
+
+      // El panel no puede ser más angosto que el trigger, pero tampoco queda pegado
+      // a su ancho — triggers chicos (ej. la columna "Frente" de la tabla) igual
+      // muestran nombres largos completos, sin que se corten en dos líneas.
+      const ANCHO_MIN_PANEL = 260;
+      const width = Math.max(rect.width, ANCHO_MIN_PANEL);
+      const left = Math.min(rect.left, window.innerWidth - width - 8);
+
+      setCoords(
+        abreHaciaArriba
+          ? {
+              bottom: window.innerHeight - rect.top + 4,
+              left,
+              width,
+              maxHeight: Math.min(ALTO_PANEL_ESTIMADO, espacioArriba),
+            }
+          : {
+              top: rect.bottom + 4,
+              left,
+              width,
+              maxHeight: Math.min(ALTO_PANEL_ESTIMADO, espacioAbajo),
+            }
+      );
     }
     setIsOpen((prev) => !prev);
   };
+
+  const listaOpciones = (
+    filteredOptions.length === 0 ? (
+      <div className="px-4 py-8 text-center text-gray-500 text-sm">
+        {searchTerm ? 'No se encontraron resultados' : emptyMessage}
+      </div>
+    ) : (
+      filteredOptions.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          onClick={() => handleSelect(option.value)}
+          className={`w-full px-4 py-3 text-left hover:bg-blue-50 transition-colors ${
+            option.value === value
+              ? 'bg-blue-100 text-blue-700 font-semibold'
+              : 'text-gray-900'
+          }`}
+        >
+          {option.label}
+        </button>
+      ))
+    )
+  );
 
   return (
     <div className="relative">
@@ -149,15 +230,52 @@ export default function SearchableSelect({
         </div>
       </button>
 
-      {/* Dropdown — position:fixed calculado desde el trigger (ver toggleOpen) para no
-          quedar recortado por contenedores con scroll (ej. tablas con overflow-x-auto) */}
-      {isOpen && (
+      {isOpen && isMobile && (
+        /* Hoja de pantalla completa (mobile): sin coordenadas fijas que calcular,
+           así que no hay nada que el teclado pueda desalinear. El buscador queda
+           fijo arriba y la lista scrollea debajo, igual que un picker nativo. */
         <div
           ref={dropdownRef}
-          style={{ top: coords.top, left: coords.left, width: coords.width }}
-          className="fixed z-50 bg-white border border-gray-300 rounded-lg shadow-lg max-h-80 overflow-hidden">
-          {/* Search Input */}
-          <div className="p-3 border-b border-gray-200 bg-gray-50">
+          className="fixed inset-0 z-50 bg-white flex flex-col"
+        >
+          <div className="flex items-center gap-2 p-3 border-b border-gray-200 bg-gray-50 flex-shrink-0">
+            <div className="relative flex-1">
+              <HiMagnifyingGlass className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder="Buscar..."
+                className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={handleClose}
+              className="p-2 text-gray-500 hover:text-gray-700 flex-shrink-0"
+              aria-label="Cerrar"
+            >
+              <HiXMark className="w-6 h-6" />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto">
+            {listaOpciones}
+          </div>
+        </div>
+      )}
+
+      {isOpen && !isMobile && (
+        /* Dropdown desktop — position:fixed calculado desde el trigger (ver
+           toggleOpen) para no quedar recortado por contenedores con scroll (ej.
+           tablas con overflow-x-auto), y con flip hacia arriba + alto acotado
+           cuando no cabe hacia abajo. */
+        <div
+          ref={dropdownRef}
+          style={coords}
+          className="fixed z-50 bg-white border border-gray-300 rounded-lg shadow-lg overflow-hidden flex flex-col"
+        >
+          <div className="p-3 border-b border-gray-200 bg-gray-50 flex-shrink-0">
             <div className="relative">
               <HiMagnifyingGlass className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
               <input
@@ -171,28 +289,8 @@ export default function SearchableSelect({
             </div>
           </div>
 
-          {/* Options List */}
-          <div className="overflow-y-auto max-h-64">
-            {filteredOptions.length === 0 ? (
-              <div className="px-4 py-8 text-center text-gray-500 text-sm">
-                {searchTerm ? 'No se encontraron resultados' : emptyMessage}
-              </div>
-            ) : (
-              filteredOptions.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => handleSelect(option.value)}
-                  className={`w-full px-4 py-2.5 text-left hover:bg-blue-50 transition-colors ${
-                    option.value === value
-                      ? 'bg-blue-100 text-blue-700 font-semibold'
-                      : 'text-gray-900'
-                  }`}
-                >
-                  {option.label}
-                </button>
-              ))
-            )}
+          <div className="flex-1 overflow-y-auto">
+            {listaOpciones}
           </div>
         </div>
       )}

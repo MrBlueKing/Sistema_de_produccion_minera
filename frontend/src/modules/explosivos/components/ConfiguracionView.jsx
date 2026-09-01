@@ -1066,7 +1066,7 @@ export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin =
 
       {/* Modal Agregar Personal */}
       {showModalPersonal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full mx-4 max-h-[85vh] flex flex-col">
             <div className="px-6 py-4 border-b flex items-center justify-between">
               <h3 className="text-lg font-semibold">Agregar Personal Autorizado</h3>
@@ -1161,7 +1161,7 @@ export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin =
 
       {/* Modal Polvorín */}
       {showModalPolvorin && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto">
             <div className="px-6 py-4 border-b flex items-center justify-between">
               <h3 className="text-lg font-semibold">
@@ -1294,7 +1294,7 @@ export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin =
 
       {/* Modal Categoría */}
       {showModalCategoria && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4">
             <div className="px-6 py-4 border-b flex items-center justify-between">
               <h3 className="text-lg font-semibold">
@@ -1335,7 +1335,7 @@ export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin =
 
       {/* Modal Tipo */}
       {showModalTipo && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
             <div className="px-6 py-4 border-b flex items-center justify-between sticky top-0 bg-white">
               <h3 className="text-lg font-semibold">
@@ -1499,7 +1499,7 @@ export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin =
 
       {/* Modal Proveedor */}
       {showModalProveedor && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full mx-4">
             <div className="px-6 py-4 border-b flex items-center justify-between">
               <h3 className="text-lg font-semibold">
@@ -1555,7 +1555,7 @@ export default function ConfiguracionView({ polvorin, polvorines = [], esAdmin =
 
       {/* Modal Autoridad Fiscalizadora */}
       {showModalAutoridad && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4">
             <div className="px-6 py-4 border-b flex items-center justify-between">
               <h3 className="text-lg font-semibold">

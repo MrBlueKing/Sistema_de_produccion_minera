@@ -314,7 +314,7 @@ export default function LotesView({ polvorin, tipos, onRefresh }) {
 
       {/* Modal de detalle */}
       {showDetalle && loteSeleccionado && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm">
           <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
             <div className="px-6 py-4 border-b bg-gradient-to-r from-red-600 to-red-500 flex items-center justify-between rounded-t-xl">
               <h3 className="text-lg font-semibold text-white">

@@ -13,11 +13,32 @@ use App\Traits\MultiTenancy;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 use Exception;
 
 class ReportePerforacionController extends Controller
 {
     use MultiTenancy;
+
+    /**
+     * Faena por la que filtrar en el módulo de Ingeniería (Reportes P&T).
+     * En Ingeniería todos los usuarios ven todas las faenas, así que el selector
+     * de faena manda: si viene `faena_id`/`id_faena` se usa ese; si no, se cae a
+     * la faena de la cuenta (comportamiento previo). null = todas las faenas.
+     */
+    private function faenaParaIngenieria($request)
+    {
+        $explicita = $request->input('faena_id') ?? $request->input('id_faena');
+        if ($explicita !== null && $explicita !== '') {
+            return (int) $explicita;
+        }
+
+        if ($this->esUsuarioGlobalIngenieria($request)) {
+            return $request->auth_faena ?? null;
+        }
+
+        return $request->auth_faena;
+    }
 
     private function registrarAuditoria($reporte, $accion, $cambios = null, $observaciones = null)
     {
@@ -42,13 +63,19 @@ class ReportePerforacionController extends Controller
             'user:id,name',
         ])->withCount('lineas');
 
-        $this->aplicarFiltroFaena($query, $request);
+        $idFaena = $this->faenaParaIngenieria($request);
+        if ($idFaena !== null) {
+            $query->where('id_faena', $idFaena);
+        }
 
         if ($request->has('estado')) {
             $query->where('estado', $request->estado);
         }
         if ($request->has('turno')) {
             $query->where('turno', $request->turno);
+        }
+        if ($request->filled('buscar')) {
+            $query->where('codigo', 'like', '%' . $request->buscar . '%');
         }
         if ($request->has('fecha_desde')) {
             $query->where('fecha', '>=', $request->fecha_desde);
@@ -66,10 +93,10 @@ class ReportePerforacionController extends Controller
             ->orderBy('created_at', 'desc')
             ->paginate($request->get('per_page', 15));
 
-        // Calcular totales para cada reporte
+        // Calcular totales para cada reporte (líneas + extras, el consumo real)
         $reportes->getCollection()->transform(function ($reporte) {
-            $reporte->load('lineas.explosivos.tipoExplosivo');
-            $reporte->totales_explosivos = $reporte->calcularTotalesExplosivos();
+            $reporte->load('lineas.explosivos.tipoExplosivo', 'extras.tipoExplosivo');
+            $reporte->totales_explosivos = $reporte->calcularTotalesConExtras();
             return $reporte;
         });
 
@@ -145,6 +172,9 @@ class ReportePerforacionController extends Controller
             'lineas.explosivos.tipoExplosivo:id,codigo,nombre,unidad_medida',
             'devoluciones.tipoExplosivo:id,codigo,nombre,unidad_medida',
             'devoluciones.personal:id,nombre,apellido',
+            'extras.tipoExplosivo:id,codigo,nombre,unidad_medida',
+            'extras.personal:id,nombre,apellido',
+            'extras.lineaReporte.frenteTrabajo:id,codigo_completo',
             'movimientos.tipoExplosivo:id,codigo,nombre,unidad_medida',
             'polvorin:id,codigo,nombre',
             'user:id,name',
@@ -208,14 +238,20 @@ class ReportePerforacionController extends Controller
     public function destroy($id)
     {
         $reporte = ReportePerforacion::findOrFail($id);
+        $usuario = auth()->user()?->name ?? 'Sistema';
+        $teniaMovimientos = $reporte->estado !== ReportePerforacion::ESTADO_BORRADOR;
 
-        if ($reporte->estado !== ReportePerforacion::ESTADO_BORRADOR) {
-            return response()->json(['mensaje' => 'Solo se pueden eliminar reportes en estado borrador'], 422);
+        try {
+            $reporte->eliminarConReversa($usuario);
+
+            return response()->json([
+                'mensaje' => $teniaMovimientos
+                    ? 'Reporte eliminado. Los movimientos de stock fueron revertidos.'
+                    : 'Reporte eliminado.',
+            ]);
+        } catch (Exception $e) {
+            return response()->json(['mensaje' => $e->getMessage()], 422);
         }
-
-        $reporte->delete();
-
-        return response()->json(['mensaje' => 'Reporte eliminado']);
     }
 
     /**
@@ -474,7 +510,7 @@ class ReportePerforacionController extends Controller
             $reporte->totales_explosivos = $reporte->calcularTotalesExplosivos();
 
             return response()->json([
-                'mensaje' => 'Reporte confirmado. Se generaron los movimientos de salida.',
+                'mensaje' => 'Reporte confirmado. El stock se descuenta cuando el polvorín lo cierre.',
                 'reporte' => $reporte,
             ]);
         } catch (Exception $e) {
@@ -533,6 +569,8 @@ class ReportePerforacionController extends Controller
             $reporte->load([
                 'lineas.explosivos.tipoExplosivo',
                 'devoluciones.tipoExplosivo',
+                'extras.tipoExplosivo',
+                'extras.lineaReporte.frenteTrabajo',
                 'movimientos.tipoExplosivo',
                 'polvorin:id,codigo,nombre',
             ]);
@@ -540,6 +578,149 @@ class ReportePerforacionController extends Controller
 
             return response()->json([
                 'mensaje' => 'Reporte reabierto. Vuelve a estado Confirmado — puedes anularlo para editar sus líneas.',
+                'reporte' => $reporte,
+            ]);
+        } catch (Exception $e) {
+            return response()->json(['mensaje' => $e->getMessage()], 422);
+        }
+    }
+
+    /**
+     * POST /api/explosivos/reportes-perforacion/{id}/habilitar-correccion
+     *
+     * Entra en modo corrección: revierte los movimientos de stock del reporte
+     * (reabrir si estaba Cerrado + anular) y lo deja editable en borrador,
+     * guardando un snapshot para poder deshacer o recuperar si queda a medias.
+     */
+    public function habilitarCorreccion($id)
+    {
+        $reporte = ReportePerforacion::findOrFail($id);
+        $usuario = auth()->user()?->name ?? 'Sistema';
+
+        try {
+            $estadoPrevio = $reporte->estado;
+            $reporte->habilitarCorreccion($usuario);
+
+            $this->registrarAuditoria(
+                $reporte,
+                'correccion_iniciada',
+                null,
+                "Corrección habilitada por {$usuario} (estado previo: {$estadoPrevio})"
+            );
+
+            $reporte->load([
+                'lineas.frenteTrabajo:id,codigo_completo,id_tipo_frente',
+                'lineas.personal:id,nombre,apellido,rut',
+                'lineas.tipoFrente:id,nombre,abreviatura',
+                'lineas.explosivos.tipoExplosivo:id,codigo,nombre,unidad_medida',
+                'movimientos.tipoExplosivo:id,codigo,nombre,unidad_medida',
+                'polvorin:id,codigo,nombre',
+            ]);
+            $reporte->totales_explosivos = $reporte->calcularTotalesExplosivos();
+
+            return response()->json([
+                'mensaje' => 'Corrección habilitada. Los movimientos de stock fueron revertidos; edita y confirma para regenerarlos.',
+                'reporte' => $reporte,
+            ]);
+        } catch (Exception $e) {
+            return response()->json(['mensaje' => $e->getMessage()], 422);
+        }
+    }
+
+    /**
+     * POST /api/explosivos/reportes-perforacion/{id}/confirmar-correccion
+     *
+     * Cierra la corrección: regenera los movimientos de salida con las líneas
+     * actuales y, si el reporte venía Cerrado, lo vuelve a cerrar con las
+     * devoluciones que la operadora revisó (no se recalculan solas).
+     */
+    public function confirmarCorreccion(Request $request, $id)
+    {
+        $reporte = ReportePerforacion::findOrFail($id);
+
+        if (!$reporte->en_correccion) {
+            return response()->json(['mensaje' => 'Este reporte no está en corrección.'], 422);
+        }
+
+        if ($reporte->lineas()->count() === 0) {
+            return response()->json(['mensaje' => 'El reporte debe tener al menos una línea para confirmar la corrección.'], 422);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'devoluciones' => 'nullable|array',
+            'devoluciones.*.id_tipo_explosivo' => 'required_with:devoluciones|exists:tipos_explosivos,id',
+            'devoluciones.*.cantidad' => 'required_with:devoluciones|numeric|min:0.01',
+            'devoluciones.*.id_personal' => 'nullable|exists:personal_autorizado_explosivos,id',
+            'devoluciones.*.motivo' => 'nullable|string|max:255',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['mensaje' => 'Datos inválidos', 'errores' => $validator->errors()], 422);
+        }
+
+        $usuario = auth()->user()?->name ?? 'Sistema';
+        $veniaCerrado = $reporte->correccion_estado_previo === ReportePerforacion::ESTADO_CERRADO;
+
+        try {
+            $reporte->confirmarCorreccion($usuario, $request->input('devoluciones', []));
+
+            $detalle = $veniaCerrado
+                ? 'Corrección confirmada. Movimientos regenerados y reporte cerrado nuevamente.'
+                : 'Corrección confirmada. Movimientos de salida regenerados.';
+            $this->registrarAuditoria($reporte, 'correccion_confirmada', null, "{$detalle} Por {$usuario}");
+
+            $reporte->load([
+                'lineas.explosivos.tipoExplosivo',
+                'devoluciones.tipoExplosivo',
+                'extras.tipoExplosivo',
+                'extras.lineaReporte.frenteTrabajo',
+                'movimientos.tipoExplosivo',
+                'polvorin:id,codigo,nombre',
+            ]);
+            $reporte->totales_explosivos = $reporte->calcularTotalesExplosivos();
+
+            return response()->json([
+                'mensaje' => $detalle,
+                'reporte' => $reporte,
+            ]);
+        } catch (Exception $e) {
+            return response()->json(['mensaje' => $e->getMessage()], 422);
+        }
+    }
+
+    /**
+     * POST /api/explosivos/reportes-perforacion/{id}/descartar-correccion
+     *
+     * Cancela la corrección: restaura líneas y devoluciones desde el snapshot y
+     * vuelve el reporte a su estado original con los movimientos regenerados.
+     */
+    public function descartarCorreccion($id)
+    {
+        $reporte = ReportePerforacion::findOrFail($id);
+
+        if (!$reporte->en_correccion) {
+            return response()->json(['mensaje' => 'Este reporte no está en corrección.'], 422);
+        }
+
+        $usuario = auth()->user()?->name ?? 'Sistema';
+
+        try {
+            $reporte->descartarCorreccion($usuario);
+
+            $this->registrarAuditoria($reporte, 'correccion_descartada', null, "Corrección descartada por {$usuario}. Reporte restaurado.");
+
+            $reporte->load([
+                'lineas.explosivos.tipoExplosivo',
+                'devoluciones.tipoExplosivo',
+                'extras.tipoExplosivo',
+                'extras.lineaReporte.frenteTrabajo',
+                'movimientos.tipoExplosivo',
+                'polvorin:id,codigo,nombre',
+            ]);
+            $reporte->totales_explosivos = $reporte->calcularTotalesExplosivos();
+
+            return response()->json([
+                'mensaje' => 'Corrección descartada. El reporte volvió a su estado original.',
                 'reporte' => $reporte,
             ]);
         } catch (Exception $e) {
@@ -618,27 +799,107 @@ class ReportePerforacionController extends Controller
     }
 
     /**
+     * POST /api/explosivos/reportes-perforacion/{id}/extras
+     *
+     * Registra un extra: material solicitado DESPUÉS de confirmado el reporte,
+     * sin tocar las cantidades ya anotadas en las líneas. Solo válido mientras
+     * el reporte está Confirmado (se cierra la ventana al cerrar el reporte,
+     * igual que las devoluciones).
+     */
+    public function registrarExtra(Request $request, $id)
+    {
+        $reporte = ReportePerforacion::findOrFail($id);
+
+        if ($reporte->estado !== ReportePerforacion::ESTADO_CONFIRMADO) {
+            return response()->json(['mensaje' => 'Solo se pueden solicitar extras en reportes confirmados'], 422);
+        }
+
+        $validator = Validator::make($request->all(), [
+            'id_tipo_explosivo' => 'required|exists:tipos_explosivos,id',
+            'cantidad' => 'required|numeric|min:0.01',
+            // La línea manda el operador — no se acepta id_personal directo del
+            // cliente, así un extra no puede quedar atribuido a alguien que no
+            // participó del reporte.
+            'id_linea_reporte' => [
+                'required',
+                Rule::exists('lineas_reporte_perforacion', 'id')->where('id_reporte', $reporte->id),
+            ],
+            'motivo' => 'nullable|string|max:255',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['mensaje' => 'Datos inválidos', 'errores' => $validator->errors()], 422);
+        }
+
+        try {
+            $extra = $reporte->agregarExtra(
+                (int) $request->id_tipo_explosivo,
+                (float) $request->cantidad,
+                $request->motivo,
+                (int) $request->id_linea_reporte
+            );
+
+            $extra->load(['tipoExplosivo:id,codigo,nombre,unidad_medida', 'personal:id,nombre,apellido', 'lineaReporte.frenteTrabajo:id,codigo_completo']);
+
+            $nombreExplosivo = $extra->tipoExplosivo->nombre ?? 'explosivo';
+            $this->registrarAuditoria(
+                $reporte,
+                'extra_agregado',
+                null,
+                "Extra: +{$request->cantidad} {$nombreExplosivo} — {$request->motivo}"
+            );
+
+            $reporte->load([
+                'extras.tipoExplosivo:id,codigo,nombre,unidad_medida',
+                'extras.personal:id,nombre,apellido',
+                'extras.lineaReporte.frenteTrabajo:id,codigo_completo',
+            ]);
+
+            return response()->json([
+                'mensaje' => 'Extra registrado correctamente',
+                'extra' => $extra,
+                'extras' => $reporte->extras,
+            ]);
+        } catch (Exception $e) {
+            return response()->json(['mensaje' => $e->getMessage()], 422);
+        }
+    }
+
+    /**
      * GET /api/explosivos/reportes-perforacion/estadisticas
      */
     public function estadisticas(Request $request)
     {
-        $idFaena = $this->getFaenaParaFiltrar($request) ?? $request->auth_faena;
+        $idFaena = $this->faenaParaIngenieria($request);
 
         $fechaDesde = $request->get('fecha_desde', now()->subDays(30)->toDateString());
         $fechaHasta = $request->get('fecha_hasta', now()->toDateString());
 
-        // Totales por estado
-        $totalesPorEstado = ReportePerforacion::where('id_faena', $idFaena)
+        // Totales por estado (histórico, sin filtro de fecha) — como estaba.
+        $totalesPorEstado = ReportePerforacion::when($idFaena !== null, fn ($q) => $q->where('id_faena', $idFaena))
             ->selectRaw('estado, COUNT(*) as total')
             ->groupBy('estado')
             ->pluck('total', 'estado');
 
-        // Consumo por periodo
+        // Totales por estado ACOTADOS al mismo rango que los gráficos, para poder
+        // mostrar KPI del período sin mezclar escalas con los gráficos.
+        $totalesPorEstadoPeriodo = ReportePerforacion::when($idFaena !== null, fn ($q) => $q->where('id_faena', $idFaena))
+            ->whereBetween('fecha', [$fechaDesde, $fechaHasta])
+            ->selectRaw('estado, COUNT(*) as total')
+            ->groupBy('estado')
+            ->pluck('total', 'estado');
+
+        // Rango real de fechas con reportes (para guiar cuando el período elegido está vacío).
+        $rangoDatos = ReportePerforacion::when($idFaena !== null, fn ($q) => $q->where('id_faena', $idFaena))
+            ->selectRaw('MIN(fecha) as primera, MAX(fecha) as ultima')
+            ->first();
+
+        // Consumo por periodo (real por fecha y tipo — como estaba)
         $consumoPorPeriodo = DB::table('reportes_perforacion as r')
             ->join('lineas_reporte_perforacion as l', 'l.id_reporte', '=', 'r.id')
             ->join('explosivos_linea_reporte as e', 'e.id_linea_reporte', '=', 'l.id')
             ->join('tipos_explosivos as te', 'te.id', '=', 'e.id_tipo_explosivo')
-            ->where('r.id_faena', $idFaena)
+            ->when($idFaena !== null, fn ($q) => $q->where('r.id_faena', $idFaena))
             ->where('r.estado', '!=', 'borrador')
             ->whereBetween('r.fecha', [$fechaDesde, $fechaHasta])
             ->selectRaw('r.fecha, te.codigo as tipo_explosivo, SUM(e.cantidad_final) as total')
@@ -646,16 +907,36 @@ class ReportePerforacionController extends Controller
             ->orderBy('r.fecha')
             ->get();
 
-        // Tiros por dia
-        $tirosPorDia = DB::table('reportes_perforacion as r')
+        // Calculado vs Real por semana (lunes de cada semana) — el gráfico estrella:
+        // ¿la fórmula está calibrada? Sumado sobre todos los tipos.
+        $consumoSemanal = DB::table('reportes_perforacion as r')
             ->join('lineas_reporte_perforacion as l', 'l.id_reporte', '=', 'r.id')
-            ->where('r.id_faena', $idFaena)
+            ->join('explosivos_linea_reporte as e', 'e.id_linea_reporte', '=', 'l.id')
+            ->when($idFaena !== null, fn ($q) => $q->where('r.id_faena', $idFaena))
             ->where('r.estado', '!=', 'borrador')
             ->whereBetween('r.fecha', [$fechaDesde, $fechaHasta])
-            ->selectRaw('r.fecha, SUM(l.numero_tiros) as total_tiros')
-            ->groupBy('r.fecha')
+            ->selectRaw('DATE(DATE_SUB(r.fecha, INTERVAL WEEKDAY(r.fecha) DAY)) as semana, '
+                . 'SUM(e.cantidad_calculada) as total_calculado, SUM(e.cantidad_final) as total_real')
+            ->groupBy('semana')
+            ->orderBy('semana')
+            ->get();
+
+        // Tiros por dia, con quiebre por turno (el turno está en el reporte).
+        $tirosPorDiaTurno = DB::table('reportes_perforacion as r')
+            ->join('lineas_reporte_perforacion as l', 'l.id_reporte', '=', 'r.id')
+            ->when($idFaena !== null, fn ($q) => $q->where('r.id_faena', $idFaena))
+            ->where('r.estado', '!=', 'borrador')
+            ->whereBetween('r.fecha', [$fechaDesde, $fechaHasta])
+            ->selectRaw('r.fecha, r.turno, COALESCE(SUM(l.numero_tiros), 0) as total_tiros')
+            ->groupBy('r.fecha', 'r.turno')
             ->orderBy('r.fecha')
             ->get();
+
+        // Compatibilidad: total por día sin quiebre.
+        $tirosPorDia = $tirosPorDiaTurno
+            ->groupBy('fecha')
+            ->map(fn ($g, $fecha) => (object) ['fecha' => $fecha, 'total_tiros' => $g->sum('total_tiros')])
+            ->values();
 
         // Consumo por frente
         $consumoPorFrente = DB::table('reportes_perforacion as r')
@@ -663,7 +944,7 @@ class ReportePerforacionController extends Controller
             ->join('frentes_trabajo as ft', 'ft.id', '=', 'l.id_frente_trabajo')
             ->join('explosivos_linea_reporte as e', 'e.id_linea_reporte', '=', 'l.id')
             ->join('tipos_explosivos as te', 'te.id', '=', 'e.id_tipo_explosivo')
-            ->where('r.id_faena', $idFaena)
+            ->when($idFaena !== null, fn ($q) => $q->where('r.id_faena', $idFaena))
             ->where('r.estado', '!=', 'borrador')
             ->whereBetween('r.fecha', [$fechaDesde, $fechaHasta])
             ->selectRaw('ft.codigo_completo as frente, te.codigo as tipo_explosivo, SUM(e.cantidad_final) as total, SUM(e.cantidad_calculada) as total_calculado')
@@ -671,26 +952,68 @@ class ReportePerforacionController extends Controller
             ->orderByDesc('total')
             ->get();
 
-        // Eficiencia: calculada vs final
+        // Eficiencia: calculada vs final, por tipo
         $eficiencia = DB::table('reportes_perforacion as r')
             ->join('lineas_reporte_perforacion as l', 'l.id_reporte', '=', 'r.id')
             ->join('explosivos_linea_reporte as e', 'e.id_linea_reporte', '=', 'l.id')
             ->join('tipos_explosivos as te', 'te.id', '=', 'e.id_tipo_explosivo')
-            ->where('r.id_faena', $idFaena)
+            ->when($idFaena !== null, fn ($q) => $q->where('r.id_faena', $idFaena))
             ->where('r.estado', '!=', 'borrador')
             ->whereBetween('r.fecha', [$fechaDesde, $fechaHasta])
             ->selectRaw('te.codigo as tipo_explosivo, SUM(e.cantidad_calculada) as total_calculado, SUM(e.cantidad_final) as total_final')
             ->groupBy('te.codigo')
+            ->orderByDesc('total_final')
             ->get();
+
+        // Cobertura de stock: cuántos días dura el stock actual del polvorín al
+        // ritmo de consumo del período. Solo con una faena elegida (un polvorín).
+        $coberturaStock = [];
+        $diasPeriodo = max(1, \Carbon\Carbon::parse($fechaDesde)->diffInDays(\Carbon\Carbon::parse($fechaHasta)) + 1);
+        if ($idFaena !== null) {
+            $polvorin = \App\Models\Explosivos\Polvorin::where('id_faena', $idFaena)->first();
+            if ($polvorin) {
+                $consumoPorTipo = collect($eficiencia)->keyBy('tipo_explosivo');
+                $stocks = DB::table('stock_explosivos as s')
+                    ->join('tipos_explosivos as te', 'te.id', '=', 's.id_tipo_explosivo')
+                    ->where('s.id_polvorin', $polvorin->id)
+                    ->select('te.codigo', 'te.unidad_medida', 's.cantidad')
+                    ->get();
+
+                foreach ($stocks as $st) {
+                    $consumoPeriodo = (float) ($consumoPorTipo[$st->codigo]->total_final ?? 0);
+                    $consumoDiario = $consumoPeriodo / $diasPeriodo;
+                    $coberturaStock[] = [
+                        'tipo_explosivo' => $st->codigo,
+                        'unidad_medida' => $st->unidad_medida,
+                        'stock_actual' => round((float) $st->cantidad, 2),
+                        'consumo_periodo' => round($consumoPeriodo, 2),
+                        'consumo_diario' => round($consumoDiario, 3),
+                        'dias_cobertura' => $consumoDiario > 0 ? round($st->cantidad / $consumoDiario, 1) : null,
+                    ];
+                }
+                // Orden: primero los que se acaban antes.
+                usort($coberturaStock, function ($a, $b) {
+                    if ($a['dias_cobertura'] === null) return 1;
+                    if ($b['dias_cobertura'] === null) return -1;
+                    return $a['dias_cobertura'] <=> $b['dias_cobertura'];
+                });
+            }
+        }
 
         return response()->json([
             'totales_por_estado' => $totalesPorEstado,
+            'totales_por_estado_periodo' => $totalesPorEstadoPeriodo,
             'consumo_por_periodo' => $consumoPorPeriodo,
+            'consumo_semanal' => $consumoSemanal,
             'tiros_por_dia' => $tirosPorDia,
+            'tiros_por_dia_turno' => $tirosPorDiaTurno,
             'consumo_por_frente' => $consumoPorFrente,
             'eficiencia' => $eficiencia,
+            'cobertura_stock' => $coberturaStock,
+            'dias_periodo' => $diasPeriodo,
             'fecha_desde' => $fechaDesde,
             'fecha_hasta' => $fechaHasta,
+            'rango_datos' => $rangoDatos,
         ]);
     }
 

@@ -614,33 +614,46 @@ class MovimientoExplosivoController extends Controller
         $filas = [];
 
         foreach ($porDia as $fecha => $movimientosDia) {
-            $entradaDia = 0.0;
-            $salidaDia = 0.0;
+            $entradaDia = 0.0;      // compras
+            $salidaDia = 0.0;       // consumo
+            $devolucionDia = 0.0;   // volvió sin usar
+            $ajusteDia = 0.0;       // correcciones (neto, con signo)
             $documentos = [];
 
             foreach ($movimientosDia as $m) {
-                $esEntradaAqui = in_array($m->tipo, [MovimientoExplosivo::TIPO_ENTRADA, MovimientoExplosivo::TIPO_DEVOLUCION])
-                    || (in_array($m->tipo, [MovimientoExplosivo::TIPO_TRANSFERENCIA, MovimientoExplosivo::TIPO_AJUSTE])
-                        && (int) $m->id_polvorin_destino === $idPolvorin);
-
-                if ($esEntradaAqui) {
-                    $entradaDia += (float) $m->cantidad;
-                    $partes = array_filter([$m->guia_despacho, $m->comprobante_pago]);
-                    if (!empty($partes)) {
-                        $documentos[] = implode(' / ', $partes);
-                    }
-                } else {
-                    $salidaDia += (float) $m->cantidad;
+                $cant = (float) $m->cantidad;
+                switch ($m->tipo) {
+                    case MovimientoExplosivo::TIPO_ENTRADA:
+                        $entradaDia += $cant;
+                        $partes = array_filter([$m->guia_despacho, $m->comprobante_pago]);
+                        if (!empty($partes)) {
+                            $documentos[] = implode(' / ', $partes);
+                        }
+                        break;
+                    case MovimientoExplosivo::TIPO_SALIDA:
+                        $salidaDia += $cant;
+                        break;
+                    case MovimientoExplosivo::TIPO_DEVOLUCION:
+                        $devolucionDia += $cant;
+                        break;
+                    default: // ajuste / transferencia
+                        if ((int) $m->id_polvorin_destino === $idPolvorin) {
+                            $ajusteDia += $cant;
+                        } elseif ((int) $m->id_polvorin_origen === $idPolvorin) {
+                            $ajusteDia -= $cant;
+                        }
                 }
             }
 
-            $saldo += $entradaDia - $salidaDia;
+            $saldo += $entradaDia - $salidaDia + $devolucionDia + $ajusteDia;
 
             $filas[] = [
                 'fecha' => $fecha,
                 'documento' => implode(' | ', array_unique($documentos)),
                 'entrada' => round($entradaDia, 2),
                 'salida' => round($salidaDia, 2),
+                'devolucion' => round($devolucionDia, 2),
+                'ajuste' => round($ajusteDia, 2),
                 'saldo' => round($saldo, 2),
             ];
         }
@@ -653,6 +666,128 @@ class MovimientoExplosivoController extends Controller
             'existencia_anterior' => round($existenciaAnterior, 2),
             'filas' => $filas,
             'saldo_final' => round($saldo, 2),
+        ]);
+    }
+
+    /**
+     * GET /api/explosivos/movimientos/kardex-resumen
+     * Resumen tipo "ingreso — salida — saldo" de TODOS los tipos de explosivo de
+     * un polvorín en un rango: existencia anterior, entradas y salidas del período
+     * y saldo. Para la vista "Todos" del Libro de Explosivos.
+     */
+    public function kardexResumen(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'id_polvorin' => 'required|integer|exists:polvorines,id',
+            'fecha_desde' => 'required|date',
+            'fecha_hasta' => 'required|date|after_or_equal:fecha_desde',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['error' => 'Datos inválidos', 'detalles' => $validator->errors()], 422);
+        }
+
+        $idPolvorin = (int) $request->id_polvorin;
+        $polvorin = Polvorin::with('autoridadFiscalizadora:id,codigo,nombre')->find($idPolvorin);
+        if (!$polvorin) {
+            return response()->json(['error' => 'Polvorín no encontrado'], 404);
+        }
+
+        // Efecto de un movimiento sobre el saldo, visto desde este polvorín:
+        //  +cantidad si el material entra (entrada / devolución / ajuste-destino / transf-destino)
+        //  -cantidad si sale (salida / ajuste-origen / transf-origen)
+        $signo = function ($m) use ($idPolvorin) {
+            if (in_array($m->tipo, [MovimientoExplosivo::TIPO_ENTRADA, MovimientoExplosivo::TIPO_DEVOLUCION], true)) {
+                return 1;
+            }
+            if ($m->tipo === MovimientoExplosivo::TIPO_SALIDA) {
+                return -1;
+            }
+            // transferencia / ajuste
+            if ((int) $m->id_polvorin_destino === $idPolvorin) return 1;
+            if ((int) $m->id_polvorin_origen === $idPolvorin) return -1;
+            return 0;
+        };
+
+        // Tipos: los que tienen stock o algún movimiento en el polvorín.
+        $tiposConStock = StockExplosivo::where('id_polvorin', $idPolvorin)->pluck('id_tipo_explosivo');
+        $tiposConMov = MovimientoExplosivo::where(function ($q) use ($idPolvorin) {
+            $q->where('id_polvorin_origen', $idPolvorin)->orWhere('id_polvorin_destino', $idPolvorin);
+        })->distinct()->pluck('id_tipo_explosivo');
+        $idsTipos = $tiposConStock->merge($tiposConMov)->unique()->values();
+
+        $tipos = \App\Models\Explosivos\TipoExplosivo::whereIn('id', $idsTipos)
+            ->orderBy('codigo')
+            ->get(['id', 'codigo', 'nombre', 'unidad_medida']);
+
+        $totEntradas = 0.0;
+        $totSalidas = 0.0;
+        $totDevoluciones = 0.0;
+        $totAjustes = 0.0;
+
+        $filas = $tipos->map(function ($tipo) use ($idPolvorin, $request, $signo, &$totEntradas, &$totSalidas, &$totDevoluciones, &$totAjustes) {
+            $movs = MovimientoExplosivo::where('id_tipo_explosivo', $tipo->id)
+                ->where(function ($q) use ($idPolvorin) {
+                    $q->where('id_polvorin_origen', $idPolvorin)->orWhere('id_polvorin_destino', $idPolvorin);
+                });
+
+            $previos = (clone $movs)->where('fecha', '<', $request->fecha_desde)->get();
+            $existenciaAnterior = 0.0;
+            foreach ($previos as $m) {
+                $existenciaAnterior += $signo($m) * (float) $m->cantidad;
+            }
+
+            $periodo = (clone $movs)->whereBetween('fecha', [$request->fecha_desde, $request->fecha_hasta])->get();
+            $entradas = 0.0;     // solo compras
+            $salidas = 0.0;      // solo consumo a tronadura
+            $devoluciones = 0.0; // volvió sin usar
+            $ajustes = 0.0;      // correcciones de sistema (neto, con signo)
+            foreach ($periodo as $m) {
+                $cant = (float) $m->cantidad;
+                switch ($m->tipo) {
+                    case MovimientoExplosivo::TIPO_ENTRADA:
+                        $entradas += $cant;
+                        break;
+                    case MovimientoExplosivo::TIPO_SALIDA:
+                        $salidas += $cant;
+                        break;
+                    case MovimientoExplosivo::TIPO_DEVOLUCION:
+                        $devoluciones += $cant;
+                        break;
+                    default: // ajuste / transferencia
+                        $ajustes += $signo($m) * $cant;
+                }
+            }
+
+            $totEntradas += $entradas;
+            $totSalidas += $salidas;
+            $totDevoluciones += $devoluciones;
+            $totAjustes += $ajustes;
+
+            return [
+                'id_tipo_explosivo' => $tipo->id,
+                'codigo' => $tipo->codigo,
+                'nombre' => $tipo->nombre,
+                'unidad_medida' => $tipo->unidad_medida,
+                'existencia_anterior' => round($existenciaAnterior, 2),
+                'entradas' => round($entradas, 2),
+                'salidas' => round($salidas, 2),
+                'devoluciones' => round($devoluciones, 2),
+                'ajustes' => round($ajustes, 2),
+                'saldo' => round($existenciaAnterior + $entradas - $salidas + $devoluciones + $ajustes, 2),
+            ];
+        });
+
+        return response()->json([
+            'periodo' => ['desde' => $request->fecha_desde, 'hasta' => $request->fecha_hasta],
+            'polvorin' => ['id' => $polvorin->id, 'nombre' => $polvorin->nombre],
+            'f_a' => $polvorin->autoridadFiscalizadora?->codigo,
+            'autoridad_fiscalizadora' => $polvorin->autoridadFiscalizadora?->nombre,
+            'filas' => $filas,
+            'total_entradas' => round($totEntradas, 2),
+            'total_salidas' => round($totSalidas, 2),
+            'total_devoluciones' => round($totDevoluciones, 2),
+            'total_ajustes' => round($totAjustes, 2),
         ]);
     }
 }

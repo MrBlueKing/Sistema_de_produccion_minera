@@ -6,11 +6,13 @@ import {
   HiCheckCircle,
   HiExclamationTriangle,
   HiPencil,
-  HiChevronDown,
-  HiChevronUp,
+  HiPencilSquare,
   HiDocumentText,
   HiXCircle,
   HiClock,
+  HiWrenchScrewdriver,
+  HiArrowUturnLeft,
+  HiInformationCircle,
 } from 'react-icons/hi2';
 import Card from '../../../shared/components/atoms/Card';
 import Button from '../../../shared/components/atoms/Button';
@@ -44,13 +46,24 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
   const [estado, setEstado] = useState('borrador');
   const [codigo, setCodigo] = useState('');
 
+  // Modo corrección: reporte Confirmado/Cerrado que se está editando con los
+  // movimientos de stock revertidos temporalmente.
+  const [enCorreccion, setEnCorreccion] = useState(false);
+  const [correccionPrevio, setCorreccionPrevio] = useState(null); // 'confirmado' | 'cerrado'
+  const [correccionPor, setCorreccionPor] = useState(null);
+  const [devolucionesRevisar, setDevolucionesRevisar] = useState([]);
+
   // Lineas
   const [lineas, setLineas] = useState([]);
 
   // Devoluciones
   const [devoluciones, setDevoluciones] = useState([]);
-  const [showDevoluciones, setShowDevoluciones] = useState(false);
-  const [sinDevoluciones, setSinDevoluciones] = useState(false);
+
+  // Extras: material solicitado después de confirmado, sin tocar las líneas
+  const [extras, setExtras] = useState([]);
+  const [mostrarFormExtra, setMostrarFormExtra] = useState(false);
+  const [extraForm, setExtraForm] = useState({ id_tipo_explosivo: '', cantidad: '', motivo: '', id_linea_reporte: '' });
+  const [submittingExtra, setSubmittingExtra] = useState(false);
 
   // Datos de referencia
   const [frentesTrabajo, setFrentesTrabajo] = useState([]);
@@ -70,15 +83,11 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
 
   // Confirm dialogs
   const [showConfirmConfirmar, setShowConfirmConfirmar] = useState(false);
-  const [showConfirmCerrar, setShowConfirmCerrar] = useState(false);
-  const [showConfirmCerrarSinDev, setShowConfirmCerrarSinDev] = useState(false);
-  const [showConfirmAnular, setShowConfirmAnular] = useState(false);
-  const [showConfirmReabrir, setShowConfirmReabrir] = useState(false);
+  const [showConfirmEliminar, setShowConfirmEliminar] = useState(false);
   const [showConfirmSalir, setShowConfirmSalir] = useState(false);
-
-  // Resumen post-accion
-  const [showResumenMovimientos, setShowResumenMovimientos] = useState(false);
-  const [resumenData, setResumenData] = useState(null);
+  const [showConfirmHabilitarCorreccion, setShowConfirmHabilitarCorreccion] = useState(false);
+  const [showConfirmConfirmarCorreccion, setShowConfirmConfirmarCorreccion] = useState(false);
+  const [showConfirmDescartarCorreccion, setShowConfirmDescartarCorreccion] = useState(false);
 
   // Historial
   const [showHistorial, setShowHistorial] = useState(false);
@@ -102,11 +111,28 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
       setCodigo(reporte.codigo);
       setLineas(reporte.lineas || []);
       setDevoluciones(reporte.devoluciones || []);
+      setExtras(reporte.extras || []);
       if (reporte.polvorin) {
         setPolvorinSeleccionado(reporte.polvorin);
       }
-      if (reporte.estado === 'confirmado') {
-        setShowDevoluciones(true);
+
+      setEnCorreccion(!!reporte.en_correccion);
+      setCorreccionPrevio(reporte.correccion_estado_previo || null);
+      setCorreccionPor(reporte.correccion_por || null);
+      // Si el reporte venía Cerrado, se prepara la lista de devoluciones a revisar
+      // (partiendo de las que tenía antes de la corrección).
+      if (reporte.en_correccion && reporte.correccion_estado_previo === 'cerrado') {
+        const devsSnap = reporte.correccion_snapshot?.devoluciones || [];
+        setDevolucionesRevisar(
+          devsSnap.map((d) => ({
+            id_tipo_explosivo: d.id_tipo_explosivo,
+            cantidad: d.cantidad ?? '',
+            id_personal: d.id_personal || '',
+            motivo: d.motivo || '',
+          })),
+        );
+      } else {
+        setDevolucionesRevisar([]);
       }
     }
   }, [reporte]);
@@ -217,7 +243,7 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
   const actualizarLineaLocal = (index, campo, valor) => {
     setLineas((prev) => {
       const nuevas = [...prev];
-      nuevas[index] = { ...nuevas[index], [campo]: valor };
+      nuevas[index] = { ...nuevas[index], [campo]: valor, _dirty: true };
       return nuevas;
     });
     setHasUnsavedChanges(true);
@@ -242,6 +268,7 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
 
       linea.explosivos = explosivos;
       linea.valores_editados = true;
+      linea._dirty = true;
       nuevas[lineaIndex] = linea;
       return nuevas;
     });
@@ -280,68 +307,67 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
               cantidad_calculada: r.cantidad_calculada,
               cantidad_final: r.cantidad_final,
             }));
+            lineaActualizada._dirty = true;
           }
 
           nuevas[lineaIndex] = lineaActualizada;
           return nuevas;
         });
-      } catch (error) {
+      } catch {
         // Silencioso - las formulas pueden no estar configuradas
       }
     },
     [lineas]
   );
 
-  // Guardar linea en servidor
-  const guardarLinea = async (index) => {
-    const linea = lineas[index];
-    if (!linea.id_frente_trabajo || !linea.id_personal || !linea.numero_tiros || !linea.id_tipo_frente) {
-      toast.error('Error', 'Complete los campos obligatorios: Frente, Operador, Tipo Labor y N Tiros');
-      return;
+  // Construye el payload de una línea (sin tocar UI ni toasts).
+  const payloadLinea = (linea) => ({
+    id_frente_trabajo: linea.id_frente_trabajo,
+    id_personal: linea.id_personal,
+    id_tipo_frente: linea.id_tipo_frente,
+    seccion_ancho: linea.seccion_ancho || null,
+    seccion_alto: linea.seccion_alto || null,
+    numero_tiros: parseInt(linea.numero_tiros),
+    largo_perforacion: parseFloat(linea.largo_perforacion) || 0,
+    barras_usadas: linea.barras_usadas || [],
+    material: linea.material || null,
+    observaciones: linea.observaciones || null,
+    explosivos: (linea.explosivos || []).map((e) => ({
+      id_tipo_explosivo: e.id_tipo_explosivo,
+      cantidad_calculada: e.cantidad_calculada,
+      cantidad_final: e.cantidad_final,
+    })),
+  });
+
+  // Persiste TODAS las líneas al servidor. Se usa antes de confirmar (reporte o
+  // corrección) y desde el botón "Guardar líneas". Devuelve true si quedó todo ok.
+  const guardarTodasLasLineas = async ({ mostrarToast = false } = {}) => {
+    if (lineas.length === 0) return true;
+    const incompleta = lineas.find(
+      (l) => !l.id_frente_trabajo || !l.id_personal || !l.numero_tiros || !l.id_tipo_frente,
+    );
+    if (incompleta) {
+      toast.error('Error', 'Hay una línea con campos obligatorios vacíos (Frente, Operador, Tipo Labor o N° Tiros).');
+      return false;
     }
-
-    setSubmitting(true);
+    const pendientes = lineas.some((l) => l._local || l._dirty);
     try {
-      const data = {
-        id_frente_trabajo: linea.id_frente_trabajo,
-        id_personal: linea.id_personal,
-        id_tipo_frente: linea.id_tipo_frente,
-        seccion_ancho: linea.seccion_ancho || null,
-        seccion_alto: linea.seccion_alto || null,
-        numero_tiros: parseInt(linea.numero_tiros),
-        largo_perforacion: parseFloat(linea.largo_perforacion) || 0,
-        barras_usadas: linea.barras_usadas || [],
-        material: linea.material || null,
-        observaciones: linea.observaciones || null,
-        explosivos: (linea.explosivos || []).map((e) => ({
-          id_tipo_explosivo: e.id_tipo_explosivo,
-          cantidad_calculada: e.cantidad_calculada,
-          cantidad_final: e.cantidad_final,
-        })),
-      };
-
-      if (linea._local) {
-        const res = await explosivosService.agregarLinea(reporteId, data);
-        setLineas((prev) => {
-          const nuevas = [...prev];
-          nuevas[index] = res.linea;
-          return nuevas;
-        });
-        toast.success('Linea guardada', 'La linea fue agregada al reporte');
-      } else {
-        const res = await explosivosService.actualizarLinea(reporteId, linea.id, data);
-        setLineas((prev) => {
-          const nuevas = [...prev];
-          nuevas[index] = res.linea;
-          return nuevas;
-        });
-        toast.success('Linea actualizada', 'Los cambios fueron guardados');
-      }
+      const guardadas = await Promise.all(
+        lineas.map((l) =>
+          l._local
+            ? explosivosService.agregarLinea(reporteId, payloadLinea(l)).then((r) => r.linea)
+            : explosivosService.actualizarLinea(reporteId, l.id, payloadLinea(l)).then((r) => r.linea),
+        ),
+      );
+      setLineas(guardadas);
       setHasUnsavedChanges(false);
+      if (mostrarToast) {
+        toast.success('Líneas guardadas', pendientes ? 'Los cambios de las líneas fueron guardados.' : 'No había cambios pendientes.');
+      }
+      return true;
     } catch (error) {
-      toast.error('Error', error.response?.data?.mensaje || 'No se pudo guardar la linea');
-    } finally {
-      setSubmitting(false);
+      toast.error('Error', error.response?.data?.mensaje || 'No se pudieron guardar las líneas');
+      return false;
     }
   };
 
@@ -366,6 +392,13 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
     setShowConfirmConfirmar(false);
     setSubmitting(true);
     try {
+      // Guarda cualquier edición de línea que no se haya persistido.
+      const lineasOk = await guardarTodasLasLineas();
+      if (!lineasOk) {
+        setSubmitting(false);
+        return;
+      }
+
       const res = await explosivosService.confirmarReporte(reporteId, {
         confirmado_por: 'Supervisor',
       });
@@ -375,15 +408,7 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
       const detalle = await explosivosService.getReporte(reporteId);
       setLineas(detalle.lineas || []);
       setDevoluciones(detalle.devoluciones || []);
-      setShowDevoluciones(true);
-
-      // Mostrar resumen de movimientos
-      setResumenData({
-        tipo: 'confirmacion',
-        movimientos: detalle.movimientos || [],
-        totales: detalle.totales_explosivos || [],
-      });
-      setShowResumenMovimientos(true);
+      setExtras(detalle.extras || []);
 
       onRefresh?.();
     } catch (error) {
@@ -393,154 +418,188 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
     }
   };
 
-  // Anular reporte
-  const ejecutarAnular = async () => {
-    setShowConfirmAnular(false);
+  // Eliminar reporte (cualquier estado). Si tenía movimientos, el backend los revierte.
+  const ejecutarEliminar = async () => {
+    setShowConfirmEliminar(false);
     setSubmitting(true);
     try {
-      const res = await explosivosService.anularReporte(reporteId);
-      setEstado('borrador');
-      toast.success('Reporte anulado', res.mensaje);
+      const res = await explosivosService.deleteReporte(reporteId);
+      toast.success('Reporte eliminado', res.mensaje);
+      setHasUnsavedChanges(false);
+      onRefresh?.();
+      onVolver();
+    } catch (error) {
+      toast.error('Error', error.response?.data?.mensaje || 'No se pudo eliminar el reporte');
+      setSubmitting(false);
+    }
+  };
+
+  // Solicitar extra: material pedido después de confirmado el reporte. No
+  // toca las cantidades de las líneas — queda como un registro aparte con su
+  // motivo, y descuenta stock real del polvorín.
+  const ejecutarRegistrarExtra = async () => {
+    if (!extraForm.id_tipo_explosivo || !extraForm.cantidad || !extraForm.id_linea_reporte) {
+      toast?.error('Completa la línea, el explosivo y la cantidad');
+      return;
+    }
+    setSubmittingExtra(true);
+    try {
+      const res = await explosivosService.registrarExtra(reporteId, {
+        id_tipo_explosivo: extraForm.id_tipo_explosivo,
+        cantidad: parseFloat(extraForm.cantidad),
+        motivo: extraForm.motivo.trim() || null,
+        id_linea_reporte: extraForm.id_linea_reporte,
+      });
+      toast.success('Extra registrado', res.mensaje);
+      setExtras(res.extras || []);
+      setExtraForm({ id_tipo_explosivo: '', cantidad: '', motivo: '', id_linea_reporte: '' });
+      setMostrarFormExtra(false);
+
+      // El stock del polvorín bajó — refrescarlo para que se vea al tiro.
+      const polv = polvorinSeleccionado || polvorin;
+      if (polv?.id) {
+        try {
+          const stockRes = await explosivosService.getStock({ id_polvorin: polv.id });
+          setStockDisponible(stockRes);
+        } catch { /* no critico */ }
+      }
+    } catch (error) {
+      toast.error('Error', error.response?.data?.mensaje || 'No se pudo registrar el extra');
+    } finally {
+      setSubmittingExtra(false);
+    }
+  };
+
+  // ---- Modo corrección ----
+
+  const CLAVE_EXPLICACION_CORRECCION = 'reportes_pt_correccion_explicada';
+
+  // "Habilitar corrección": si es la primera vez muestra el diálogo explicativo,
+  // las siguientes va directo.
+  const pedirHabilitarCorreccion = () => {
+    let yaExplicado = false;
+    try { yaExplicado = localStorage.getItem(CLAVE_EXPLICACION_CORRECCION) === '1'; } catch { /* noop */ }
+    if (yaExplicado) {
+      ejecutarHabilitarCorreccion();
+    } else {
+      setShowConfirmHabilitarCorreccion(true);
+    }
+  };
+
+  const ejecutarHabilitarCorreccion = async () => {
+    setShowConfirmHabilitarCorreccion(false);
+    try { localStorage.setItem(CLAVE_EXPLICACION_CORRECCION, '1'); } catch { /* noop */ }
+    setSubmitting(true);
+    try {
+      const res = await explosivosService.habilitarCorreccion(reporteId);
+      toast.success('Corrección habilitada', res.mensaje);
       const detalle = await explosivosService.getReporte(reporteId);
-      setLineas(detalle.lineas || []);
-      setDevoluciones(detalle.devoluciones || []);
-      setShowDevoluciones(false);
+      aplicarDetalleCorreccion(detalle);
       onRefresh?.();
     } catch (error) {
-      toast.error('Error', error.response?.data?.mensaje || 'No se pudo anular el reporte');
+      toast.error('Error', error.response?.data?.mensaje || 'No se pudo habilitar la corrección');
     } finally {
       setSubmitting(false);
     }
   };
 
-  // Reabrir reporte cerrado (vuelve a Confirmado; desde ahí se puede Anular para editar líneas)
-  const ejecutarReabrir = async () => {
-    setShowConfirmReabrir(false);
+  const ejecutarConfirmarCorreccion = async () => {
+    setShowConfirmConfirmarCorreccion(false);
+    // Si venía Cerrado, se mandan las devoluciones revisadas por la operadora
+    const devsPayload = correccionPrevio === 'cerrado'
+      ? devolucionesRevisar
+          .filter((d) => d.id_tipo_explosivo && parseFloat(d.cantidad) > 0)
+          .map((d) => ({
+            id_tipo_explosivo: d.id_tipo_explosivo,
+            cantidad: parseFloat(d.cantidad),
+            id_personal: d.id_personal || null,
+            motivo: d.motivo || null,
+          }))
+      : [];
+
     setSubmitting(true);
     try {
-      const res = await explosivosService.reabrirReporte(reporteId);
-      setEstado('confirmado');
-      toast.success('Reporte reabierto', res.mensaje);
+      // Persistir cualquier edición de celda que no se haya guardado fila por fila.
+      const lineasOk = await guardarTodasLasLineas();
+      if (!lineasOk) {
+        setSubmitting(false);
+        return;
+      }
+
+      const res = await explosivosService.confirmarCorreccion(reporteId, devsPayload);
+      toast.success('Corrección confirmada', res.mensaje);
       const detalle = await explosivosService.getReporte(reporteId);
-      setLineas(detalle.lineas || []);
-      setDevoluciones(detalle.devoluciones || []);
-      setSinDevoluciones(false);
-      setShowDevoluciones(true);
+      aplicarDetalleCorreccion(detalle);
       onRefresh?.();
     } catch (error) {
-      toast.error('Error', error.response?.data?.mensaje || 'No se pudo reabrir el reporte');
+      toast.error('Error', error.response?.data?.mensaje || 'No se pudo confirmar la corrección');
     } finally {
       setSubmitting(false);
     }
   };
 
-  // Devoluciones
-  const agregarDevolucion = () => {
-    setDevoluciones((prev) => [
-      ...prev,
-      {
-        _local: true,
-        _key: Date.now(),
-        id_tipo_explosivo: '',
-        cantidad: '',
-        id_personal: '',
-        motivo: '',
-      },
-    ]);
+  const ejecutarDescartarCorreccion = async () => {
+    setShowConfirmDescartarCorreccion(false);
+    setSubmitting(true);
+    try {
+      const res = await explosivosService.descartarCorreccion(reporteId);
+      toast.success('Corrección descartada', res.mensaje);
+      const detalle = await explosivosService.getReporte(reporteId);
+      aplicarDetalleCorreccion(detalle);
+      setHasUnsavedChanges(false);
+      onRefresh?.();
+    } catch (error) {
+      toast.error('Error', error.response?.data?.mensaje || 'No se pudo descartar la corrección');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const prePopularDevoluciones = () => {
-    const totales = calcularTotales();
-    const nuevasDev = Object.entries(totales).map(([idTipo, cantidad]) => ({
-      _local: true,
-      _key: Date.now() + parseInt(idTipo),
-      id_tipo_explosivo: parseInt(idTipo),
-      cantidad: '',
-      id_personal: '',
-      motivo: '',
-      _totalEntregado: cantidad,
-    }));
-    setDevoluciones((prev) => {
-      const existentes = prev.filter((d) => !d._local);
-      return [...existentes, ...nuevasDev];
-    });
+  // Refresca el estado local del formulario tras cualquier acción de corrección.
+  const aplicarDetalleCorreccion = (detalle) => {
+    setEstado(detalle.estado);
+    setLineas(detalle.lineas || []);
+    setDevoluciones(detalle.devoluciones || []);
+    setExtras(detalle.extras || []);
+    setEnCorreccion(!!detalle.en_correccion);
+    setCorreccionPrevio(detalle.correccion_estado_previo || null);
+    setCorreccionPor(detalle.correccion_por || null);
+    setHasUnsavedChanges(false); // el estado local ya coincide con el servidor
+    if (detalle.en_correccion && detalle.correccion_estado_previo === 'cerrado') {
+      const devsSnap = detalle.correccion_snapshot?.devoluciones || [];
+      setDevolucionesRevisar(
+        devsSnap.map((d) => ({
+          id_tipo_explosivo: d.id_tipo_explosivo,
+          cantidad: d.cantidad ?? '',
+          id_personal: d.id_personal || '',
+          motivo: d.motivo || '',
+        })),
+      );
+    } else {
+      setDevolucionesRevisar([]);
+    }
   };
 
-  const actualizarDevolucion = (index, campo, valor) => {
-    setDevoluciones((prev) => {
+  // En corrección: solo se edita la cantidad/motivo de las devoluciones que el
+  // polvorinero ya había registrado. No se agregan ni se quitan desde acá.
+  const actualizarDevolucionRevisar = (index, campo, valor) => {
+    setDevolucionesRevisar((prev) => {
       const nuevas = [...prev];
       nuevas[index] = { ...nuevas[index], [campo]: valor };
       return nuevas;
     });
   };
 
-  const eliminarDevolucionLocal = (index) => {
-    setDevoluciones((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  const ejecutarCerrar = async () => {
-    setShowConfirmCerrar(false);
-    const devLocales = devoluciones.filter((d) => d._local && d.id_tipo_explosivo && d.cantidad);
-    if (devLocales.length === 0) {
-      toast.error('Error', 'Agregue al menos una devolucion');
+  const handleVolver = () => {
+    if (enCorreccion) {
+      // No se sale de una corrección a medias por la puerta de atrás
+      setShowConfirmSalir(true);
       return;
     }
-
-    setSubmitting(true);
-    try {
-      const res = await explosivosService.registrarDevoluciones(
-        reporteId,
-        devLocales.map((d) => ({
-          id_tipo_explosivo: d.id_tipo_explosivo,
-          cantidad: parseFloat(d.cantidad),
-          id_personal: d.id_personal || null,
-          motivo: d.motivo || null,
-        }))
-      );
-      setEstado('cerrado');
-      toast.success('Reporte cerrado', res.mensaje);
-      // Recargar
-      const detalle = await explosivosService.getReporte(reporteId);
-      setDevoluciones(detalle.devoluciones || []);
-
-      // Mostrar resumen
-      setResumenData({
-        tipo: 'cierre',
-        devoluciones: detalle.devoluciones || [],
-        movimientos: detalle.movimientos?.filter((m) => m.tipo === 'devolucion') || [],
-      });
-      setShowResumenMovimientos(true);
-
-      onRefresh?.();
-    } catch (error) {
-      toast.error('Error', error.response?.data?.mensaje || 'No se pudieron registrar las devoluciones');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const ejecutarCerrarSinDevoluciones = async () => {
-    setShowConfirmCerrarSinDev(false);
-    setSubmitting(true);
-    try {
-      const res = await explosivosService.cerrarReporte(reporteId);
-      setEstado('cerrado');
-      toast.success('Reporte cerrado', res.mensaje);
-      const detalle = await explosivosService.getReporte(reporteId);
-      setDevoluciones(detalle.devoluciones || []);
-      onRefresh?.();
-    } catch (error) {
-      toast.error('Error', error.response?.data?.mensaje || 'No se pudo cerrar el reporte');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleVolver = () => {
     if (hasUnsavedChanges) {
       setShowConfirmSalir(true);
     } else {
-      onVolver();
+      onVolver(reporteId);
     }
   };
 
@@ -557,6 +616,18 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
     return totales;
   };
 
+  // Extras por tipo de explosivo — se muestran aparte de `totales` (líneas),
+  // nunca fusionados: lo planificado en las líneas queda intacto siempre.
+  const calcularExtras = () => {
+    const porTipo = {};
+    extras.forEach((ex) => {
+      const id = ex.id_tipo_explosivo;
+      if (!porTipo[id]) porTipo[id] = 0;
+      porTipo[id] += parseFloat(ex.cantidad) || 0;
+    });
+    return porTipo;
+  };
+
   const calcularTotalTiros = () => {
     return lineas.reduce((suma, linea) => suma + (parseInt(linea.numero_tiros) || 0), 0);
   };
@@ -571,6 +642,13 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
   };
 
   const getEstadoBadge = (est) => {
+    if (enCorreccion) {
+      return (
+        <span className="inline-flex px-3 py-1 rounded-full text-sm font-semibold border bg-amber-100 text-amber-800 border-amber-300">
+          En corrección
+        </span>
+      );
+    }
     const estilos = {
       borrador: 'bg-yellow-100 text-yellow-700 border-yellow-300',
       confirmado: 'bg-blue-100 text-blue-700 border-blue-300',
@@ -591,9 +669,13 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
   const esBorrador = estado === 'borrador';
   const esConfirmado = estado === 'confirmado';
   const esCerrado = estado === 'cerrado';
+  // Borrador "de verdad" (reporte nuevo en armado), distinto de un borrador que
+  // en realidad está en modo corrección.
+  const esBorradorReal = esBorrador && !enCorreccion;
+  const puedeHabilitarCorreccion = reporteId && !enCorreccion && (esConfirmado || esCerrado);
   const totales = calcularTotales();
+  const extrasTotales = calcularExtras();
   const totalTiros = calcularTotalTiros();
-  const devLocales = devoluciones.filter((d) => d._local);
 
   if (loading) {
     return (
@@ -625,6 +707,53 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
           </div>
         )}
       </div>
+
+      {/* Banner: puerta de entrada a la corrección (reporte Confirmado/Cerrado) */}
+      {puedeHabilitarCorreccion && (
+        <div className="print:hidden rounded-xl border border-gray-300 bg-gray-50 p-4 flex items-start gap-3">
+          <HiInformationCircle className="w-6 h-6 text-gray-500 flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="font-semibold text-gray-800">
+              Reporte {esCerrado ? 'cerrado' : 'confirmado'} — solo lectura
+            </p>
+            <p className="text-sm text-gray-600 mt-0.5">
+              Los movimientos de stock de este reporte ya están registrados. Para editar cualquier dato,
+              habilitá la corrección.
+            </p>
+            {reporte?.corregido_en && (
+              <p className="text-xs text-amber-700 mt-1.5 flex items-center gap-1">
+                <HiPencilSquare className="w-3.5 h-3.5" />
+                Ya fue corregido el {new Date(reporte.corregido_en).toLocaleDateString('es-CL')}
+                {reporte.corregido_por ? ` por ${reporte.corregido_por}` : ''}
+                {reporte.corregido_toco_devoluciones ? ' (devoluciones ajustadas)' : ''}.
+              </p>
+            )}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button variant="primary" icon={HiWrenchScrewdriver} size="sm" onClick={pedirHabilitarCorreccion} disabled={submitting}>
+                Habilitar corrección
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Banner fijo: corrección en curso */}
+      {enCorreccion && (
+        <div className="print:hidden sticky top-2 z-30 rounded-xl border border-amber-300 bg-amber-50 shadow-sm p-4 flex items-start gap-3">
+          <HiWrenchScrewdriver className="w-6 h-6 text-amber-600 flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="font-semibold text-amber-900">
+              Corrigiendo — los movimientos se regenerarán al confirmar
+            </p>
+            <p className="text-sm text-amber-800 mt-0.5">
+              Las salidas de stock de este reporte fueron revertidas temporalmente
+              {correccionPrevio === 'cerrado' && ' (y las devoluciones del cierre)'}.
+              Editá lo que necesites y confirmá para volver a aplicarlas con los valores nuevos.
+              {correccionPor && <span className="text-amber-700"> · iniciada por {correccionPor}</span>}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Cabecera */}
       <Card>
@@ -706,16 +835,40 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
       {/* Tabla de Lineas */}
       {reporteId && (
         <Card>
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
             <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">
               Lineas de Perforacion ({lineas.length})
+              {esBorrador && lineas.some((l) => l._local || l._dirty) && (
+                <span className="ml-2 normal-case text-xs font-normal text-amber-600">
+                  · cambios sin guardar
+                </span>
+              )}
             </h4>
             {esBorrador && (
-              <Button variant="outline" icon={HiPlus} size="sm" onClick={agregarLineaLocal}>
-                Agregar Linea
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                {lineas.some((l) => l._local || l._dirty) && (
+                  <Button
+                    variant="outline"
+                    icon={HiCheckCircle}
+                    size="sm"
+                    onClick={() => guardarTodasLasLineas({ mostrarToast: true })}
+                    disabled={submitting}
+                  >
+                    Guardar líneas
+                  </Button>
+                )}
+                <Button variant="outline" icon={HiPlus} size="sm" onClick={agregarLineaLocal}>
+                  Agregar Linea
+                </Button>
+              </div>
             )}
           </div>
+          {esBorrador && (
+            <p className="text-xs text-gray-400 -mt-2 mb-3">
+              Editá las celdas libremente. Los cambios se guardan al confirmar
+              {enCorreccion ? ' la corrección' : ' el reporte'}, o con "Guardar líneas".
+            </p>
+          )}
 
           {lineas.length === 0 ? (
             <div className="text-center py-8">
@@ -748,9 +901,13 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
                   {lineas.map((linea, index) => {
                     const isLocal = linea._local;
                     const isEditable = esBorrador;
+                    const sinGuardar = isEditable && (linea._local || linea._dirty);
 
                     return (
-                      <tr key={linea.id || linea._key} className="border-b hover:bg-red-50/30">
+                      <tr
+                        key={linea.id || linea._key}
+                        className={`border-b hover:bg-red-50/30 ${sinGuardar ? 'bg-amber-50/60 border-l-2 border-l-amber-400' : ''}`}
+                      >
                         <td className="px-1 py-1">
                           {isEditable ? (
                             <SearchableSelect
@@ -966,26 +1123,12 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
                         })}
                         {esBorrador && (
                           <td className="px-1 py-1 text-center">
-                            <div className="flex items-center gap-1 justify-center">
-                              {isLocal && (
-                                <button
-                                  onClick={() => guardarLinea(index)}
-                                  className="p-1 text-green-600 hover:bg-green-50 rounded"
-                                  title="Guardar linea"
-                                  disabled={submitting}
-                                >
-                                  <HiCheckCircle className="w-4 h-4" />
-                                </button>
-                              )}
-                              {!isLocal && (
-                                <button
-                                  onClick={() => guardarLinea(index)}
-                                  className="p-1 text-blue-600 hover:bg-blue-50 rounded"
-                                  title="Actualizar linea"
-                                  disabled={submitting}
-                                >
-                                  <HiPencil className="w-4 h-4" />
-                                </button>
+                            <div className="flex items-center gap-1.5 justify-center">
+                              {sinGuardar && (
+                                <span
+                                  className="w-2 h-2 rounded-full bg-amber-400 flex-shrink-0"
+                                  title={isLocal ? 'Línea nueva sin guardar' : 'Cambios sin guardar'}
+                                />
                               )}
                               <button
                                 onClick={() => eliminarLinea(index)}
@@ -1019,6 +1162,40 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
                       ))}
                       {esBorrador && <td></td>}
                     </tr>
+                    {Object.keys(extrasTotales).length > 0 && (
+                      <>
+                        <tr className="bg-violet-50 text-violet-700">
+                          <td colSpan={6} className="px-2 py-1.5 text-right text-[10px] font-semibold">
+                            <span className="inline-flex items-center gap-1">
+                              <span className="w-1.5 h-1.5 rounded-full bg-violet-500" />
+                              EXTRA SOLICITADO
+                            </span>
+                          </td>
+                          <td colSpan={3}></td>
+                          {columnasExplosivos.map((te) => (
+                            <td key={te.id} className="px-2 py-1.5 text-center text-[10px] font-bold">
+                              {extrasTotales[te.id] ? `+ ${parseFloat(extrasTotales[te.id]).toLocaleString('es-CL', { maximumFractionDigits: 2 })}` : '—'}
+                            </td>
+                          ))}
+                          {esBorrador && <td></td>}
+                        </tr>
+                        <tr className="border-t bg-gray-50 font-bold">
+                          <td colSpan={6} className="px-2 py-2 text-right text-xs text-gray-800">
+                            TOTAL REAL
+                          </td>
+                          <td colSpan={3}></td>
+                          {columnasExplosivos.map((te) => {
+                            const total = (parseFloat(totales[te.id]) || 0) + (parseFloat(extrasTotales[te.id]) || 0);
+                            return (
+                              <td key={te.id} className="px-2 py-2 text-center text-xs text-gray-900">
+                                {total ? total.toLocaleString('es-CL', { maximumFractionDigits: 2 }) : '-'}
+                              </td>
+                            );
+                          })}
+                          {esBorrador && <td></td>}
+                        </tr>
+                      </>
+                    )}
                     {stockDisponible.length > 0 && (
                       <tr className="bg-blue-50/50">
                         <td colSpan={9} className="px-2 py-1.5 text-right text-[10px] text-blue-600 font-medium">
@@ -1046,156 +1223,242 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
         </Card>
       )}
 
-      {/* Seccion Devoluciones (solo en confirmado/cerrado) */}
-      {reporteId && (esConfirmado || esCerrado) && (
+      {/* Extras: material solicitado después de confirmado, sin tocar las líneas */}
+      {reporteId && esConfirmado && !enCorreccion && (
         <Card>
-          <button
-            className="w-full flex items-center justify-between"
-            onClick={() => setShowDevoluciones(!showDevoluciones)}
-          >
-            <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">
-              Devoluciones {devoluciones.filter((d) => !d._local).length > 0 && `(${devoluciones.filter((d) => !d._local).length})`}
-            </h4>
-            {showDevoluciones ? <HiChevronUp className="w-5 h-5 text-gray-400" /> : <HiChevronDown className="w-5 h-5 text-gray-400" />}
-          </button>
-
-          {showDevoluciones && (
-            <div className="mt-4">
-              {esConfirmado && (
-                <>
-                  <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
-                    <p className="font-medium mb-1">Registre las devoluciones de explosivos no utilizados</p>
-                    <p className="text-xs text-blue-600">Si todo fue utilizado, puede cerrar sin devoluciones.</p>
-                  </div>
-                  <div className="mb-4 flex flex-wrap gap-2 justify-end">
-                    {devLocales.length === 0 && (
-                      <Button variant="outline" size="sm" onClick={prePopularDevoluciones}>
-                        Pre-popular con tipos del reporte
-                      </Button>
-                    )}
-                    <Button variant="outline" icon={HiPlus} size="sm" onClick={agregarDevolucion}>
-                      Agregar Devolucion
-                    </Button>
-                  </div>
-
-                  {/* Opcion sin devoluciones */}
-                  <div className="mb-4">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={sinDevoluciones}
-                        onChange={(e) => setSinDevoluciones(e.target.checked)}
-                        className="w-4 h-4 text-red-600 rounded"
-                      />
-                      <span className="text-sm text-gray-700">Sin devoluciones - Todo fue utilizado</span>
-                    </label>
-                  </div>
-                </>
-              )}
-
-              {devoluciones.length === 0 && !sinDevoluciones ? (
-                <p className="text-gray-500 text-sm text-center py-4">No hay devoluciones registradas.</p>
-              ) : !sinDevoluciones ? (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b bg-gray-50">
-                        <th className="px-3 py-2 text-left font-semibold">Tipo Explosivo</th>
-                        <th className="px-3 py-2 text-center font-semibold">Entregado</th>
-                        <th className="px-3 py-2 text-center font-semibold">Devolucion</th>
-                        <th className="px-3 py-2 text-left font-semibold">Operador</th>
-                        <th className="px-3 py-2 text-left font-semibold">Motivo</th>
-                        {esConfirmado && <th className="px-3 py-2 text-center font-semibold">Acc.</th>}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {devoluciones.map((dev, index) =>
-                        dev._local ? (
-                          <tr key={dev._key} className="border-b">
-                            <td className="px-2 py-2">
-                              <select
-                                value={dev.id_tipo_explosivo || ''}
-                                onChange={(e) => actualizarDevolucion(index, 'id_tipo_explosivo', e.target.value)}
-                                className="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-red-500"
-                              >
-                                <option value="">Seleccionar...</option>
-                                {tipos.map((t) => (
-                                  <option key={t.id} value={t.id}>
-                                    {t.codigo} - {t.nombre}
-                                  </option>
-                                ))}
-                              </select>
-                            </td>
-                            <td className="px-2 py-2 text-center text-xs text-gray-500">
-                              {dev._totalEntregado != null
-                                ? parseFloat(dev._totalEntregado).toLocaleString('es-CL')
-                                : totales[dev.id_tipo_explosivo]
-                                ? parseFloat(totales[dev.id_tipo_explosivo]).toLocaleString('es-CL')
-                                : '-'
-                              }
-                            </td>
-                            <td className="px-2 py-2">
-                              <input
-                                type="number"
-                                step="0.01"
-                                min="0.01"
-                                value={dev.cantidad || ''}
-                                onChange={(e) => actualizarDevolucion(index, 'cantidad', e.target.value)}
-                                className="w-20 px-2 py-1 text-center border border-gray-300 rounded text-sm focus:ring-1 focus:ring-red-500"
-                              />
-                            </td>
-                            <td className="px-2 py-2">
-                              <select
-                                value={dev.id_personal || ''}
-                                onChange={(e) => actualizarDevolucion(index, 'id_personal', e.target.value)}
-                                className="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-red-500"
-                              >
-                                <option value="">Opcional...</option>
-                                {personalAutorizado.map((p) => (
-                                  <option key={p.id} value={p.id}>
-                                    {p.nombre} {p.apellido}
-                                  </option>
-                                ))}
-                              </select>
-                            </td>
-                            <td className="px-2 py-2">
-                              <input
-                                type="text"
-                                value={dev.motivo || ''}
-                                onChange={(e) => actualizarDevolucion(index, 'motivo', e.target.value)}
-                                placeholder="Motivo..."
-                                className="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-red-500"
-                              />
-                            </td>
-                            <td className="px-2 py-2 text-center">
-                              <button
-                                onClick={() => eliminarDevolucionLocal(index)}
-                                className="p-1 text-red-600 hover:bg-red-50 rounded"
-                              >
-                                <HiTrash className="w-4 h-4" />
-                              </button>
-                            </td>
-                          </tr>
-                        ) : (
-                          <tr key={dev.id} className="border-b bg-gray-50/50">
-                            <td className="px-3 py-2">{dev.tipo_explosivo?.codigo} - {dev.tipo_explosivo?.nombre}</td>
-                            <td className="px-3 py-2 text-center text-xs text-gray-500">-</td>
-                            <td className="px-3 py-2 text-center font-medium">
-                              {parseFloat(dev.cantidad).toLocaleString('es-CL')}
-                            </td>
-                            <td className="px-3 py-2">
-                              {dev.personal ? `${dev.personal.nombre} ${dev.personal.apellido || ''}` : '-'}
-                            </td>
-                            <td className="px-3 py-2 text-gray-600">{dev.motivo || '-'}</td>
-                            {esConfirmado && <td></td>}
-                          </tr>
-                        )
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              ) : null}
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+            <div>
+              <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider">
+                Extras solicitados {extras.length > 0 && `(${extras.length})`}
+              </h4>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Material pedido después de confirmar, sin tocar las cantidades de las líneas. Sale del stock real del polvorín.
+              </p>
             </div>
+            <Button
+              variant="outline"
+              icon={HiPlus}
+              onClick={() => setMostrarFormExtra((v) => !v)}
+            >
+              Solicitar Extra
+            </Button>
+          </div>
+
+          {extras.length === 0 ? (
+            <p className="text-gray-500 text-sm py-1">Todavía no se ha solicitado ningún extra para este reporte.</p>
+          ) : (
+            <div className="flex flex-col gap-2 mb-1">
+              {extras.map((ex) => (
+                <div key={ex.id} className="flex items-center gap-3 bg-violet-50 border border-violet-200 rounded-lg px-3 py-2">
+                  <div className="font-bold text-violet-700 text-sm min-w-[110px]">
+                    + {parseFloat(ex.cantidad).toLocaleString('es-CL', { maximumFractionDigits: 2 })} {ex.tipo_explosivo?.unidad_medida}
+                    <div className="text-[11px] font-semibold opacity-75">{ex.tipo_explosivo?.codigo}</div>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    {ex.motivo && <div className="text-sm text-gray-800">"{ex.motivo}"</div>}
+                    <div className="text-[11px] text-gray-500 flex gap-2 flex-wrap">
+                      {ex.linea_reporte?.frente_trabajo && (
+                        <span className="font-semibold text-violet-700">
+                          Frente {ex.linea_reporte.frente_trabajo.codigo_completo}
+                        </span>
+                      )}
+                      {ex.personal && <span className="font-semibold">{ex.personal.nombre} {ex.personal.apellido || ''}</span>}
+                      <span>{new Date(ex.created_at).toLocaleString('es-CL', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {mostrarFormExtra && (
+            <div className="mt-4 border-2 border-dashed border-violet-200 bg-violet-50/60 rounded-xl p-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">Línea (Frente)</label>
+                  <select
+                    value={extraForm.id_linea_reporte}
+                    onChange={(e) => setExtraForm((f) => ({ ...f, id_linea_reporte: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-violet-500 focus:outline-none"
+                  >
+                    <option value="">Seleccionar...</option>
+                    {lineas.map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.frente_trabajo?.codigo_completo || `Frente ${l.id_frente_trabajo}`}
+                        {l.personal ? ` — ${l.personal.nombre} ${l.personal.apellido || ''}` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">Explosivo</label>
+                  <select
+                    value={extraForm.id_tipo_explosivo}
+                    onChange={(e) => setExtraForm((f) => ({ ...f, id_tipo_explosivo: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-violet-500 focus:outline-none"
+                  >
+                    <option value="">Seleccionar...</option>
+                    {columnasExplosivos.map((te) => (
+                      <option key={te.id} value={te.id}>{te.codigo} — {te.nombre}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">
+                    Cantidad {extraForm.id_tipo_explosivo && `(${columnasExplosivos.find((t) => t.id === parseInt(extraForm.id_tipo_explosivo))?.unidad_medida || ''})`}
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={extraForm.cantidad}
+                    onChange={(e) => setExtraForm((f) => ({ ...f, cantidad: e.target.value }))}
+                    placeholder="0.00"
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-violet-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+              <div className="mb-3">
+                <label className="block text-xs font-semibold text-gray-600 mb-1 uppercase tracking-wide">Observaciones (opcional)</label>
+                <input
+                  type="text"
+                  value={extraForm.motivo}
+                  onChange={(e) => setExtraForm((f) => ({ ...f, motivo: e.target.value }))}
+                  placeholder="Por qué se necesitó el extra"
+                  className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-violet-500 focus:outline-none"
+                />
+              </div>
+              {extraForm.id_tipo_explosivo && (
+                <p className="text-xs text-gray-500 mb-3">
+                  Stock disponible: <span className="font-semibold text-violet-700">
+                    {parseFloat(getStockParaTipo(parseInt(extraForm.id_tipo_explosivo))).toLocaleString('es-CL', { maximumFractionDigits: 2 })}
+                  </span>
+                </p>
+              )}
+              <div className="flex justify-end gap-2">
+                <Button variant="secondary" onClick={() => { setMostrarFormExtra(false); setExtraForm({ id_tipo_explosivo: '', cantidad: '', motivo: '', id_linea_reporte: '' }); }} disabled={submittingExtra}>
+                  Cancelar
+                </Button>
+                <Button variant="primary" onClick={ejecutarRegistrarExtra} disabled={submittingExtra}>
+                  {submittingExtra ? 'Registrando...' : 'Registrar extra'}
+                </Button>
+              </div>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* Devoluciones registradas por el polvorín (solo lectura, en reportes cerrados) */}
+      {reporteId && esCerrado && !enCorreccion && (
+        <Card>
+          <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
+            Devoluciones al polvorín {devoluciones.length > 0 && `(${devoluciones.length})`}
+          </h4>
+          {devoluciones.length === 0 ? (
+            <p className="text-gray-500 text-sm py-2">
+              El polvorín cerró este reporte sin devoluciones — todo lo entregado se consumió.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-gray-50">
+                    <th className="px-3 py-2 text-left font-semibold">Tipo Explosivo</th>
+                    <th className="px-3 py-2 text-center font-semibold">Devolución</th>
+                    <th className="px-3 py-2 text-left font-semibold">Operador</th>
+                    <th className="px-3 py-2 text-left font-semibold">Motivo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {devoluciones.map((dev) => (
+                    <tr key={dev.id} className="border-b">
+                      <td className="px-3 py-2">{dev.tipo_explosivo?.codigo} - {dev.tipo_explosivo?.nombre}</td>
+                      <td className="px-3 py-2 text-center font-medium">
+                        {parseFloat(dev.cantidad).toLocaleString('es-CL')} {dev.tipo_explosivo?.unidad_medida}
+                      </td>
+                      <td className="px-3 py-2">
+                        {dev.personal ? `${dev.personal.nombre} ${dev.personal.apellido || ''}` : '-'}
+                      </td>
+                      <td className="px-3 py-2 text-gray-600">{dev.motivo || '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <p className="text-xs text-gray-400 mt-3">
+            Las devoluciones las registra el polvorinero al cerrar el reporte. Desde acá solo se pueden revisar durante una corrección.
+          </p>
+        </Card>
+      )}
+
+      {/* Corrección: revisar las devoluciones que el polvorinero registró (solo edición) */}
+      {enCorreccion && correccionPrevio === 'cerrado' && (
+        <Card className="print:hidden border-l-4 border-amber-400">
+          <h4 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-2">
+            Devoluciones del polvorín — revisar
+          </h4>
+          {devolucionesRevisar.length === 0 ? (
+            <p className="text-sm text-gray-500">
+              El polvorinero cerró este reporte sin devoluciones. Al confirmar la corrección se vuelve a cerrar igual.
+              Si con los cambios algo debería volver al polvorín, avisale para que lo registre.
+            </p>
+          ) : (
+            <>
+              <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
+                Estas devoluciones las contó el polvorinero. Una devolución es un conteo físico: el sistema no la
+                recalcula solo. Ajustá la cantidad si tus cambios lo requieren, o dejala como está. No se pueden
+                agregar ni quitar desde acá — eso lo hace el polvorinero.
+              </p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b bg-gray-50">
+                      <th className="px-3 py-2 text-left font-semibold">Tipo Explosivo</th>
+                      <th className="px-3 py-2 text-center font-semibold">Entregado (nuevo total)</th>
+                      <th className="px-3 py-2 text-center font-semibold">Devolución</th>
+                      <th className="px-3 py-2 text-left font-semibold">Motivo</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {devolucionesRevisar.map((dev, index) => {
+                      const idTipo = dev.id_tipo_explosivo ? parseInt(dev.id_tipo_explosivo) : '';
+                      const tipo = tipos.find((t) => t.id === idTipo);
+                      const nuevoTotal = totales[idTipo];
+                      return (
+                        <tr key={index} className="border-b">
+                          <td className="px-3 py-2">
+                            {tipo ? `${tipo.codigo} - ${tipo.nombre}` : `Tipo ${idTipo}`}
+                          </td>
+                          <td className="px-3 py-2 text-center text-gray-600">
+                            {nuevoTotal ? parseFloat(nuevoTotal).toLocaleString('es-CL', { maximumFractionDigits: 2 }) : '-'}
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={dev.cantidad}
+                              onChange={(e) => actualizarDevolucionRevisar(index, 'cantidad', e.target.value)}
+                              className="w-24 px-2 py-1 text-center border border-amber-300 rounded focus:ring-1 focus:ring-amber-500"
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <input
+                              type="text"
+                              value={dev.motivo}
+                              onChange={(e) => actualizarDevolucionRevisar(index, 'motivo', e.target.value)}
+                              placeholder="Motivo..."
+                              className="w-full px-2 py-1 border border-gray-300 rounded focus:ring-1 focus:ring-red-500"
+                            />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </Card>
       )}
@@ -1203,31 +1466,39 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
       {/* Botones de accion */}
       {reporteId && (
         <Card className="print:hidden">
+          {enCorreccion ? (
+            <div className="flex flex-wrap gap-3 justify-between items-center">
+              <Button
+                variant="outline"
+                icon={HiArrowUturnLeft}
+                onClick={() => setShowConfirmDescartarCorreccion(true)}
+                disabled={submitting}
+              >
+                Descartar y salir
+              </Button>
+              <Button
+                variant="success"
+                icon={HiCheckCircle}
+                onClick={() => setShowConfirmConfirmarCorreccion(true)}
+                disabled={submitting || lineas.length === 0}
+              >
+                Confirmar correcciones
+              </Button>
+            </div>
+          ) : (
           <div className="flex flex-wrap gap-3 justify-between">
             <div>
-              {esConfirmado && (
-                <Button
-                  variant="danger"
-                  icon={HiXCircle}
-                  onClick={() => setShowConfirmAnular(true)}
-                  disabled={submitting}
-                >
-                  Anular Reporte
-                </Button>
-              )}
-              {esCerrado && (
-                <Button
-                  variant="danger"
-                  icon={HiXCircle}
-                  onClick={() => setShowConfirmReabrir(true)}
-                  disabled={submitting}
-                >
-                  Reabrir Reporte
-                </Button>
-              )}
+              <Button
+                variant="danger"
+                icon={HiXCircle}
+                onClick={() => setShowConfirmEliminar(true)}
+                disabled={submitting}
+              >
+                Eliminar reporte
+              </Button>
             </div>
-            <div className="flex flex-wrap gap-3">
-              {esBorrador && lineas.filter((l) => !l._local).length > 0 && (
+            <div className="flex flex-wrap gap-3 items-center">
+              {esBorradorReal && lineas.length > 0 && (
                 <Button
                   variant="primary"
                   icon={HiCheckCircle}
@@ -1237,28 +1508,14 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
                   Confirmar Reporte
                 </Button>
               )}
-              {esConfirmado && sinDevoluciones && (
-                <Button
-                  variant="success"
-                  icon={HiCheckCircle}
-                  onClick={() => setShowConfirmCerrarSinDev(true)}
-                  disabled={submitting}
-                >
-                  Cerrar sin Devoluciones
-                </Button>
-              )}
-              {esConfirmado && !sinDevoluciones && devLocales.some((d) => d.id_tipo_explosivo && d.cantidad) && (
-                <Button
-                  variant="success"
-                  icon={HiCheckCircle}
-                  onClick={() => setShowConfirmCerrar(true)}
-                  disabled={submitting}
-                >
-                  Registrar Devoluciones y Cerrar
-                </Button>
+              {esConfirmado && (
+                <span className="text-sm text-gray-500">
+                  Confirmado — el polvorín lo prepara y cierra desde Explosivos → Solicitudes.
+                </span>
               )}
             </div>
           </div>
+          )}
         </Card>
       )}
 
@@ -1268,96 +1525,72 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
         onClose={() => setShowConfirmConfirmar(false)}
         onConfirm={ejecutarConfirmar}
         title="Confirmar Reporte"
-        message={`Confirmar reporte ${codigo}? Se validara el stock disponible y se generaran los movimientos de salida.`}
+        message={`Confirmar reporte ${codigo}? Se guardan las líneas, se valida el stock disponible y se generan los movimientos de salida.`}
         confirmText="Confirmar"
         confirmVariant="primary"
       />
 
       <ConfirmDialog
-        isOpen={showConfirmCerrar}
-        onClose={() => setShowConfirmCerrar(false)}
-        onConfirm={ejecutarCerrar}
-        title="Cerrar Reporte con Devoluciones"
-        message={`Registrar las devoluciones y cerrar el reporte ${codigo}? Se generaran movimientos de devolucion y el stock se actualizara.`}
-        confirmText="Cerrar Reporte"
-        confirmVariant="success"
-      />
-
-      <ConfirmDialog
-        isOpen={showConfirmCerrarSinDev}
-        onClose={() => setShowConfirmCerrarSinDev(false)}
-        onConfirm={ejecutarCerrarSinDevoluciones}
-        title="Cerrar sin Devoluciones"
-        message={`Cerrar el reporte ${codigo} SIN registrar devoluciones? Esto indica que todos los explosivos entregados fueron utilizados.`}
-        confirmText="Cerrar sin Devoluciones"
-        confirmVariant="success"
-      />
-
-      <ConfirmDialog
-        isOpen={showConfirmAnular}
-        onClose={() => setShowConfirmAnular(false)}
-        onConfirm={ejecutarAnular}
-        title="Anular Reporte"
-        message={`ANULAR el reporte ${codigo}? Los movimientos de salida seran revertidos y el stock restaurado. El reporte volvera a estado borrador.`}
-        confirmText="Anular Reporte"
-        confirmVariant="danger"
-      />
-
-      <ConfirmDialog
-        isOpen={showConfirmReabrir}
-        onClose={() => setShowConfirmReabrir(false)}
-        onConfirm={ejecutarReabrir}
-        title="Reabrir Reporte"
-        message={`REABRIR el reporte ${codigo}? Las devoluciones registradas en el cierre seran revertidas del stock y el reporte volvera a estado Confirmado. Desde ahi podras Anularlo para editar sus lineas.`}
-        confirmText="Reabrir Reporte"
+        isOpen={showConfirmEliminar}
+        onClose={() => setShowConfirmEliminar(false)}
+        onConfirm={ejecutarEliminar}
+        title="Eliminar reporte"
+        message={
+          esBorradorReal
+            ? `Eliminar el reporte ${codigo}? Esta acción no se puede deshacer.`
+            : `Eliminar el reporte ${codigo}? Se revierten sus movimientos de stock (el polvorín queda como si el reporte no existiera) y se borra el reporte con todas sus líneas. Esta acción no se puede deshacer. Si solo querés corregir un dato, usá "Habilitar corrección".`
+        }
+        confirmText="Eliminar reporte"
         confirmVariant="danger"
       />
 
       <ConfirmDialog
         isOpen={showConfirmSalir}
         onClose={() => setShowConfirmSalir(false)}
-        onConfirm={() => { setShowConfirmSalir(false); onVolver(); }}
-        title="Cambios sin guardar"
-        message="Tiene cambios sin guardar. Esta seguro que desea salir?"
-        confirmText="Salir sin guardar"
+        onConfirm={() => { setShowConfirmSalir(false); onVolver(reporteId); }}
+        title={enCorreccion ? 'Corrección en curso' : 'Cambios sin guardar'}
+        message={
+          enCorreccion
+            ? 'Este reporte quedará marcado "En corrección" con sus movimientos de stock revertidos. Podés volver más tarde para confirmar o descartar la corrección. ¿Salir igual?'
+            : 'Tiene cambios sin guardar. Esta seguro que desea salir?'
+        }
+        confirmText={enCorreccion ? 'Salir y seguir después' : 'Salir sin guardar'}
         confirmVariant="danger"
       />
 
-      {/* Modal Resumen Movimientos */}
-      {showResumenMovimientos && resumenData && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6">
-            <h3 className="text-lg font-bold text-gray-800 mb-4">
-              {resumenData.tipo === 'confirmacion' ? 'Movimientos de Salida Generados' : 'Resumen de Cierre'}
-            </h3>
-            {resumenData.tipo === 'confirmacion' && (
-              <div className="space-y-2">
-                {(resumenData.movimientos || []).filter((m) => m.tipo === 'salida').map((m, i) => (
-                  <div key={i} className="flex justify-between items-center p-2 bg-red-50 rounded">
-                    <span className="text-sm font-medium">{m.tipo_explosivo?.codigo} - {m.tipo_explosivo?.nombre}</span>
-                    <span className="text-sm font-bold text-red-700">-{parseFloat(m.cantidad).toLocaleString('es-CL')}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-            {resumenData.tipo === 'cierre' && (
-              <div className="space-y-2">
-                {(resumenData.devoluciones || []).map((d, i) => (
-                  <div key={i} className="flex justify-between items-center p-2 bg-green-50 rounded">
-                    <span className="text-sm font-medium">{d.tipo_explosivo?.codigo} - {d.tipo_explosivo?.nombre}</span>
-                    <span className="text-sm font-bold text-green-700">+{parseFloat(d.cantidad).toLocaleString('es-CL')}</span>
-                  </div>
-                ))}
-              </div>
-            )}
-            <div className="mt-4 flex justify-end">
-              <Button variant="primary" onClick={() => setShowResumenMovimientos(false)}>
-                Entendido
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        isOpen={showConfirmHabilitarCorreccion}
+        onClose={() => setShowConfirmHabilitarCorreccion(false)}
+        onConfirm={ejecutarHabilitarCorreccion}
+        title="Habilitar corrección"
+        message={`Para editar este reporte necesito revertir temporalmente sus movimientos de stock${esCerrado ? ' (salidas y devoluciones del cierre)' : ' (salidas)'}. Cuando termines y confirmes, se regeneran con los valores corregidos. ¿Continuar?`}
+        confirmText="Habilitar corrección"
+        confirmVariant="primary"
+      />
+
+      <ConfirmDialog
+        isOpen={showConfirmConfirmarCorreccion}
+        onClose={() => setShowConfirmConfirmarCorreccion(false)}
+        onConfirm={ejecutarConfirmarCorreccion}
+        title="Confirmar correcciones"
+        message={
+          correccionPrevio === 'cerrado'
+            ? `Se regeneran los movimientos de salida con las líneas actuales y el reporte ${codigo} se vuelve a cerrar con las devoluciones que revisaste. ¿Confirmar?`
+            : `Se regeneran los movimientos de salida del reporte ${codigo} con las líneas actuales. Se validará el stock disponible. ¿Confirmar?`
+        }
+        confirmText="Confirmar correcciones"
+        confirmVariant="success"
+      />
+
+      <ConfirmDialog
+        isOpen={showConfirmDescartarCorreccion}
+        onClose={() => setShowConfirmDescartarCorreccion(false)}
+        onConfirm={ejecutarDescartarCorreccion}
+        title="Descartar correcciones"
+        message={`Se descartan los cambios y el reporte ${codigo} vuelve a su estado original (${correccionPrevio === 'cerrado' ? 'Cerrado' : 'Confirmado'}) con sus movimientos de stock tal como estaban. ¿Descartar?`}
+        confirmText="Descartar y restaurar"
+        confirmVariant="danger"
+      />
 
       {/* Historial */}
       <HistorialCambios

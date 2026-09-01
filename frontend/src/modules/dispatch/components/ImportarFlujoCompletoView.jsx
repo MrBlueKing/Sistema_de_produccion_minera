@@ -477,7 +477,7 @@ export default function ImportarFlujoCompletoView({ toast, setVistaActual }) {
     setParseando(true);
     try {
       const buf = await file.arrayBuffer();
-      const wb  = XLSX.read(buf, { type: 'array', cellDates: true });
+      const wb  = XLSX.read(buf, { type: 'array', cellDates: true, sheets: [HOJA_MEZCLAS, HOJA_DB] });
       if (!wb.SheetNames.includes(HOJA_MEZCLAS)) {
         toast?.error(`El archivo no tiene una hoja llamada "${HOJA_MEZCLAS}"`);
         setParseando(false);

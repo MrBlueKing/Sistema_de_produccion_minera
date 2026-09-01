@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\Laboratorio\CamionadaController;
 use App\Http\Controllers\Api\Laboratorio\PlantaController;
 use App\Http\Controllers\Api\Laboratorio\EmpresaController;
 use App\Http\Controllers\Api\Laboratorio\LoteController;
+use App\Http\Controllers\Api\Laboratorio\TarifaController;
 use App\Http\Controllers\Api\MapaTerrenoController;
 use App\Http\Controllers\Api\TonelajeMaquinaController;
 use App\Http\Controllers\Api\CamionController;
@@ -270,8 +271,23 @@ Route::prefix('lotes')->group(function () {
     // Acciones específicas de lotes
     Route::post('/{id}/cerrar', [LoteController::class, 'cerrar']);
     Route::post('/{id}/reabrir', [LoteController::class, 'reabrir']);
+    Route::put('/{id}/leyes-laboratorio', [LoteController::class, 'actualizarLeyesLaboratorio']);
+    Route::post('/{id}/enviar-a-tercero', [LoteController::class, 'enviarATercero']);
+    Route::put('/{id}/liquidacion', [LoteController::class, 'actualizarLiquidacion']);
+    Route::put('/{id}/anticipo', [LoteController::class, 'actualizarAnticipo']);
+    Route::put('/{id}/pago', [LoteController::class, 'actualizarPago']);
     Route::get('/{id}/resumen', [LoteController::class, 'resumen']);
     Route::get('/{id}/reconstruccion', [LoteController::class, 'reconstruccion']);
+});
+
+// Tarifas de compra (mensuales, ENAMI) — usadas para calcular el Saldo
+// Líquido esperado de un lote y compararlo contra la liquidación real.
+Route::prefix('tarifas')->group(function () {
+    Route::get('/', [TarifaController::class, 'index']);
+    Route::post('/', [TarifaController::class, 'store']);
+    Route::put('/{id}', [TarifaController::class, 'update']);
+    Route::delete('/{id}', [TarifaController::class, 'destroy']);
+    Route::post('/previsualizar-pdf', [TarifaController::class, 'previsualizarPdf']);
 });
 
 // ==========================

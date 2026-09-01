@@ -72,6 +72,7 @@ Route::prefix('movimientos')->group(function () {
     Route::get('/', [MovimientoExplosivoController::class, 'index']);
     Route::get('/reporte', [MovimientoExplosivoController::class, 'reporte']);
     Route::get('/kardex', [MovimientoExplosivoController::class, 'kardex']);
+    Route::get('/kardex-resumen', [MovimientoExplosivoController::class, 'kardexResumen']);
     Route::get('/por-tronadura/{idTronadura}', [MovimientoExplosivoController::class, 'porTronadura']);
     Route::post('/entrada', [MovimientoExplosivoController::class, 'registrarEntrada']);
     Route::post('/entrada-guia', [MovimientoExplosivoController::class, 'registrarEntradaGuia']);
@@ -112,7 +113,11 @@ Route::prefix('reportes-perforacion')->group(function () {
     Route::post('/{id}/cerrar', [ReportePerforacionController::class, 'cerrar']);
     Route::post('/{id}/anular', [ReportePerforacionController::class, 'anular']);
     Route::post('/{id}/reabrir', [ReportePerforacionController::class, 'reabrir']);
+    Route::post('/{id}/habilitar-correccion', [ReportePerforacionController::class, 'habilitarCorreccion']);
+    Route::post('/{id}/confirmar-correccion', [ReportePerforacionController::class, 'confirmarCorreccion']);
+    Route::post('/{id}/descartar-correccion', [ReportePerforacionController::class, 'descartarCorreccion']);
     Route::post('/{id}/devoluciones', [ReportePerforacionController::class, 'registrarDevoluciones']);
+    Route::post('/{id}/extras', [ReportePerforacionController::class, 'registrarExtra']);
     Route::get('/{id}/historial', [ReportePerforacionController::class, 'historial']);
 });
 

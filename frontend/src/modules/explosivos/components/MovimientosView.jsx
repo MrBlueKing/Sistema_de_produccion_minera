@@ -427,7 +427,7 @@ export default function MovimientosView({ polvorin, tipos, onRefresh, faenaActua
 
       {/* ── Modal Guía de Despacho ────────────────────────────────────────── */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 p-0 sm:p-4">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/30 backdrop-blur-sm p-0 sm:p-4">
           <div className="bg-white w-full sm:rounded-xl shadow-2xl sm:max-w-4xl max-h-[95vh] flex flex-col rounded-t-2xl">
 
             {/* Header */}

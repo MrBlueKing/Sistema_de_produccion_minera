@@ -417,9 +417,18 @@ class CertificadoController extends Controller
      */
     public function enviarCorreo(Request $request, string $numeroCertificado)
     {
+        // Compatibilidad: acepta tanto 'destinatarios' (array, uno o varios) como
+        // el 'destinatario' (string) que mandaban las versiones anteriores del front.
+        $destinatarios = $request->input('destinatarios');
+        if (!is_array($destinatarios)) {
+            $destinatarios = array_filter([$request->input('destinatario')]);
+        }
+        $request->merge(['destinatarios' => $destinatarios]);
+
         $validator = Validator::make($request->all(), [
-            'destinatario' => 'required|email|max:150',
-            'mensaje'      => 'nullable|string|max:1000',
+            'destinatarios'   => 'required|array|min:1',
+            'destinatarios.*' => 'email|max:150',
+            'mensaje'         => 'nullable|string|max:1000',
         ]);
         if ($validator->fails()) {
             return response()->json(['success' => false, 'errors' => $validator->errors()], 422);
@@ -437,15 +446,18 @@ class CertificadoController extends Controller
             $pdf = $this->certificadoService->regenerarCertificado($numeroCertificado);
             $pdfBinario = $pdf->output();
 
-            Mail::to($request->input('destinatario'))
+            // Todos los destinatarios van en el mismo envío (se ven entre sí en el
+            // "Para", como un correo grupal normal) — un solo PDF, un solo correo.
+            Mail::to($destinatarios)
                 ->send(new CertificadoLaboratorioMail($numeroCertificado, $pdfBinario, $request->input('mensaje')));
 
+            $destinatariosTexto = implode(', ', $destinatarios);
             Certificado::where('numero_certificado', $numeroCertificado)->update([
-                'enviado_a' => $request->input('destinatario'),
+                'enviado_a' => $destinatariosTexto,
                 'fecha_envio_correo' => now(),
             ]);
 
-            return response()->json(['success' => true, 'message' => 'Certificado enviado a ' . $request->input('destinatario')]);
+            return response()->json(['success' => true, 'message' => 'Certificado enviado a ' . $destinatariosTexto]);
         } catch (\Exception $e) {
             return response()->json(['success' => false, 'message' => 'No se pudo enviar el correo: ' . $e->getMessage()], 500);
         }

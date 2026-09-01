@@ -299,6 +299,13 @@ class CertificadoPdfService
     /**
      * Genera el próximo número de certificado como correlativo plano (ej: 289002),
      * continuando la numeración histórica importada desde Excel — sin prefijo de año.
+     *
+     * Se calcula sobre el MAX de 3 fuentes, no solo de las dumpadas: un certificado
+     * rechazado libera sus dumpadas (vuelven a certificado=NULL para poder corregirlas),
+     * así que mirar solo dumpadas/muestras podía recalcular un número ya usado por un
+     * certificado rechazado — `Certificado::firstOrCreate` encontraba esa fila vieja y
+     * la dejaba en estado Rechazado, dejando el certificado nuevo sin poder aprobarse
+     * nunca. Incluir la tabla `certificados` evita reciclar números ya usados.
      */
     public function generarNumeroCertificado()
     {
@@ -312,9 +319,14 @@ class CertificadoPdfService
             ->orderByRaw('CAST(certificado AS UNSIGNED) DESC')
             ->value('certificado');
 
-        $numDumpada = $ultimoDumpada ? (int) $ultimoDumpada : 0;
-        $numMuestra = $ultimoMuestra ? (int) $ultimoMuestra : 0;
-        $numero     = max($numDumpada, $numMuestra) + 1;
+        $ultimoCertificado = Certificado::where('numero_certificado', 'REGEXP', '^[0-9]+$')
+            ->orderByRaw('CAST(numero_certificado AS UNSIGNED) DESC')
+            ->value('numero_certificado');
+
+        $numDumpada     = $ultimoDumpada ? (int) $ultimoDumpada : 0;
+        $numMuestra     = $ultimoMuestra ? (int) $ultimoMuestra : 0;
+        $numCertificado = $ultimoCertificado ? (int) $ultimoCertificado : 0;
+        $numero         = max($numDumpada, $numMuestra, $numCertificado) + 1;
 
         return (string) $numero;
     }

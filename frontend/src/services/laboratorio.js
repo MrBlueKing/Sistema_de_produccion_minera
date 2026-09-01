@@ -96,6 +96,16 @@ class LaboratorioService {
     return response.data;
   }
 
+  async actualizarLeyesLaboratorio(id, data) {
+    const response = await api.put(`/dispatch/lotes/${id}/leyes-laboratorio`, data);
+    return response.data;
+  }
+
+  async enviarLoteATercero(id) {
+    const response = await api.post(`/dispatch/lotes/${id}/enviar-a-tercero`);
+    return response.data;
+  }
+
   async cerrarLote(id, datos = {}) {
     const response = await api.post(`/dispatch/lotes/${id}/cerrar`, datos);
     return response.data;

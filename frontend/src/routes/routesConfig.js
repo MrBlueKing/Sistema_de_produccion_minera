@@ -13,6 +13,7 @@ const HistorialAnalisis     = lazy(() => import('../modules/laboratorio/pages/Hi
 const Explosivos            = lazy(() => import('../modules/explosivos/pages/Explosivos'));
 const DashboardCertificados = lazy(() => import('../modules/dashboard-gerencial/pages/DashboardCertificados'));
 const DashboardOperaciones  = lazy(() => import('../modules/dashboard-gerencial/pages/DashboardOperaciones'));
+const DashboardComercial    = lazy(() => import('../modules/dashboard-gerencial/pages/DashboardComercial'));
 
 export const routesConfig = [
   // ========================================
@@ -107,6 +108,13 @@ export const routesConfig = [
     component: DashboardOperaciones,
     requiredRole: 'GerenteOperaciones',
     label: 'Operaciones',
+    module: 'gerencial',
+  },
+  {
+    path: '/dashboard-gerencial/comercial',
+    component: DashboardComercial,
+    requiredRole: 'GerenteComercial',
+    label: 'Tarifas y Liquidaciones',
     module: 'gerencial',
   },
 ];

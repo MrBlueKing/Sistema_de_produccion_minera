@@ -208,6 +208,11 @@ class ExplosivosService {
     return response.data;
   }
 
+  async getKardexResumen(params) {
+    const response = await api.get('/explosivos/movimientos/kardex-resumen', { params });
+    return response.data;
+  }
+
   // =============================================
   // PERSONAL AUTORIZADO PARA SOLICITAR EXPLOSIVOS
   // =============================================
@@ -307,6 +312,11 @@ class ExplosivosService {
     return response.data;
   }
 
+  async registrarExtra(id, data) {
+    const response = await api.post(`/explosivos/reportes-perforacion/${id}/extras`, data);
+    return response.data;
+  }
+
   async cerrarReporte(id) {
     const response = await api.post(`/explosivos/reportes-perforacion/${id}/cerrar`);
     return response.data;
@@ -319,6 +329,21 @@ class ExplosivosService {
 
   async reabrirReporte(id) {
     const response = await api.post(`/explosivos/reportes-perforacion/${id}/reabrir`);
+    return response.data;
+  }
+
+  async habilitarCorreccion(id) {
+    const response = await api.post(`/explosivos/reportes-perforacion/${id}/habilitar-correccion`);
+    return response.data;
+  }
+
+  async confirmarCorreccion(id, devoluciones = []) {
+    const response = await api.post(`/explosivos/reportes-perforacion/${id}/confirmar-correccion`, { devoluciones });
+    return response.data;
+  }
+
+  async descartarCorreccion(id) {
+    const response = await api.post(`/explosivos/reportes-perforacion/${id}/descartar-correccion`);
     return response.data;
   }
 
