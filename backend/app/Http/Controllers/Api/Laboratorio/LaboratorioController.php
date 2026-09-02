@@ -411,8 +411,13 @@ class LaboratorioController extends Controller
         $estadoCertificado = $request->get('estado_certificado');
         $certificado       = $request->get('certificado');
 
-        // ── 1. DUMPADAS COMPLETADAS ────────────────────────────────────────
-        $queryDumpadas = Dumpada::with('frenteTrabajo.tipoFrente')
+        // Clave de orden combinada (fecha desc, id desc como desempate).
+        // Se calcula igual para dumpadas y muestras para poder mezclarlas.
+        $ordenKey = fn($fecha, $createdAt, $id) =>
+            strtotime($fecha ?? $createdAt ?? '1970-01-01') * 1000000 + (int) $id;
+
+        // ── 1. DUMPADAS COMPLETADAS (solo claves de orden, sin hidratar) ──
+        $queryDumpadas = Dumpada::query()
             ->where('estado', Dumpada::ESTADO_COMPLETADO)
             ->whereNotNull('ley');
 
@@ -439,17 +444,20 @@ class LaboratorioController extends Controller
         }
         if ($certificado) $queryDumpadas->where('certificado', 'like', "%{$certificado}%");
 
-        $dumpadas = $queryDumpadas->orderBy('fecha', 'desc')->orderBy('id', 'desc')->get()
-            ->map(fn($d) => array_merge($d->toArray(), ['tipo' => 'dumpada']));
+        $claves = $queryDumpadas->toBase()->get(['id', 'fecha', 'created_at'])
+            ->map(fn($d) => [
+                'id'    => $d->id,
+                'tipo'  => 'dumpada',
+                'orden' => $ordenKey($d->fecha, $d->created_at, $d->id),
+            ]);
 
-        // ── 2. MUESTRAS LIBRES COMPLETADAS ────────────────────────────────
+        // ── 2. MUESTRAS LIBRES COMPLETADAS (solo claves de orden) ─────────
         // Solo si no se filtra por jornada, certificado o estado_certificado
         // (esos filtros no aplican a muestras libres)
         $incluirMuestras = !$jornada && !$certificado && !$estadoCertificado;
 
-        $muestras = collect();
         if ($incluirMuestras) {
-            $queryMuestras = MuestraLibre::with('frenteTrabajo')
+            $queryMuestras = MuestraLibre::query()
                 ->where('estado', MuestraLibre::ESTADO_COMPLETADO)
                 ->whereNotNull('ley');
 
@@ -465,36 +473,49 @@ class LaboratorioController extends Controller
             if ($idFrente)    $queryMuestras->where('id_frente_trabajo', $idFrente);
             if ($idFaena)     $queryMuestras->where('id_faena', $idFaena);
 
-            $muestras = $queryMuestras->orderBy('created_at', 'desc')->get()
-                ->map(fn($m) => array_merge($m->toArray(), ['tipo' => 'muestra_libre']));
+            $claves = $claves->concat(
+                $queryMuestras->toBase()->get(['id', 'fecha', 'created_at'])
+                    ->map(fn($m) => [
+                        'id'    => $m->id,
+                        'tipo'  => 'muestra_libre',
+                        'orden' => $ordenKey($m->fecha, $m->created_at, $m->id),
+                    ])
+            );
         }
 
-        // ── 3. MERGE + PAGINACIÓN MANUAL ──────────────────────────────────
-        // Usar strtotime para parsear fechas correctamente sin importar el formato de serialización
-        $todos    = $dumpadas->concat($muestras)
-            ->sortByDesc(function ($item) {
-                $ts = strtotime($item['fecha'] ?? $item['created_at'] ?? '1970-01-01');
-                return $ts * 1000000 + ($item['id'] ?? 0); // Tiebreaker por ID
-            })
-            ->values();
-        $total    = $todos->count();
+        // ── 3. MERGE + PAGINACIÓN (sobre las claves livianas) ─────────────
+        $claves   = $claves->sortByDesc('orden')->values();
+        $total    = $claves->count();
         $lastPage = max(1, (int) ceil($total / $perPage));
         $offset   = ($page - 1) * $perPage;
-        $items    = $todos->slice($offset, $perPage)->values();
+        $pagina   = $claves->slice($offset, $perPage)->values();
 
-        // Enriquecer dumpadas con faenas desde API central
-        $dumpadasItems = $items->filter(fn($i) => $i['tipo'] === 'dumpada')->all();
-        $dumpadasObj   = Dumpada::hydrate(array_values($dumpadasItems));
-        $dumpadasConFaenas = collect($this->cargarFaenasDesdeApiCentral($dumpadasObj->all(), $request->bearerToken()))
-            ->keyBy('id');
+        // ── 4. HIDRATAR SOLO LOS REGISTROS DE ESTA PÁGINA ────────────────
+        $idsDumpada = $pagina->where('tipo', 'dumpada')->pluck('id')->all();
+        $idsMuestra = $pagina->where('tipo', 'muestra_libre')->pluck('id')->all();
 
-        $itemsFinales = $items->map(function ($item) use ($dumpadasConFaenas) {
-            if ($item['tipo'] === 'dumpada' && isset($dumpadasConFaenas[$item['id']])) {
-                $obj = $dumpadasConFaenas[$item['id']];
-                $item['faena_info'] = $obj->faena_info ?? null;
+        $dumpadasFull = empty($idsDumpada) ? collect()
+            : Dumpada::with('frenteTrabajo.tipoFrente')->whereIn('id', $idsDumpada)->get()->keyBy('id');
+        $muestrasFull = empty($idsMuestra) ? collect()
+            : MuestraLibre::with('frenteTrabajo')->whereIn('id', $idsMuestra)->get()->keyBy('id');
+
+        // Enriquecer las dumpadas de la página con faenas desde API central
+        $dumpadasConFaenas = collect(
+            $this->cargarFaenasDesdeApiCentral($dumpadasFull->values()->all(), $request->bearerToken())
+        )->keyBy('id');
+
+        $itemsFinales = $pagina->map(function ($clave) use ($dumpadasConFaenas, $muestrasFull) {
+            if ($clave['tipo'] === 'dumpada') {
+                $obj = $dumpadasConFaenas[$clave['id']] ?? null;
+                if (!$obj) return null;
+                $row = array_merge($obj->toArray(), ['tipo' => 'dumpada']);
+                $row['faena_info'] = $obj->faena_info ?? null;
+                return $row;
             }
-            return $item;
-        })->values();
+            $obj = $muestrasFull[$clave['id']] ?? null;
+            if (!$obj) return null;
+            return array_merge($obj->toArray(), ['tipo' => 'muestra_libre']);
+        })->filter()->values();
 
         return response()->json([
             'success' => true,
