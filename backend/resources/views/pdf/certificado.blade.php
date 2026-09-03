@@ -11,10 +11,11 @@
             box-sizing: border-box;
         }
 
-        /* Margen por página: así la hoja 2/3 (cuando hay muchas muestras) también
-           tiene aire arriba y el encabezado de la tabla no queda pegado al borde. */
+        /* Margen VERTICAL por página (DomPDF respeta bien top/bottom, no siempre los
+           lados) — así la hoja 2/3 tiene aire arriba y el encabezado de la tabla no
+           queda pegado al borde. Los márgenes laterales los da .container. */
         @page {
-            margin: 16mm 15mm 18mm 15mm;
+            margin: 12mm 0 12mm 0;
         }
 
         body {
@@ -25,7 +26,7 @@
         }
 
         .container {
-            padding: 0;
+            padding: 0 32px;
         }
 
         /* Header / Logo */
