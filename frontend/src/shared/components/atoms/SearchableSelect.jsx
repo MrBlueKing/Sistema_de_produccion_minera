@@ -26,7 +26,9 @@ export default function SearchableSelect({
   disabled = false,
   emptyMessage = 'No hay opciones disponibles',
   size = 'default',
+  multiple = false,
 }) {
+  const selectedValues = multiple ? (Array.isArray(value) ? value : []) : [];
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [coords, setCoords] = useState({ top: 0, left: 0, width: 0, maxHeight: ALTO_PANEL_ESTIMADO });
@@ -107,9 +109,28 @@ export default function SearchableSelect({
   );
 
   // Obtener opción seleccionada
-  const selectedOption = options.find(opt => opt.value === value);
+  const selectedOption = multiple ? null : options.find(opt => opt.value === value);
+
+  // Texto que muestra el botón
+  const triggerLabel = multiple
+    ? (selectedValues.length === 0
+        ? placeholder
+        : selectedValues.length === 1
+          ? (options.find(o => o.value === selectedValues[0])?.label ?? `${selectedValues.length} seleccionado`)
+          : `${selectedValues.length} seleccionados`)
+    : (selectedOption ? selectedOption.label : placeholder);
+
+  const haySeleccion = multiple ? selectedValues.length > 0 : Boolean(value);
 
   const handleSelect = (optionValue) => {
+    if (multiple) {
+      const next = selectedValues.includes(optionValue)
+        ? selectedValues.filter(v => v !== optionValue)
+        : [...selectedValues, optionValue];
+      onChange(next);
+      // No se cierra ni se limpia la búsqueda: se pueden marcar varias seguidas.
+      return;
+    }
     onChange(optionValue);
     setIsOpen(false);
     setSearchTerm('');
@@ -117,7 +138,7 @@ export default function SearchableSelect({
 
   const handleClear = (e) => {
     e.stopPropagation();
-    onChange('');
+    onChange(multiple ? [] : '');
   };
 
   const handleClose = () => {
@@ -169,20 +190,30 @@ export default function SearchableSelect({
         {searchTerm ? 'No se encontraron resultados' : emptyMessage}
       </div>
     ) : (
-      filteredOptions.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          onClick={() => handleSelect(option.value)}
-          className={`w-full px-4 py-3 text-left hover:bg-blue-50 transition-colors ${
-            option.value === value
-              ? 'bg-blue-100 text-blue-700 font-semibold'
-              : 'text-gray-900'
-          }`}
-        >
-          {option.label}
-        </button>
-      ))
+      filteredOptions.map((option) => {
+        const marcada = multiple ? selectedValues.includes(option.value) : option.value === value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => handleSelect(option.value)}
+            className={`w-full px-4 py-3 text-left hover:bg-blue-50 transition-colors flex items-center gap-2 ${
+              marcada ? 'bg-blue-100 text-blue-700 font-semibold' : 'text-gray-900'
+            }`}
+          >
+            {multiple && (
+              <span
+                className={`w-4 h-4 flex-shrink-0 rounded border flex items-center justify-center text-[10px] ${
+                  marcada ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-300'
+                }`}
+              >
+                {marcada ? '✓' : ''}
+              </span>
+            )}
+            <span className="truncate">{option.label}</span>
+          </button>
+        );
+      })
     )
   );
 
@@ -211,12 +242,12 @@ export default function SearchableSelect({
             : 'border-gray-300 hover:border-gray-400'
         }`}
       >
-        <span className={`truncate ${selectedOption ? 'text-gray-900' : 'text-gray-500'}`}>
-          {selectedOption ? selectedOption.label : placeholder}
+        <span className={`truncate ${haySeleccion ? 'text-gray-900' : 'text-gray-500'}`}>
+          {triggerLabel}
         </span>
 
         <div className="flex items-center gap-1 ml-1 flex-shrink-0">
-          {value && !disabled && (
+          {haySeleccion && !disabled && (
             <HiXMark
               className={`text-gray-400 hover:text-gray-600 ${size === 'sm' ? 'w-3 h-3' : 'w-5 h-5'}`}
               onClick={handleClear}

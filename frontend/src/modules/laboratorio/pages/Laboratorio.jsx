@@ -82,7 +82,7 @@ export default function Laboratorio() {
     jornada: '',
     fecha_inicio: '',
     fecha_fin: '',
-    id_frente_trabajo: '',
+    id_frente_trabajo: [],
     estado_certificado: '', // 'con', 'sin', '' (todos)
     certificado: '', // búsqueda por número de certificado específico
   });
@@ -166,7 +166,7 @@ export default function Laboratorio() {
         jornada: filters.jornada || undefined,
         fecha_inicio: filters.fecha_inicio || undefined,
         fecha_fin: filters.fecha_fin || undefined,
-        id_frente_trabajo: filters.id_frente_trabajo || undefined,
+        id_frente_trabajo: filters.id_frente_trabajo?.length ? filters.id_frente_trabajo : undefined,
         estado_certificado: filters.estado_certificado || undefined,
         certificado: filters.certificado || undefined,
       };
@@ -295,7 +295,7 @@ export default function Laboratorio() {
       jornada: '',
       fecha_inicio: '',
       fecha_fin: '',
-      id_frente_trabajo: '',
+      id_frente_trabajo: [],
       estado_certificado: '',
       certificado: '',
     });
@@ -871,7 +871,8 @@ export default function Laboratorio() {
       {
         name: 'id_frente_trabajo',
         label: 'Frente de Trabajo',
-        type: 'select',
+        type: 'multiselect',
+        placeholder: 'Todos los frentes',
         options: frentes.map(f => ({
           value: f.id,
           label: f.codigo_completo || `ID: ${f.id}`

@@ -2,6 +2,7 @@ import PropTypes from 'prop-types';
 import { HiSearch, HiX, HiFilter } from 'react-icons/hi';
 import { useState } from 'react';
 import Button from '../atoms/Button';
+import SearchableSelect from '../atoms/SearchableSelect';
 
 /**
  * Componente de filtros para tablas reutilizable
@@ -35,9 +36,14 @@ export default function TableFilters({
 }) {
   const [isExpanded, setIsExpanded] = useState(alwaysExpanded);
 
+  const tieneValor = (value) => {
+    if (Array.isArray(value)) return value.length > 0;
+    return value !== '' && value !== null && value !== undefined;
+  };
+
   const hasActiveFilters = () => {
     if (searchValue) return true;
-    return Object.values(filterValues).some((value) => value !== '' && value !== null);
+    return Object.values(filterValues).some(tieneValor);
   };
 
   const handleClear = () => {
@@ -63,6 +69,18 @@ export default function TableFilters({
     const value = filterValues[filter.name] || '';
 
     switch (filter.type) {
+      case 'multiselect':
+        return (
+          <SearchableSelect
+            multiple
+            options={filter.options || []}
+            value={Array.isArray(filterValues[filter.name]) ? filterValues[filter.name] : []}
+            onChange={(vals) => handleFilterChange(filter.name, vals)}
+            placeholder={filter.placeholder || 'Todos'}
+            emptyMessage={filter.emptyMessage || 'Sin opciones'}
+          />
+        );
+
       case 'select':
         return (
           <select
@@ -153,7 +171,7 @@ export default function TableFilters({
               {isExpanded ? 'Ocultar Filtros' : 'Filtros'}
               {hasActiveFilters() && !isExpanded && (
                 <span className="ml-1 px-2 py-0.5 text-xs bg-orange-600 text-white rounded-full">
-                  {Object.values(filterValues).filter((v) => v).length}
+                  {Object.values(filterValues).filter(tieneValor).length}
                 </span>
               )}
             </Button>
@@ -199,6 +217,29 @@ export default function TableFilters({
                 )}
                 {filters.map((filter) => {
                   const value = filterValues[filter.name];
+
+                  if (filter.type === 'multiselect') {
+                    const seleccion = Array.isArray(value) ? value : [];
+                    if (seleccion.length === 0) return null;
+                    const labels = seleccion
+                      .map((v) => filter.options?.find((o) => o.value === v)?.label || v)
+                      .join(', ');
+                    return (
+                      <span
+                        key={filter.name}
+                        className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800 max-w-full"
+                      >
+                        <span className="truncate">{filter.label}: {seleccion.length === 1 ? labels : `${seleccion.length} (${labels})`}</span>
+                        <button
+                          onClick={() => handleFilterChange(filter.name, [])}
+                          className="ml-2 hover:text-orange-900 flex-shrink-0"
+                        >
+                          <HiX className="h-3 w-3" />
+                        </button>
+                      </span>
+                    );
+                  }
+
                   if (!value) return null;
 
                   let displayValue = value;
@@ -239,7 +280,7 @@ TableFilters.propTypes = {
     PropTypes.shape({
       name: PropTypes.string.isRequired,
       label: PropTypes.string.isRequired,
-      type: PropTypes.oneOf(['text', 'select', 'date', 'number']).isRequired,
+      type: PropTypes.oneOf(['text', 'select', 'date', 'number', 'multiselect']).isRequired,
       options: PropTypes.arrayOf(
         PropTypes.shape({
           value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,

@@ -52,6 +52,7 @@ class LaboratorioController extends Controller
         $fechaInicio = $request->get('fecha_inicio');
         $fechaFin    = $request->get('fecha_fin');
         $idFrente    = $request->get('id_frente_trabajo');
+        $idFrente    = $idFrente ? (array) $idFrente : [];
         $idFaena     = $request->get('id_faena');
 
         // ── 1. DUMPADAS ────────────────────────────────────────────────────────
@@ -74,7 +75,7 @@ class LaboratorioController extends Controller
         if ($jornada)     $queryDumpadas->where('jornada', $jornada);
         if ($fechaInicio) $queryDumpadas->whereDate('fecha', '>=', $fechaInicio);
         if ($fechaFin)    $queryDumpadas->whereDate('fecha', '<=', $fechaFin);
-        if ($idFrente)    $queryDumpadas->where('id_frente_trabajo', $idFrente);
+        if ($idFrente)    $queryDumpadas->whereIn('id_frente_trabajo', $idFrente);
         if ($idFaena)     $queryDumpadas->where('id_faena', $idFaena);
 
         $dumpadas = $queryDumpadas->orderBy('fecha', 'desc')->orderBy('id', 'desc')->get()
@@ -93,7 +94,7 @@ class LaboratorioController extends Controller
         }
         if ($fechaInicio) $queryMuestras->whereDate('fecha', '>=', $fechaInicio);
         if ($fechaFin)    $queryMuestras->whereDate('fecha', '<=', $fechaFin);
-        if ($idFrente)    $queryMuestras->where('id_frente_trabajo', $idFrente);
+        if ($idFrente)    $queryMuestras->whereIn('id_frente_trabajo', $idFrente);
         if ($idFaena)     $queryMuestras->where('id_faena', $idFaena);
 
         $muestras = $queryMuestras->orderBy('created_at', 'desc')->get()
@@ -409,6 +410,7 @@ class LaboratorioController extends Controller
         $fechaInicio = $request->get('fecha_inicio');
         $fechaFin    = $request->get('fecha_fin');
         $idFrente    = $request->get('id_frente_trabajo');
+        $idFrente    = $idFrente ? (array) $idFrente : [];
         $idFaena     = $request->get('id_faena');
         $estadoCertificado = $request->get('estado_certificado');
         $certificado       = $request->get('certificado');
@@ -434,7 +436,7 @@ class LaboratorioController extends Controller
         if ($jornada)     $queryDumpadas->where('jornada', $jornada);
         if ($fechaInicio) $queryDumpadas->whereDate('fecha', '>=', $fechaInicio);
         if ($fechaFin)    $queryDumpadas->whereDate('fecha', '<=', $fechaFin);
-        if ($idFrente)    $queryDumpadas->where('id_frente_trabajo', $idFrente);
+        if ($idFrente)    $queryDumpadas->whereIn('id_frente_trabajo', $idFrente);
         if ($idFaena)     $queryDumpadas->where(function ($q) use ($idFaena) {
             $q->where('id_faena', $idFaena)
               ->orWhereHas('frenteTrabajo', fn($fq) => $fq->where('id_faena', $idFaena));
@@ -470,7 +472,7 @@ class LaboratorioController extends Controller
             }
             if ($fechaInicio) $queryMuestras->whereDate('fecha', '>=', $fechaInicio);
             if ($fechaFin)    $queryMuestras->whereDate('fecha', '<=', $fechaFin);
-            if ($idFrente)    $queryMuestras->where('id_frente_trabajo', $idFrente);
+            if ($idFrente)    $queryMuestras->whereIn('id_frente_trabajo', $idFrente);
             if ($idFaena)     $queryMuestras->where('id_faena', $idFaena);
 
             $filasMuestras = $queryMuestras->toBase()->get([
