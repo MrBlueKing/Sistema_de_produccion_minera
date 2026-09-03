@@ -13,18 +13,29 @@ class CertificadoLaboratorioMail extends Mailable
 {
     use Queueable, SerializesModels;
 
+    /**
+     * @param array $certificados lista de ['numero' => string, 'binario' => string]
+     *                            (uno o varios certificados en el mismo correo).
+     */
     public function __construct(
-        public readonly string $numeroCertificado,
-        public readonly string $pdfBinario,
+        public readonly array $certificados,
         public readonly ?string $mensaje = null
     ) {
     }
 
+    private function numeros(): array
+    {
+        return array_map(fn ($c) => $c['numero'], $this->certificados);
+    }
+
     public function envelope(): Envelope
     {
-        return new Envelope(
-            subject: "Certificado de Laboratorio N° {$this->numeroCertificado}"
-        );
+        $numeros = $this->numeros();
+        $subject = count($numeros) === 1
+            ? "Certificado de Laboratorio N° {$numeros[0]}"
+            : 'Certificados de Laboratorio N° ' . implode(', ', $numeros);
+
+        return new Envelope(subject: $subject);
     }
 
     public function content(): Content
@@ -32,7 +43,7 @@ class CertificadoLaboratorioMail extends Mailable
         return new Content(
             view: 'emails.certificado-laboratorio',
             with: [
-                'numeroCertificado' => $this->numeroCertificado,
+                'numeros' => $this->numeros(),
                 'mensaje' => $this->mensaje,
             ],
         );
@@ -40,9 +51,10 @@ class CertificadoLaboratorioMail extends Mailable
 
     public function attachments(): array
     {
-        return [
-            Attachment::fromData(fn () => $this->pdfBinario, "certificado_{$this->numeroCertificado}.pdf")
+        return array_map(
+            fn ($c) => Attachment::fromData(fn () => $c['binario'], "certificado_{$c['numero']}.pdf")
                 ->withMime('application/pdf'),
-        ];
+            $this->certificados
+        );
     }
 }

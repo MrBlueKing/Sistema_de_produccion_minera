@@ -104,6 +104,9 @@ Route::post('/certificados/{numeroCertificado}/aprobar', [CertificadoController:
 // Rechazar certificado con motivo (requiere permiso aprobar_certificados_laboratorio)
 Route::post('/certificados/{numeroCertificado}/rechazar', [CertificadoController::class, 'rechazar']);
 
+// Enviar VARIOS certificados en un solo correo (todos deben estar Aprobados)
+Route::post('/certificados/enviar-correo-multiple', [CertificadoController::class, 'enviarCorreoMultiple']);
+
 // Enviar certificado por correo electrónico (solo si está Aprobado)
 Route::post('/certificados/{numeroCertificado}/enviar-correo', [CertificadoController::class, 'enviarCorreo']);
 

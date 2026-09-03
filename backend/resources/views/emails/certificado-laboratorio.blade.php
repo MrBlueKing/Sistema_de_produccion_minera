@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<title>Certificado de Laboratorio N° {{ $numeroCertificado }}</title>
+<title>@if(count($numeros) === 1) Certificado de Laboratorio N° {{ $numeros[0] }} @else Certificados de Laboratorio @endif</title>
 </head>
 <body style="margin:0; padding:0; background:#f4f4f5; font-family: Arial, Helvetica, sans-serif; color:#1f2937;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5; padding:24px 0;">
@@ -20,9 +20,20 @@
               <p style="font-size:15px; line-height:1.5; margin:0 0 16px 0;">
                 Estimado(a),
               </p>
+              @if(count($numeros) === 1)
               <p style="font-size:15px; line-height:1.5; margin:0 0 16px 0;">
-                Adjunto encontrará el <strong>Certificado de Laboratorio N° {{ $numeroCertificado }}</strong>.
+                Adjunto encontrará el <strong>Certificado de Laboratorio N° {{ $numeros[0] }}</strong>.
               </p>
+              @else
+              <p style="font-size:15px; line-height:1.5; margin:0 0 12px 0;">
+                Adjunto encontrará los siguientes <strong>{{ count($numeros) }} certificados de laboratorio</strong>:
+              </p>
+              <ul style="font-size:14px; line-height:1.6; margin:0 0 16px 0; padding-left:20px; color:#374151;">
+                @foreach($numeros as $n)
+                <li>Certificado N° {{ $n }}</li>
+                @endforeach
+              </ul>
+              @endif
               @if(!empty($mensaje))
               <div style="background:#f9fafb; border-left:3px solid #b91c1c; padding:12px 16px; margin:0 0 16px 0; font-size:14px; color:#374151;">
                 {{ $mensaje }}

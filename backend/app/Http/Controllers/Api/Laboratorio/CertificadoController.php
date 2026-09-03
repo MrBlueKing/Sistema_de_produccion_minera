@@ -445,12 +445,13 @@ class CertificadoController extends Controller
 
         try {
             $pdf = $this->certificadoService->regenerarCertificado($numeroCertificado);
-            $pdfBinario = $pdf->output();
 
             // Todos los destinatarios van en el mismo envío (se ven entre sí en el
             // "Para", como un correo grupal normal) — un solo PDF, un solo correo.
-            Mail::to($destinatarios)
-                ->send(new CertificadoLaboratorioMail($numeroCertificado, $pdfBinario, $request->input('mensaje')));
+            Mail::to($destinatarios)->send(new CertificadoLaboratorioMail(
+                [['numero' => $numeroCertificado, 'binario' => $pdf->output()]],
+                $request->input('mensaje')
+            ));
 
             $destinatariosTexto = implode(', ', $destinatarios);
             Certificado::where('numero_certificado', $numeroCertificado)->update([
@@ -461,6 +462,63 @@ class CertificadoController extends Controller
             return response()->json(['success' => true, 'message' => 'Certificado enviado a ' . $destinatariosTexto]);
         } catch (\Exception $e) {
             return response()->json(['success' => false, 'message' => 'No se pudo enviar el correo: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Enviar VARIOS certificados (ya Aprobados) en un solo correo, con todos los
+     * PDF adjuntos. Si alguno no está Aprobado o falla al regenerarse, no se
+     * envía nada.
+     */
+    public function enviarCorreoMultiple(Request $request)
+    {
+        $data = $request->validate([
+            'numeros'         => 'required|array|min:1',
+            'numeros.*'       => 'string|max:50',
+            'destinatarios'   => 'required|array|min:1',
+            'destinatarios.*' => 'email|max:150',
+            'mensaje'         => 'nullable|string|max:1000',
+        ]);
+
+        $numeros = array_values(array_unique($data['numeros']));
+
+        $noAprobados = collect($numeros)->filter(
+            fn ($n) => Certificado::estadoParaNumero($n) !== Certificado::ESTADO_APROBADO
+        )->values();
+
+        if ($noAprobados->isNotEmpty()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No se envió nada. Estos certificados no están Aprobados: ' . $noAprobados->implode(', '),
+            ], 400);
+        }
+
+        try {
+            $certificados = [];
+            foreach ($numeros as $n) {
+                $pdf = $this->certificadoService->regenerarCertificado($n);
+                $certificados[] = ['numero' => $n, 'binario' => $pdf->output()];
+            }
+
+            Mail::to($data['destinatarios'])->send(
+                new CertificadoLaboratorioMail($certificados, $data['mensaje'] ?? null)
+            );
+
+            $destinatariosTexto = implode(', ', $data['destinatarios']);
+            Certificado::whereIn('numero_certificado', $numeros)->update([
+                'enviado_a'          => $destinatariosTexto,
+                'fecha_envio_correo' => now(),
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'message' => count($numeros) . ' certificados enviados a ' . $destinatariosTexto,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No se pudo enviar el correo: ' . $e->getMessage(),
+            ], 500);
         }
     }
 
