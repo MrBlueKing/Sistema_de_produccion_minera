@@ -95,6 +95,9 @@ Route::get('/certificados/{numeroCertificado}/dumpadas', [CertificadoController:
 // Regenerar certificado existente
 Route::post('/certificados/{numeroCertificado}/regenerar', [CertificadoController::class, 'regenerar']);
 
+// Cambiar el destinatario ("Para") de un certificado ya generado
+Route::patch('/certificados/{numeroCertificado}/destinatario', [CertificadoController::class, 'actualizarDestinatario']);
+
 // Aprobar certificado (requiere permiso aprobar_certificados_laboratorio)
 Route::post('/certificados/{numeroCertificado}/aprobar', [CertificadoController::class, 'aprobar']);
 

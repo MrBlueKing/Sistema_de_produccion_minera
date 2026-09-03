@@ -480,6 +480,14 @@ class CertificadoController extends Controller
 
         try {
             $para = $request->input('para');
+            // Si viene un "Para" nuevo, guardarlo en el certificado para que las
+            // próximas descargas / previews / correos también lo usen.
+            if ($para !== null && trim($para) !== '') {
+                Certificado::firstOrCreate(
+                    ['numero_certificado' => $numeroCertificado],
+                    ['estado' => Certificado::ESTADO_APROBADO]
+                )->update(['destino' => trim($para)]);
+            }
             $pdf = $this->certificadoService->regenerarCertificado($numeroCertificado, $para);
             return $pdf->download('certificado_' . $numeroCertificado . '.pdf');
         } catch (\Exception $e) {
@@ -513,6 +521,30 @@ class CertificadoController extends Controller
                 'message' => $e->getMessage()
             ], 400);
         }
+    }
+
+    /**
+     * Cambiar el destinatario ("Para") de un certificado ya generado, sin
+     * descargarlo. La descarga / vista previa / envío por correo posteriores lo
+     * usan automáticamente.
+     */
+    public function actualizarDestinatario(Request $request, string $numeroCertificado)
+    {
+        $data = $request->validate([
+            'destino' => 'required|string|max:200',
+        ]);
+
+        $cert = Certificado::firstOrCreate(
+            ['numero_certificado' => $numeroCertificado],
+            ['estado' => Certificado::ESTADO_APROBADO]
+        );
+        $cert->update(['destino' => trim($data['destino'])]);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Destinatario actualizado',
+            'destino' => $cert->destino,
+        ]);
     }
 
     /**

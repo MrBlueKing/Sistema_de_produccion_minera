@@ -54,15 +54,21 @@ class CertificadoPdfService
 
         if ($guardarNumero) {
             $ahora = Carbon::now();
-            DB::transaction(function () use ($dumpadas, $muestrasLibres, $numeroCertificado, $ahora, $generadoPor) {
+            $destino = $para !== null && trim($para) !== '' ? trim($para) : null;
+            DB::transaction(function () use ($dumpadas, $muestrasLibres, $numeroCertificado, $ahora, $generadoPor, $destino) {
                 $this->asignarCertificadoADumpadas($dumpadas, $numeroCertificado, $ahora);
                 foreach ($muestrasLibres as $m) {
                     $m->update(['certificado' => $numeroCertificado]);
                 }
-                Certificado::firstOrCreate(
+                $cert = Certificado::firstOrCreate(
                     ['numero_certificado' => $numeroCertificado],
-                    ['estado' => Certificado::ESTADO_PENDIENTE, 'generado_por' => $generadoPor]
+                    ['estado' => Certificado::ESTADO_PENDIENTE, 'generado_por' => $generadoPor, 'destino' => $destino]
                 );
+                // Si la fila ya existía sin destino (p.ej. certificado rechazado que
+                // se está re-generando), guardarlo ahora.
+                if ($destino !== null && $cert->destino !== $destino) {
+                    $cert->update(['destino' => $destino]);
+                }
             });
         }
 
@@ -120,6 +126,12 @@ class CertificadoPdfService
      */
     public function regenerarCertificado(string $numeroCertificado, ?string $para = null, ?string $watermarkTexto = null)
     {
+        // Si no viene un "Para" explícito, usar el que quedó guardado en el
+        // certificado al generarlo. Antes esto se perdía y siempre volvía al default.
+        if ($para === null || trim($para) === '') {
+            $para = Certificado::where('numero_certificado', $numeroCertificado)->value('destino');
+        }
+
         $dumpadas = OrdenMuestras::ordenarDumpadas(
             Dumpada::with('frenteTrabajo')
                 ->where('certificado', $numeroCertificado)
@@ -463,6 +475,7 @@ class CertificadoPdfService
             $c['motivo_rechazo'] = $cert->motivo_rechazo ?? null;
             $c['aprobado_por'] = $cert->aprobado_por ?? null;
             $c['fecha_aprobacion'] = $cert->fecha_aprobacion ?? null;
+            $c['destino'] = $cert->destino ?? null;
             return $c;
         });
 

@@ -136,6 +136,12 @@ class LaboratorioService {
     return response;
   }
 
+  // Cambiar el destinatario ("Para") de un certificado ya generado
+  async actualizarDestinatarioCertificado(numeroCertificado, destino) {
+    const response = await api.patch(`/laboratorio/certificados/${numeroCertificado}/destinatario`, { destino });
+    return response.data;
+  }
+
   // Aprobar certificado (visto bueno)
   async aprobarCertificado(numeroCertificado) {
     const response = await api.post(`/laboratorio/certificados/${numeroCertificado}/aprobar`);

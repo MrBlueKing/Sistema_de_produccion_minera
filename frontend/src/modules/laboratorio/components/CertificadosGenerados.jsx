@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   HiDocumentText, HiDocumentArrowDown, HiEye, HiXMark, HiOutlineDocumentMagnifyingGlass,
-  HiCheckCircle, HiXCircle, HiEnvelope,
+  HiCheckCircle, HiXCircle, HiEnvelope, HiUser,
 } from 'react-icons/hi2';
 import Card from '../../../shared/components/atoms/Card';
 import Button from '../../../shared/components/atoms/Button';
@@ -50,6 +50,11 @@ export default function CertificadosGenerados({ idFaena }) {
   // (el backend valida `destinatario` como email al enviar).
   const [correosFrecuentes, setCorreosFrecuentes] = useState([]);
   const [mostrarGestionCorreos, setMostrarGestionCorreos] = useState(true);
+
+  // Destinatario "Para" del certificado (lo que aparece en el PDF). Lista de
+  // frecuentes compartida con la pantalla de generación (Laboratorio.jsx).
+  const [destinatariosFrecuentes, setDestinatariosFrecuentes] = useState([]);
+  const [destinoModal, setDestinoModal] = useState({ show: false, numero: null, valor: '', esOtro: false, loading: false });
   const [nuevoCorreo, setNuevoCorreo] = useState('');
   const [editandoCorreo, setEditandoCorreo] = useState(null);
   const [valorCorreoEditado, setValorCorreoEditado] = useState('');
@@ -106,6 +111,7 @@ export default function CertificadosGenerados({ idFaena }) {
 
   useEffect(() => {
     loadCorreosFrecuentes();
+    loadDestinatariosFrecuentes();
   }, []);
 
   const loadCorreosFrecuentes = async () => {
@@ -114,6 +120,42 @@ export default function CertificadosGenerados({ idFaena }) {
       setCorreosFrecuentes(Array.isArray(lista) ? lista : []);
     } catch (error) {
       console.error('Error cargando correos frecuentes:', error);
+    }
+  };
+
+  const loadDestinatariosFrecuentes = async () => {
+    try {
+      const lista = await configuracionService.get('certificado_destinatarios_frecuentes');
+      setDestinatariosFrecuentes(Array.isArray(lista) ? lista : []);
+    } catch (error) {
+      console.error('Error cargando destinatarios frecuentes:', error);
+    }
+  };
+
+  const abrirDestinoModal = (c) => {
+    const actual = c.destino || '';
+    const enLista = actual !== '' && destinatariosFrecuentes.includes(actual);
+    setDestinoModal({
+      show: true,
+      numero: c.certificado,
+      valor: actual,
+      esOtro: actual !== '' && !enLista,
+      loading: false,
+    });
+  };
+
+  const guardarDestino = async () => {
+    const valor = destinoModal.valor.trim();
+    if (!valor) return;
+    setDestinoModal((prev) => ({ ...prev, loading: true }));
+    try {
+      await laboratorioService.actualizarDestinatarioCertificado(destinoModal.numero, valor);
+      toast.success('Destinatario actualizado', `El certificado ${destinoModal.numero} ahora es para "${valor}"`);
+      setDestinoModal({ show: false, numero: null, valor: '', esOtro: false, loading: false });
+      cargar();
+    } catch (error) {
+      toast.error('Error', extraerMensajeError(error, 'No se pudo actualizar el destinatario'));
+      setDestinoModal((prev) => ({ ...prev, loading: false }));
     }
   };
 
@@ -372,6 +414,7 @@ export default function CertificadosGenerados({ idFaena }) {
                 <th className="py-2 px-3">Fecha de generación</th>
                 <th className="py-2 px-3">Muestras incluidas</th>
                 <th className="py-2 px-3">Estado</th>
+                <th className="py-2 px-3">Destinatario</th>
                 <th className="py-2 px-3">Acciones</th>
               </tr>
             </thead>
@@ -392,6 +435,19 @@ export default function CertificadosGenerados({ idFaena }) {
                     >
                       {estado}
                     </span>
+                  </td>
+                  <td className="py-2 px-3">
+                    <button
+                      type="button"
+                      onClick={() => abrirDestinoModal(c)}
+                      className="inline-flex items-center gap-1.5 text-sm text-gray-700 hover:text-teal-700 group"
+                      title="Cambiar destinatario del certificado"
+                    >
+                      <HiUser className="w-4 h-4 text-gray-400 group-hover:text-teal-600 shrink-0" />
+                      <span className={c.destino ? '' : 'text-gray-400 italic'}>
+                        {c.destino || 'Por defecto'}
+                      </span>
+                    </button>
                   </td>
                   <td className="py-2 px-3">
                     <div className="flex gap-2 flex-wrap">
@@ -517,6 +573,80 @@ export default function CertificadosGenerados({ idFaena }) {
                   </tbody>
                 </table>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {destinoModal.show && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="bg-gradient-to-r from-teal-600 to-teal-500 text-white px-6 py-4 rounded-t-2xl">
+              <h3 className="text-lg font-bold flex items-center gap-2">
+                <HiUser className="w-5 h-5" />
+                Destinatario del certificado {destinoModal.numero}
+              </h3>
+              <p className="text-teal-100 text-xs mt-0.5">Aparece como "Para:" en el PDF, la vista previa y el correo</p>
+            </div>
+            <div className="p-6">
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Para: <span className="text-red-500">*</span></label>
+              {!destinoModal.esOtro ? (
+                <select
+                  value={destinoModal.valor}
+                  onChange={(e) => {
+                    if (e.target.value === '__otro__') {
+                      setDestinoModal((prev) => ({ ...prev, esOtro: true, valor: '' }));
+                    } else {
+                      setDestinoModal((prev) => ({ ...prev, valor: e.target.value }));
+                    }
+                  }}
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm bg-white"
+                  autoFocus
+                >
+                  <option value="">Seleccionar destinatario...</option>
+                  {destinatariosFrecuentes.map((d) => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                  <option value="__otro__">Otro (escribir manualmente)</option>
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={destinoModal.valor}
+                  onChange={(e) => setDestinoModal((prev) => ({ ...prev, valor: e.target.value }))}
+                  onKeyDown={(e) => e.key === 'Enter' && guardarDestino()}
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
+                  placeholder="Ej: Mra 3H Copper Spa"
+                  autoFocus
+                />
+              )}
+              {destinoModal.esOtro && (
+                <button
+                  type="button"
+                  onClick={() => setDestinoModal((prev) => ({ ...prev, esOtro: false, valor: '' }))}
+                  className="text-xs text-teal-700 underline font-medium mt-1.5"
+                >
+                  Elegir de la lista
+                </button>
+              )}
+            </div>
+            <div className="px-6 pb-6 flex gap-3 justify-end">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setDestinoModal({ show: false, numero: null, valor: '', esOtro: false, loading: false })}
+                disabled={destinoModal.loading}
+              >
+                Cancelar
+              </Button>
+              <Button
+                variant="success"
+                size="sm"
+                onClick={guardarDestino}
+                disabled={destinoModal.loading || !destinoModal.valor.trim()}
+              >
+                {destinoModal.loading ? 'Guardando...' : 'Guardar'}
+              </Button>
             </div>
           </div>
         </div>
