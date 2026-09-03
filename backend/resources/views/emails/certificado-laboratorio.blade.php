@@ -12,7 +12,7 @@
           <tr>
             <td style="background:#b91c1c; padding:20px 28px;">
               <span style="color:#ffffff; font-size:18px; font-weight:bold;">CIMAEF</span>
-              <div style="color:#fecaca; font-size:12px;">Laboratorio Cimaef 3H Copper</div>
+              <div style="color:#fecaca; font-size:12px;">Laboratorio Cimaef</div>
             </td>
           </tr>
           <tr>
