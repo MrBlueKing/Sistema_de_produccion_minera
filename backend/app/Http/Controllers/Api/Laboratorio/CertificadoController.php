@@ -269,12 +269,15 @@ class CertificadoController extends Controller
             if ($request->numero_certificado) {
                 $pdf = $this->certificadoService->regenerarCertificado($request->numero_certificado);
             } else {
-                // Certificado nuevo (sin número aún): sí exigir análisis completo
+                // Certificado nuevo (sin número aún): el destinatario todavía no se
+                // eligió (se pide al generar), así que la vista previa muestra
+                // "Sin asignar" en vez del valor por defecto.
                 $pdf = $this->certificadoService->generarCertificado(
                     $request->dumpada_ids ?? [],
                     null,
                     false,
-                    $request->muestra_libre_ids ?? []
+                    $request->muestra_libre_ids ?? [],
+                    'Sin asignar'
                 );
             }
 
