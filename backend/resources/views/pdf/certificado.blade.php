@@ -135,6 +135,16 @@
             font-size: 10px;
         }
 
+        /* Cuando el certificado tiene muchas muestras y pasa a otra hoja: repetir
+           el encabezado de la tabla y no cortar filas ni la firma. */
+        table thead {
+            display: table-header-group;
+        }
+
+        table tr {
+            page-break-inside: avoid;
+        }
+
         table th.muestras-col {
             text-align: left;
             width: 45%;
@@ -172,6 +182,7 @@
         .footer {
             margin-top: 40px;
             text-align: center;
+            page-break-inside: avoid;
         }
 
         .signature-line {
