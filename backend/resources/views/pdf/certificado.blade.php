@@ -11,13 +11,6 @@
             box-sizing: border-box;
         }
 
-        /* Margen VERTICAL por página (DomPDF respeta bien top/bottom, no siempre los
-           lados) — así la hoja 2/3 tiene aire arriba y el encabezado de la tabla no
-           queda pegado al borde. Los márgenes laterales los da .container. */
-        @page {
-            margin: 12mm 0 12mm 0;
-        }
-
         body {
             font-family: Arial, Helvetica, sans-serif;
             font-size: 11px;
@@ -26,7 +19,16 @@
         }
 
         .container {
-            padding: 0 32px;
+            max-width: 700px;
+            margin: 0 auto;
+            padding: 20px 30px;
+        }
+
+        /* DomPDF repite el <thead> en cada hoja pero lo pega al borde superior
+           (ignora el margen de página). Un padding-top grande en el encabezado le
+           da aire a la hoja 2/3 sin descuadrar la 1. */
+        table thead th {
+            padding-top: 22px;
         }
 
         /* Header / Logo */
@@ -140,12 +142,9 @@
             font-size: 10px;
         }
 
-        /* Cuando el certificado tiene muchas muestras y pasa a otra hoja: repetir
-           el encabezado de la tabla y no cortar filas ni la firma. */
-        table thead {
-            display: table-header-group;
-        }
-
+        /* Cuando el certificado tiene muchas muestras y pasa a otra hoja: no cortar
+           filas ni la firma. (No se repite el encabezado de la tabla: DomPDF lo
+           pega al borde superior ignorando el margen de página.) */
         table tr {
             page-break-inside: avoid;
         }
