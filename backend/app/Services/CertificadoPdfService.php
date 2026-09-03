@@ -302,7 +302,7 @@ class CertificadoPdfService
     {
         return $muestras->map(function ($m) use ($numeroCertificado) {
             return [
-                'codigo'         => $m->codigo,
+                'codigo'         => $m->nombre ? "{$m->codigo}-{$m->nombre}" : $m->codigo,
                 'fecha'          => $m->fecha ? Carbon::parse($m->fecha)->format('d.m.Y') : '',
                 'cu_total'       => $m->ley !== null ? number_format($m->ley, 2, ',', '.') : '-',
                 'cu_soluble'     => $m->cu_soluble !== null ? number_format($m->cu_soluble, 2, ',', '.') : '-',
