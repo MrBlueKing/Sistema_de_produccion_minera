@@ -11,11 +11,14 @@
             box-sizing: border-box;
         }
 
-        /* Margen de página en mm (DomPDF solo parsea el @page margin en unidades
-           absolutas). El margen de arriba deja aire para que el encabezado de la
-           tabla, que DomPDF repite en cada hoja, no quede pegado al borde. */
+        /* Vertical: @page en mm (DomPDF ignora px acá). El margen de arriba deja
+           aire para que el encabezado de la tabla, que DomPDF repite en cada hoja,
+           no quede pegado al borde. Horizontal: la caja centrada de .container
+           (max-width + margin auto) deja los márgenes laterales en todas las hojas
+           — DomPDF no respeta ni el @page ni el padding lateral en la tabla que
+           continúa en la hoja 2. */
         @page {
-            margin: 22mm 13mm 14mm 13mm;
+            margin: 22mm 0 15mm 0;
         }
 
         body {
@@ -26,6 +29,8 @@
         }
 
         .container {
+            max-width: 710px;
+            margin: 0 auto;
             padding: 0;
         }
 
