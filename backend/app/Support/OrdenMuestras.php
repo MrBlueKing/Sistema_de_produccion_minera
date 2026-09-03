@@ -19,9 +19,10 @@ use Carbon\Carbon;
 class OrdenMuestras
 {
     /**
-     * Orden de las jornadas (turnos) usado en todo el sistema.
+     * Orden cronológico de las jornadas (turnos) para el ordenamiento de muestras:
+     * AM → PM → Noche → Madrugada.
      */
-    private const ORDEN_JORNADA = ['AM' => 0, 'PM' => 1, 'Madrugada' => 2, 'Noche' => 3];
+    private const ORDEN_JORNADA = ['AM' => 0, 'PM' => 1, 'Noche' => 2, 'Madrugada' => 3];
 
     /**
      * Separador de campos en la clave. Se usa un byte de control (0x01), menor que
