@@ -447,7 +447,7 @@ class LaboratorioController extends Controller
         if ($certificado) $queryDumpadas->where('certificado', 'like', "%{$certificado}%");
 
         $filasDumpadas = $queryDumpadas->toBase()->get([
-            'id', 'fecha', 'certificado', 'id_frente_trabajo', 'numero_jornada', 'numero_dumpada',
+            'id', 'fecha', 'certificado', 'id_frente_trabajo', 'jornada', 'numero_jornada', 'numero_dumpada',
         ]);
         $filasMuestras = collect();
 
@@ -495,6 +495,7 @@ class LaboratorioController extends Controller
                 $d->certificado,
                 $codigosFrente[$d->id_frente_trabajo] ?? null,
                 $d->fecha,
+                $d->jornada,
                 $d->numero_jornada,
                 $d->numero_dumpada
             ),
@@ -505,12 +506,13 @@ class LaboratorioController extends Controller
                 $m->certificado,
                 $codigosFrente[$m->id_frente_trabajo] ?? null,
                 $m->fecha,
+                null,
                 0,
                 $m->id
             ),
         ]));
 
-        $claves   = $claves->sortBy('orden')->values();
+        $claves   = $claves->sortBy('orden', SORT_STRING)->values();
         $total    = $claves->count();
         $lastPage = max(1, (int) ceil($total / $perPage));
         $offset   = ($page - 1) * $perPage;

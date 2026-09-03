@@ -19,12 +19,29 @@ use Carbon\Carbon;
 class OrdenMuestras
 {
     /**
+     * Orden de las jornadas (turnos) usado en todo el sistema.
+     */
+    private const ORDEN_JORNADA = ['AM' => 0, 'PM' => 1, 'Madrugada' => 2, 'Noche' => 3];
+
+    /**
+     * Separador de campos en la clave. Se usa un byte de control (0x01), menor que
+     * cualquier carácter imprimible, para que un código de frente que es prefijo de
+     * otro ("M3-12N" vs "M3-12NE") ordene primero — con "|" (0x7C) el más corto
+     * quedaba después porque el separador vale más que las letras.
+     */
+    private const SEP = "\x01";
+
+    /**
      * Clave de orden de una muestra dentro de su grupo (certificado o bloque de
      * historial). La colección se ordena ASCENDENTE por el string resultante.
+     *
+     * frente → fecha → jornada (AM, PM, Madrugada, Noche) → numero_jornada →
+     * numero_dumpada. Así cada turno queda en bloque y numerado 1, 2, 3…
      */
     public static function clave(
         ?string $frenteCodigo,
         $fecha = null,
+        $jornada = null,
         $numeroJornada = null,
         $numeroDumpada = null
     ): string {
@@ -37,7 +54,9 @@ class OrdenMuestras
             ? Carbon::parse($fecha)->format('Y-m-d')
             : '9999-99-99';
 
-        $jornada = str_pad((string) (int) ($numeroJornada ?? 0), 8, '0', STR_PAD_LEFT);
+        $jornadaKey = (string) (self::ORDEN_JORNADA[$jornada] ?? 9);
+
+        $numJornada = str_pad((string) (int) ($numeroJornada ?? 0), 8, '0', STR_PAD_LEFT);
 
         // numero_dumpada es string en la BD pero contiene números.
         $dumpada = str_pad(
@@ -47,7 +66,7 @@ class OrdenMuestras
             STR_PAD_LEFT
         );
 
-        return "{$frente}|{$fechaKey}|{$jornada}|{$dumpada}";
+        return implode(self::SEP, [$frente, $fechaKey, $jornadaKey, $numJornada, $dumpada]);
     }
 
     /**
@@ -59,21 +78,22 @@ class OrdenMuestras
         $certificado,
         ?string $frenteCodigo,
         $fecha = null,
+        $jornada = null,
         $numeroJornada = null,
         $numeroDumpada = null
     ): string {
         $cert = trim((string) ($certificado ?? ''));
 
         if ($cert === '') {
-            $bloque = '0|';
+            $bloque = '0' . self::SEP;
         } else {
             // Descendente: se invierte el número para poder ordenar ASC.
             $num = (int) preg_replace('/\D/', '', $cert);
             $inv = str_pad((string) (9999999999 - $num), 10, '0', STR_PAD_LEFT);
-            $bloque = "1|{$inv}|";
+            $bloque = '1' . self::SEP . $inv . self::SEP;
         }
 
-        return $bloque . self::clave($frenteCodigo, $fecha, $numeroJornada, $numeroDumpada);
+        return $bloque . self::clave($frenteCodigo, $fecha, $jornada, $numeroJornada, $numeroDumpada);
     }
 
     /**
@@ -85,15 +105,16 @@ class OrdenMuestras
             ->sortBy(fn ($d) => self::clave(
                 $d->frenteTrabajo?->codigo_completo,
                 $d->fecha,
+                $d->jornada,
                 $d->numero_jornada,
                 $d->numero_dumpada
-            ))
+            ), SORT_STRING)
             ->values();
     }
 
     /**
      * Ordena una colección de muestras libres para un certificado.
-     * No tienen numero_jornada/numero_dumpada: se desempata por id.
+     * No tienen jornada/numero_jornada/numero_dumpada: se desempata por id.
      */
     public static function ordenarMuestrasLibres($muestras)
     {
@@ -101,9 +122,10 @@ class OrdenMuestras
             ->sortBy(fn ($m) => self::clave(
                 $m->frenteTrabajo?->codigo_completo,
                 $m->fecha,
+                null,
                 0,
                 $m->id
-            ))
+            ), SORT_STRING)
             ->values();
     }
 }
