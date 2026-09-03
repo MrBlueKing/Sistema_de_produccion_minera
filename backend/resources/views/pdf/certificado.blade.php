@@ -11,6 +11,16 @@
             box-sizing: border-box;
         }
 
+        /* Vertical: @page en mm (DomPDF ignora px acá). El margen de arriba deja
+           aire para que el encabezado de la tabla, que DomPDF repite en cada hoja,
+           no quede pegado al borde. Horizontal: la caja centrada de .container
+           (max-width + margin auto) deja los márgenes laterales en todas las hojas
+           — DomPDF no respeta ni el @page ni el padding lateral en la tabla que
+           continúa en la hoja 2. */
+        @page {
+            margin: 22mm 0 15mm 0;
+        }
+
         body {
             font-family: Arial, Helvetica, sans-serif;
             font-size: 11px;
@@ -19,30 +29,24 @@
         }
 
         .container {
-            max-width: 700px;
+            max-width: 710px;
             margin: 0 auto;
-            padding: 20px 30px;
+            padding: 0;
         }
 
-        /* Header / Logo */
+        /* Header / Logo (solo hoja 1) */
         .header {
             text-align: center;
             margin-bottom: 15px;
             border-bottom: 4px solid #E65100;
-            padding-bottom: 15px;
-        }
-
-        .logo-img {
-            max-height: 80px;
-            margin-bottom: 5px;
+            padding-bottom: 12px;
         }
 
         .logo-text {
-            font-size: 52px;
+            font-size: 44px;
             font-weight: bold;
             color: #E65100;
             letter-spacing: 4px;
-            text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
         }
 
         .logo-text .highlight {
@@ -50,11 +54,11 @@
         }
 
         .subtitle {
-            font-size: 16px;
+            font-size: 15px;
             font-weight: bold;
             color: #E65100;
             letter-spacing: 2px;
-            margin-top: 8px;
+            margin-top: 6px;
             text-transform: uppercase;
         }
 
@@ -125,7 +129,7 @@
         table th,
         table td {
             border: 1px solid #333;
-            padding: 8px 10px;
+            padding: 6px 10px;
             text-align: center;
         }
 
@@ -133,6 +137,21 @@
             background-color: #f5f5f5;
             font-weight: bold;
             font-size: 10px;
+        }
+
+        /* El certificado con muchas muestras pasa a otra hoja: se repite el
+           encabezado de la tabla (arranca abajo del margen de página) y no se
+           cortan filas ni la firma. */
+        table thead {
+            display: table-header-group;
+        }
+
+        table thead th {
+            padding-top: 12px;
+        }
+
+        table tr {
+            page-break-inside: avoid;
         }
 
         table th.muestras-col {
@@ -170,8 +189,9 @@
 
         /* Footer / Signature */
         .footer {
-            margin-top: 40px;
+            margin-top: 18px;
             text-align: center;
+            page-break-inside: avoid;
         }
 
         .signature-line {
@@ -250,9 +270,6 @@
     <div class="container">
         <!-- Header -->
         <div class="header">
-            {{-- Si tienes logo, descomenta esta línea y pon la ruta del logo --}}
-            {{-- <img src="{{ public_path('images/logo-cimaef.png') }}" alt="CIMAEF" class="logo-img"> --}}
-
             <div class="logo-text">
                 C<span class="highlight">I</span>MA<span class="highlight">E</span>F
             </div>

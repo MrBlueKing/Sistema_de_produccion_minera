@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { HiCube, HiTruck, HiClipboardDocumentList, HiXMark, HiArrowRight } from 'react-icons/hi2';
 import Card from '../../../shared/components/atoms/Card';
+import NumeroInput from '../../../shared/components/atoms/NumeroInput';
 import Pagination from '../../../shared/components/molecules/Pagination';
 import useDebounce from '../../../hooks/useDebounce';
 import useToast from '../../../hooks/useToast';
@@ -145,8 +146,7 @@ function CampoLey({ label, value, onChange, onSave, saving, fecha, disabled }) {
       </div>
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
-          <input
-            type="number" step="0.001" min="0" max="100"
+          <NumeroInput
             value={value}
             onChange={(e) => onChange(e.target.value)}
             disabled={disabled}

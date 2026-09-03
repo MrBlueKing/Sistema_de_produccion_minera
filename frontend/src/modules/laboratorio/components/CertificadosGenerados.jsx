@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   HiDocumentText, HiDocumentArrowDown, HiEye, HiXMark, HiOutlineDocumentMagnifyingGlass,
-  HiCheckCircle, HiXCircle, HiEnvelope,
+  HiCheckCircle, HiXCircle, HiEnvelope, HiUser,
 } from 'react-icons/hi2';
 import Card from '../../../shared/components/atoms/Card';
 import Button from '../../../shared/components/atoms/Button';
@@ -43,13 +43,21 @@ export default function CertificadosGenerados({ idFaena }) {
   const [aprobando, setAprobando] = useState(null);
   const [detalleModal, setDetalleModal] = useState({ show: false, numero: null, items: [], loading: false });
   const [rechazarModal, setRechazarModal] = useState({ show: false, numero: null, motivo: '', loading: false, estadoActual: null });
-  const [correoModal, setCorreoModal] = useState({ show: false, numero: null, destinatarios: [], mensaje: '', loading: false });
+  const [correoModal, setCorreoModal] = useState({ show: false, numero: null, numeros: null, destinatarios: [], mensaje: '', loading: false });
+
+  // Selección de certificados para enviar juntos en un correo (solo Aprobados).
+  const [seleccion, setSeleccion] = useState([]);
 
   // Lista de correos frecuentes para enviar certificados — mismo patrón que
   // "Para" en Laboratorio.jsx, pero acá cada valor debe ser un email real
   // (el backend valida `destinatario` como email al enviar).
   const [correosFrecuentes, setCorreosFrecuentes] = useState([]);
   const [mostrarGestionCorreos, setMostrarGestionCorreos] = useState(true);
+
+  // Destinatario "Para" del certificado (lo que aparece en el PDF). Lista de
+  // frecuentes compartida con la pantalla de generación (Laboratorio.jsx).
+  const [destinatariosFrecuentes, setDestinatariosFrecuentes] = useState([]);
+  const [destinoModal, setDestinoModal] = useState({ show: false, numero: null, valor: '', esOtro: false, loading: false });
   const [nuevoCorreo, setNuevoCorreo] = useState('');
   const [editandoCorreo, setEditandoCorreo] = useState(null);
   const [valorCorreoEditado, setValorCorreoEditado] = useState('');
@@ -106,6 +114,7 @@ export default function CertificadosGenerados({ idFaena }) {
 
   useEffect(() => {
     loadCorreosFrecuentes();
+    loadDestinatariosFrecuentes();
   }, []);
 
   const loadCorreosFrecuentes = async () => {
@@ -114,6 +123,42 @@ export default function CertificadosGenerados({ idFaena }) {
       setCorreosFrecuentes(Array.isArray(lista) ? lista : []);
     } catch (error) {
       console.error('Error cargando correos frecuentes:', error);
+    }
+  };
+
+  const loadDestinatariosFrecuentes = async () => {
+    try {
+      const lista = await configuracionService.get('certificado_destinatarios_frecuentes');
+      setDestinatariosFrecuentes(Array.isArray(lista) ? lista : []);
+    } catch (error) {
+      console.error('Error cargando destinatarios frecuentes:', error);
+    }
+  };
+
+  const abrirDestinoModal = (c) => {
+    const actual = c.destino || '';
+    const enLista = actual !== '' && destinatariosFrecuentes.includes(actual);
+    setDestinoModal({
+      show: true,
+      numero: c.certificado,
+      valor: actual,
+      esOtro: actual !== '' && !enLista,
+      loading: false,
+    });
+  };
+
+  const guardarDestino = async () => {
+    const valor = destinoModal.valor.trim();
+    if (!valor) return;
+    setDestinoModal((prev) => ({ ...prev, loading: true }));
+    try {
+      await laboratorioService.actualizarDestinatarioCertificado(destinoModal.numero, valor);
+      toast.success('Destinatario actualizado', `El certificado ${destinoModal.numero} ahora es para "${valor}"`);
+      setDestinoModal({ show: false, numero: null, valor: '', esOtro: false, loading: false });
+      cargar();
+    } catch (error) {
+      toast.error('Error', extraerMensajeError(error, 'No se pudo actualizar el destinatario'));
+      setDestinoModal((prev) => ({ ...prev, loading: false }));
     }
   };
 
@@ -297,7 +342,7 @@ export default function CertificadosGenerados({ idFaena }) {
   };
 
   const cerrarCorreoModal = () => {
-    setCorreoModal({ show: false, numero: null, destinatarios: [], mensaje: '', loading: false });
+    setCorreoModal({ show: false, numero: null, numeros: null, destinatarios: [], mensaje: '', loading: false });
     setMostrarGestionCorreos(true);
     setEditandoCorreo(null);
   };
@@ -314,15 +359,40 @@ export default function CertificadosGenerados({ idFaena }) {
 
   const confirmarEnvioCorreo = async () => {
     if (correoModal.destinatarios.length === 0) return;
+    const mensaje = correoModal.mensaje.trim() || null;
+    const varios = Array.isArray(correoModal.numeros) && correoModal.numeros.length > 0;
     setCorreoModal((prev) => ({ ...prev, loading: true }));
     try {
-      await laboratorioService.enviarCorreoCertificado(correoModal.numero, correoModal.destinatarios, correoModal.mensaje.trim() || null);
-      toast.success('Certificado enviado por correo');
+      if (varios) {
+        await laboratorioService.enviarCorreoMultipleCertificados(correoModal.numeros, correoModal.destinatarios, mensaje);
+        toast.success(`${correoModal.numeros.length} certificados enviados por correo`);
+        setSeleccion([]);
+      } else {
+        await laboratorioService.enviarCorreoCertificado(correoModal.numero, correoModal.destinatarios, mensaje);
+        toast.success('Certificado enviado por correo');
+      }
       cerrarCorreoModal();
     } catch (error) {
       toast.error('Error al enviar correo', error.response?.data?.message || error.message);
       setCorreoModal((prev) => ({ ...prev, loading: false }));
     }
+  };
+
+  const toggleSeleccion = (numero) => {
+    setSeleccion((prev) => (prev.includes(numero) ? prev.filter((n) => n !== numero) : [...prev, numero]));
+  };
+
+  const aprobadosVisibles = certificados.filter((c) => (c.estado_aprobacion || 'Aprobado') === 'Aprobado').map((c) => c.certificado);
+  const todosSeleccionados = aprobadosVisibles.length > 0 && aprobadosVisibles.every((n) => seleccion.includes(n));
+
+  const toggleSeleccionarTodos = () => {
+    setSeleccion((prev) => (todosSeleccionados ? prev.filter((n) => !aprobadosVisibles.includes(n)) : [...new Set([...prev, ...aprobadosVisibles])]));
+  };
+
+  const abrirCorreoMultiple = () => {
+    setCorreoModal({ show: true, numero: null, numeros: [...seleccion], destinatarios: [], mensaje: '', loading: false });
+    setMostrarGestionCorreos(true);
+    setEditandoCorreo(null);
   };
 
   return (
@@ -365,13 +435,38 @@ export default function CertificadosGenerados({ idFaena }) {
         </div>
       ) : (
         <div className="overflow-x-auto">
+          {seleccion.length > 0 && (
+            <div className="flex items-center justify-between gap-3 mb-3 px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg">
+              <span className="text-sm text-blue-900 font-medium">
+                {seleccion.length} certificado{seleccion.length !== 1 ? 's' : ''} seleccionado{seleccion.length !== 1 ? 's' : ''}
+              </span>
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={() => setSeleccion([])} className="text-sm text-gray-500 hover:text-gray-700 underline">
+                  Limpiar
+                </button>
+                <Button variant="secondary" size="sm" icon={HiEnvelope} onClick={abrirCorreoMultiple}>
+                  Enviar {seleccion.length} en un correo
+                </Button>
+              </div>
+            </div>
+          )}
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b-2 border-gray-200 text-left text-gray-600">
+                <th className="py-2 px-3 w-8">
+                  <input
+                    type="checkbox"
+                    checked={todosSeleccionados}
+                    onChange={toggleSeleccionarTodos}
+                    disabled={aprobadosVisibles.length === 0}
+                    title="Seleccionar todos los Aprobados de esta página"
+                  />
+                </th>
                 <th className="py-2 px-3">N° Certificado</th>
                 <th className="py-2 px-3">Fecha de generación</th>
                 <th className="py-2 px-3">Muestras incluidas</th>
                 <th className="py-2 px-3">Estado</th>
+                <th className="py-2 px-3">Destinatario</th>
                 <th className="py-2 px-3">Acciones</th>
               </tr>
             </thead>
@@ -382,6 +477,15 @@ export default function CertificadosGenerados({ idFaena }) {
                 const pendiente = estado === 'Pendiente';
                 return (
                 <tr key={c.certificado} className="hover:bg-gray-50">
+                  <td className="py-2 px-3">
+                    <input
+                      type="checkbox"
+                      checked={seleccion.includes(c.certificado)}
+                      onChange={() => toggleSeleccion(c.certificado)}
+                      disabled={!aprobado}
+                      title={!aprobado ? 'Solo se pueden enviar certificados Aprobados' : undefined}
+                    />
+                  </td>
                   <td className="py-2 px-3 font-semibold text-gray-900">{c.certificado}</td>
                   <td className="py-2 px-3 text-gray-600">{formatearFecha(c.fecha_generacion)}</td>
                   <td className="py-2 px-3 text-gray-600">{c.total_muestras}</td>
@@ -392,6 +496,19 @@ export default function CertificadosGenerados({ idFaena }) {
                     >
                       {estado}
                     </span>
+                  </td>
+                  <td className="py-2 px-3">
+                    <button
+                      type="button"
+                      onClick={() => abrirDestinoModal(c)}
+                      className="inline-flex items-center gap-1.5 text-sm text-gray-700 hover:text-teal-700 group"
+                      title="Cambiar destinatario del certificado"
+                    >
+                      <HiUser className="w-4 h-4 text-gray-400 group-hover:text-teal-600 shrink-0" />
+                      <span className={c.destino ? '' : 'text-gray-400 italic'}>
+                        {c.destino || 'Por defecto'}
+                      </span>
+                    </button>
                   </td>
                   <td className="py-2 px-3">
                     <div className="flex gap-2 flex-wrap">
@@ -522,6 +639,80 @@ export default function CertificadosGenerados({ idFaena }) {
         </div>
       )}
 
+      {destinoModal.show && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="bg-gradient-to-r from-teal-600 to-teal-500 text-white px-6 py-4 rounded-t-2xl">
+              <h3 className="text-lg font-bold flex items-center gap-2">
+                <HiUser className="w-5 h-5" />
+                Destinatario del certificado {destinoModal.numero}
+              </h3>
+              <p className="text-teal-100 text-xs mt-0.5">Aparece como "Para:" en el PDF, la vista previa y el correo</p>
+            </div>
+            <div className="p-6">
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Para: <span className="text-red-500">*</span></label>
+              {!destinoModal.esOtro ? (
+                <select
+                  value={destinoModal.valor}
+                  onChange={(e) => {
+                    if (e.target.value === '__otro__') {
+                      setDestinoModal((prev) => ({ ...prev, esOtro: true, valor: '' }));
+                    } else {
+                      setDestinoModal((prev) => ({ ...prev, valor: e.target.value }));
+                    }
+                  }}
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm bg-white"
+                  autoFocus
+                >
+                  <option value="">Seleccionar destinatario...</option>
+                  {destinatariosFrecuentes.map((d) => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                  <option value="__otro__">Otro (escribir manualmente)</option>
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={destinoModal.valor}
+                  onChange={(e) => setDestinoModal((prev) => ({ ...prev, valor: e.target.value }))}
+                  onKeyDown={(e) => e.key === 'Enter' && guardarDestino()}
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
+                  placeholder="Ej: Mra 3H Copper Spa"
+                  autoFocus
+                />
+              )}
+              {destinoModal.esOtro && (
+                <button
+                  type="button"
+                  onClick={() => setDestinoModal((prev) => ({ ...prev, esOtro: false, valor: '' }))}
+                  className="text-xs text-teal-700 underline font-medium mt-1.5"
+                >
+                  Elegir de la lista
+                </button>
+              )}
+            </div>
+            <div className="px-6 pb-6 flex gap-3 justify-end">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => setDestinoModal({ show: false, numero: null, valor: '', esOtro: false, loading: false })}
+                disabled={destinoModal.loading}
+              >
+                Cancelar
+              </Button>
+              <Button
+                variant="success"
+                size="sm"
+                onClick={guardarDestino}
+                disabled={destinoModal.loading || !destinoModal.valor.trim()}
+              >
+                {destinoModal.loading ? 'Guardando...' : 'Guardar'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {rechazarModal.show && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
@@ -575,7 +766,11 @@ export default function CertificadosGenerados({ idFaena }) {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-bold text-gray-900">Enviar certificado {correoModal.numero}</h3>
+              <h3 className="text-lg font-bold text-gray-900">
+                {Array.isArray(correoModal.numeros)
+                  ? `Enviar ${correoModal.numeros.length} certificados en un correo`
+                  : `Enviar certificado ${correoModal.numero}`}
+              </h3>
               <button
                 onClick={cerrarCorreoModal}
                 className="text-gray-400 hover:text-gray-600"
@@ -584,6 +779,11 @@ export default function CertificadosGenerados({ idFaena }) {
               </button>
             </div>
             <div className="p-6">
+              {Array.isArray(correoModal.numeros) && (
+                <div className="mb-3 text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                  Certificados: <span className="font-mono text-gray-700">{correoModal.numeros.join(', ')}</span>
+                </div>
+              )}
               <label className="block text-sm font-medium text-gray-700 mb-1">Correo del destinatario *</label>
               <p className="text-sm text-gray-700 mb-2 min-h-[1.25rem]">
                 {correoModal.destinatarios.length > 0

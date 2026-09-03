@@ -136,6 +136,12 @@ class LaboratorioService {
     return response;
   }
 
+  // Cambiar el destinatario ("Para") de un certificado ya generado
+  async actualizarDestinatarioCertificado(numeroCertificado, destino) {
+    const response = await api.patch(`/laboratorio/certificados/${numeroCertificado}/destinatario`, { destino });
+    return response.data;
+  }
+
   // Aprobar certificado (visto bueno)
   async aprobarCertificado(numeroCertificado) {
     const response = await api.post(`/laboratorio/certificados/${numeroCertificado}/aprobar`);
@@ -151,6 +157,12 @@ class LaboratorioService {
   // Enviar certificado ya aprobado por correo electrónico
   async enviarCorreoCertificado(numeroCertificado, destinatarios, mensaje = null) {
     const response = await api.post(`/laboratorio/certificados/${numeroCertificado}/enviar-correo`, { destinatarios, mensaje });
+    return response.data;
+  }
+
+  // Enviar varios certificados en un solo correo (todos con sus PDF adjuntos)
+  async enviarCorreoMultipleCertificados(numeros, destinatarios, mensaje = null) {
+    const response = await api.post('/laboratorio/certificados/enviar-correo-multiple', { numeros, destinatarios, mensaje });
     return response.data;
   }
 

@@ -4,6 +4,7 @@ import Header from '../../../shared/components/organisms/Header';
 import Button from '../../../shared/components/atoms/Button';
 import Card from '../../../shared/components/atoms/Card';
 import Breadcrumb from '../../../shared/components/atoms/Breadcrumb';
+import NumeroInput from '../../../shared/components/atoms/NumeroInput';
 import BulkCompleteModal from '../../../shared/components/molecules/BulkCompleteModal';
 import Pagination from '../../../shared/components/molecules/Pagination';
 import TableFilters from '../../../shared/components/molecules/TableFilters';
@@ -81,7 +82,7 @@ export default function Laboratorio() {
     jornada: '',
     fecha_inicio: '',
     fecha_fin: '',
-    id_frente_trabajo: '',
+    id_frente_trabajo: [],
     estado_certificado: '', // 'con', 'sin', '' (todos)
     certificado: '', // búsqueda por número de certificado específico
   });
@@ -165,7 +166,7 @@ export default function Laboratorio() {
         jornada: filters.jornada || undefined,
         fecha_inicio: filters.fecha_inicio || undefined,
         fecha_fin: filters.fecha_fin || undefined,
-        id_frente_trabajo: filters.id_frente_trabajo || undefined,
+        id_frente_trabajo: filters.id_frente_trabajo?.length ? filters.id_frente_trabajo : undefined,
         estado_certificado: filters.estado_certificado || undefined,
         certificado: filters.certificado || undefined,
       };
@@ -294,7 +295,7 @@ export default function Laboratorio() {
       jornada: '',
       fecha_inicio: '',
       fecha_fin: '',
-      id_frente_trabajo: '',
+      id_frente_trabajo: [],
       estado_certificado: '',
       certificado: '',
     });
@@ -408,26 +409,25 @@ export default function Laboratorio() {
   const handleSelectAllHistorial = (dumpadasList) => {
     const sinCertificado = dumpadasList.filter(d => !d.certificado);
 
-    // Si todas las sin certificado están seleccionadas, deseleccionar
-    // (comparar por _key, no por id: selectedHistorialIds guarda _key para no
-    // colisionar entre dumpadas y muestras libres — comparar por id acá nunca
-    // matcheaba y el checkbox de "seleccionar todo" no deseleccionaba nunca)
-    const allSinCertificadoKeys = sinCertificado.map(d => d._key);
-    const todasSeleccionadas = allSinCertificadoKeys.every(key => selectedHistorialIds.includes(key));
+    // "Seleccionar todo" agrega/quita SOLO las muestras de la página actual,
+    // sin pisar lo que ya se marcó en otras páginas (comparar por _key para no
+    // colisionar entre dumpadas y muestras libres).
+    const keysPagina = sinCertificado.map(d => d._key);
+    const todasEnEstaPagina = keysPagina.length > 0 && keysPagina.every(key => selectedHistorialIds.includes(key));
 
-    if (todasSeleccionadas && selectedHistorialIds.length > 0) {
-      setSelectedHistorialIds([]);
+    if (todasEnEstaPagina) {
+      setSelectedHistorialIds(prev => prev.filter(k => !keysPagina.includes(k)));
       return;
     }
 
-    // Seleccionar todas sin certificado
-    if (sinCertificado.length > 0) {
-      setSelectedHistorialIds(sinCertificado.map(d => d._key));
+    // Agregar las de esta página a lo ya seleccionado
+    if (keysPagina.length > 0) {
+      setSelectedHistorialIds(prev => [...new Set([...prev, ...keysPagina])]);
       const conCertificado = dumpadasList.length - sinCertificado.length;
       if (conCertificado > 0) {
         toast.info(
           'Selección parcial',
-          `Se seleccionaron ${sinCertificado.length} muestras sin certificado. ${conCertificado} ya tienen certificado y solo se pueden descargar.`
+          `Se agregaron ${sinCertificado.length} muestras sin certificado. ${conCertificado} ya tienen certificado y solo se pueden descargar.`
         );
       }
     } else {
@@ -871,7 +871,8 @@ export default function Laboratorio() {
       {
         name: 'id_frente_trabajo',
         label: 'Frente de Trabajo',
-        type: 'select',
+        type: 'multiselect',
+        placeholder: 'Todos los frentes',
         options: frentes.map(f => ({
           value: f.id,
           label: f.codigo_completo || `ID: ${f.id}`
@@ -1945,9 +1946,7 @@ export default function Laboratorio() {
                   <label className="block text-sm font-semibold text-gray-700 mb-1">
                     Ley - Cu Total (%) <span className="text-red-500">*</span>
                   </label>
-                  <input
-                    type="number"
-                    step="0.001"
+                  <NumeroInput
                     value={editForm.ley}
                     onChange={(e) => setEditForm(prev => ({ ...prev, ley: e.target.value }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white text-gray-900"
@@ -1959,9 +1958,7 @@ export default function Laboratorio() {
                   <label className="block text-sm font-semibold text-gray-700 mb-1">
                     Cu Soluble (%) <span className="text-red-500">*</span>
                   </label>
-                  <input
-                    type="number"
-                    step="0.001"
+                  <NumeroInput
                     value={editForm.cu_soluble}
                     onChange={(e) => setEditForm(prev => ({ ...prev, cu_soluble: e.target.value }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white text-gray-900"
@@ -1973,9 +1970,7 @@ export default function Laboratorio() {
                   <label className="block text-sm font-semibold text-gray-700 mb-1">
                     Cu Insoluble (%) <span className="text-gray-400 text-xs font-normal">opcional, se calcula auto</span>
                   </label>
-                  <input
-                    type="number"
-                    step="0.001"
+                  <NumeroInput
                     value={editForm.cu_insoluble}
                     onChange={(e) => setEditForm(prev => ({ ...prev, cu_insoluble: e.target.value }))}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white text-gray-900"

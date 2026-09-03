@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { HiCheckCircle, HiXMark, HiExclamationCircle, HiCalculator, HiDocumentText } from 'react-icons/hi2';
 import Button from '../atoms/Button';
+import NumeroInput from '../atoms/NumeroInput';
 
 /**
  * BulkCompleteModal - Modal con tabla editable para completar múltiples dumpadas
@@ -205,10 +206,7 @@ export default function BulkCompleteModal({ show, dumpadas = [], onConfirm, onCa
                       <label className="block text-xs font-semibold text-gray-600 mb-1">
                         Cu Total (%) <span className="text-red-500">*</span>
                       </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
+                      <NumeroInput
                         data-field="ley"
                         value={formData[dumpada.id]?.ley || ''}
                         onChange={(e) => handleInputChange(dumpada.id, 'ley', e.target.value)}
@@ -220,10 +218,7 @@ export default function BulkCompleteModal({ show, dumpadas = [], onConfirm, onCa
                       <label className="block text-xs font-semibold text-gray-600 mb-1">
                         Cu Soluble (%) <span className="text-red-500">*</span>
                       </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
+                      <NumeroInput
                         data-field="cu_soluble"
                         value={formData[dumpada.id]?.cu_soluble || ''}
                         onChange={(e) => handleInputChange(dumpada.id, 'cu_soluble', e.target.value)}
@@ -314,10 +309,8 @@ export default function BulkCompleteModal({ show, dumpadas = [], onConfirm, onCa
                           )}
                         </td>
                         <td className="py-2 px-3">
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
+                          <NumeroInput
+                            data-field="ley"
                             value={formData[dumpada.id]?.ley || ''}
                             onChange={(e) => handleInputChange(dumpada.id, 'ley', e.target.value)}
                             onKeyDown={(e) => handleKeyDown(e, dumpada.id, 'ley')}
@@ -326,10 +319,8 @@ export default function BulkCompleteModal({ show, dumpadas = [], onConfirm, onCa
                           />
                         </td>
                         <td className="py-2 px-3">
-                          <input
-                            type="number"
-                            step="0.01"
-                            min="0"
+                          <NumeroInput
+                            data-field="cu_soluble"
                             value={formData[dumpada.id]?.cu_soluble || ''}
                             onChange={(e) => handleInputChange(dumpada.id, 'cu_soluble', e.target.value)}
                             onKeyDown={(e) => handleKeyDown(e, dumpada.id, 'cu_soluble')}

@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Dispatch\Dumpada;
 use App\Models\Dispatch\MuestraLibre;
 use App\Models\Laboratorio\Certificado;
+use App\Support\OrdenMuestras;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -25,21 +26,23 @@ class CertificadoPdfService
      */
     public function generarCertificado(array $dumpadaIds, ?string $numeroCertificado = null, bool $guardarNumero = true, array $muestraLibreIds = [], ?string $para = null, ?string $generadoPor = null)
     {
-        $dumpadas = empty($dumpadaIds) ? collect() : Dumpada::with('frenteTrabajo')
-            ->whereIn('id', $dumpadaIds)
-            ->whereNotNull('ley')
-            ->whereNotNull('cu_soluble')
-            ->whereNotNull('cu_insoluble')
-            ->orderBy('fecha')
-            ->orderBy('numero_jornada')
-            ->get();
+        $dumpadas = empty($dumpadaIds) ? collect() : OrdenMuestras::ordenarDumpadas(
+            Dumpada::with('frenteTrabajo')
+                ->whereIn('id', $dumpadaIds)
+                ->whereNotNull('ley')
+                ->whereNotNull('cu_soluble')
+                ->whereNotNull('cu_insoluble')
+                ->get()
+        );
 
-        $muestrasLibres = empty($muestraLibreIds) ? collect() : MuestraLibre::whereIn('id', $muestraLibreIds)
-            ->whereNotNull('ley')
-            ->whereNotNull('cu_soluble')
-            ->whereNotNull('cu_insoluble')
-            ->orderBy('fecha')
-            ->get();
+        $muestrasLibres = empty($muestraLibreIds) ? collect() : OrdenMuestras::ordenarMuestrasLibres(
+            MuestraLibre::with('frenteTrabajo')
+                ->whereIn('id', $muestraLibreIds)
+                ->whereNotNull('ley')
+                ->whereNotNull('cu_soluble')
+                ->whereNotNull('cu_insoluble')
+                ->get()
+        );
 
         if ($dumpadas->isEmpty() && $muestrasLibres->isEmpty()) {
             throw new \Exception('No se encontraron muestras con análisis completo (ley, cu_soluble, cu_insoluble)');
@@ -51,15 +54,21 @@ class CertificadoPdfService
 
         if ($guardarNumero) {
             $ahora = Carbon::now();
-            DB::transaction(function () use ($dumpadas, $muestrasLibres, $numeroCertificado, $ahora, $generadoPor) {
+            $destino = $para !== null && trim($para) !== '' ? trim($para) : null;
+            DB::transaction(function () use ($dumpadas, $muestrasLibres, $numeroCertificado, $ahora, $generadoPor, $destino) {
                 $this->asignarCertificadoADumpadas($dumpadas, $numeroCertificado, $ahora);
                 foreach ($muestrasLibres as $m) {
                     $m->update(['certificado' => $numeroCertificado]);
                 }
-                Certificado::firstOrCreate(
+                $cert = Certificado::firstOrCreate(
                     ['numero_certificado' => $numeroCertificado],
-                    ['estado' => Certificado::ESTADO_PENDIENTE, 'generado_por' => $generadoPor]
+                    ['estado' => Certificado::ESTADO_PENDIENTE, 'generado_por' => $generadoPor, 'destino' => $destino]
                 );
+                // Si la fila ya existía sin destino (p.ej. certificado rechazado que
+                // se está re-generando), guardarlo ahora.
+                if ($destino !== null && $cert->destino !== $destino) {
+                    $cert->update(['destino' => $destino]);
+                }
             });
         }
 
@@ -117,15 +126,23 @@ class CertificadoPdfService
      */
     public function regenerarCertificado(string $numeroCertificado, ?string $para = null, ?string $watermarkTexto = null)
     {
-        $dumpadas = Dumpada::with('frenteTrabajo')
-            ->where('certificado', $numeroCertificado)
-            ->orderBy('fecha')
-            ->orderBy('numero_jornada')
-            ->get();
+        // Si no viene un "Para" explícito, usar el que quedó guardado en el
+        // certificado al generarlo. Antes esto se perdía y siempre volvía al default.
+        if ($para === null || trim($para) === '') {
+            $para = Certificado::where('numero_certificado', $numeroCertificado)->value('destino');
+        }
 
-        $muestrasLibres = MuestraLibre::where('certificado', $numeroCertificado)
-            ->orderBy('fecha')
-            ->get();
+        $dumpadas = OrdenMuestras::ordenarDumpadas(
+            Dumpada::with('frenteTrabajo')
+                ->where('certificado', $numeroCertificado)
+                ->get()
+        );
+
+        $muestrasLibres = OrdenMuestras::ordenarMuestrasLibres(
+            MuestraLibre::with('frenteTrabajo')
+                ->where('certificado', $numeroCertificado)
+                ->get()
+        );
 
         if ($dumpadas->isEmpty() && $muestrasLibres->isEmpty()) {
             throw new \Exception("No se encontraron muestras con el certificado: {$numeroCertificado}");
@@ -214,12 +231,14 @@ class CertificadoPdfService
      */
     public function generarCertificadoMuestraLibre(array $muestraLibreIds, ?string $numeroCertificado = null, bool $guardarNumero = true)
     {
-        $muestras = MuestraLibre::whereIn('id', $muestraLibreIds)
-            ->whereNotNull('ley')
-            ->whereNotNull('cu_soluble')
-            ->whereNotNull('cu_insoluble')
-            ->orderBy('fecha')
-            ->get();
+        $muestras = OrdenMuestras::ordenarMuestrasLibres(
+            MuestraLibre::with('frenteTrabajo')
+                ->whereIn('id', $muestraLibreIds)
+                ->whereNotNull('ley')
+                ->whereNotNull('cu_soluble')
+                ->whereNotNull('cu_insoluble')
+                ->get()
+        );
 
         if ($muestras->isEmpty()) {
             throw new \Exception('No se encontraron muestras específicas con análisis completo (ley, cu_soluble, cu_insoluble)');
@@ -253,9 +272,11 @@ class CertificadoPdfService
      */
     public function regenerarCertificadoMuestraLibre(string $numeroCertificado)
     {
-        $muestras = MuestraLibre::where('certificado', $numeroCertificado)
-            ->orderBy('fecha')
-            ->get();
+        $muestras = OrdenMuestras::ordenarMuestrasLibres(
+            MuestraLibre::with('frenteTrabajo')
+                ->where('certificado', $numeroCertificado)
+                ->get()
+        );
 
         if ($muestras->isEmpty()) {
             throw new \Exception("No se encontraron muestras específicas con el certificado: {$numeroCertificado}");
@@ -454,6 +475,7 @@ class CertificadoPdfService
             $c['motivo_rechazo'] = $cert->motivo_rechazo ?? null;
             $c['aprobado_por'] = $cert->aprobado_por ?? null;
             $c['fecha_aprobacion'] = $cert->fecha_aprobacion ?? null;
+            $c['destino'] = $cert->destino ?? null;
             return $c;
         });
 

@@ -13,6 +13,7 @@ class Certificado extends Model
         'numero_certificado',
         'estado',
         'generado_por',
+        'destino',
         'aprobado_por',
         'fecha_aprobacion',
         'motivo_rechazo',

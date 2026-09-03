@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api\Laboratorio;
 use App\Http\Controllers\Controller;
 use App\Models\Dispatch\Dumpada;
 use App\Models\Dispatch\MuestraLibre;
+use App\Models\Ingenieria\FrenteTrabajo;
+use App\Support\OrdenMuestras;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -50,6 +52,7 @@ class LaboratorioController extends Controller
         $fechaInicio = $request->get('fecha_inicio');
         $fechaFin    = $request->get('fecha_fin');
         $idFrente    = $request->get('id_frente_trabajo');
+        $idFrente    = $idFrente ? (array) $idFrente : [];
         $idFaena     = $request->get('id_faena');
 
         // ── 1. DUMPADAS ────────────────────────────────────────────────────────
@@ -72,7 +75,7 @@ class LaboratorioController extends Controller
         if ($jornada)     $queryDumpadas->where('jornada', $jornada);
         if ($fechaInicio) $queryDumpadas->whereDate('fecha', '>=', $fechaInicio);
         if ($fechaFin)    $queryDumpadas->whereDate('fecha', '<=', $fechaFin);
-        if ($idFrente)    $queryDumpadas->where('id_frente_trabajo', $idFrente);
+        if ($idFrente)    $queryDumpadas->whereIn('id_frente_trabajo', $idFrente);
         if ($idFaena)     $queryDumpadas->where('id_faena', $idFaena);
 
         $dumpadas = $queryDumpadas->orderBy('fecha', 'desc')->orderBy('id', 'desc')->get()
@@ -91,7 +94,7 @@ class LaboratorioController extends Controller
         }
         if ($fechaInicio) $queryMuestras->whereDate('fecha', '>=', $fechaInicio);
         if ($fechaFin)    $queryMuestras->whereDate('fecha', '<=', $fechaFin);
-        if ($idFrente)    $queryMuestras->where('id_frente_trabajo', $idFrente);
+        if ($idFrente)    $queryMuestras->whereIn('id_frente_trabajo', $idFrente);
         if ($idFaena)     $queryMuestras->where('id_faena', $idFaena);
 
         $muestras = $queryMuestras->orderBy('created_at', 'desc')->get()
@@ -407,14 +410,15 @@ class LaboratorioController extends Controller
         $fechaInicio = $request->get('fecha_inicio');
         $fechaFin    = $request->get('fecha_fin');
         $idFrente    = $request->get('id_frente_trabajo');
+        $idFrente    = $idFrente ? (array) $idFrente : [];
         $idFaena     = $request->get('id_faena');
         $estadoCertificado = $request->get('estado_certificado');
         $certificado       = $request->get('certificado');
 
-        // Clave de orden combinada (fecha desc, id desc como desempate).
-        // Se calcula igual para dumpadas y muestras para poder mezclarlas.
-        $ordenKey = fn($fecha, $createdAt, $id) =>
-            strtotime($fecha ?? $createdAt ?? '1970-01-01') * 1000000 + (int) $id;
+        // Orden del Historial (acordado en marcha blanca, sep-2026): es una cola de
+        // trabajo, no un log cronológico. Sin certificado primero; luego con
+        // certificado por N° descendente; dentro de cada bloque, frente A→Z y
+        // numero_jornada ascendente (1, 2, 3…). Ver App\Support\OrdenMuestras.
 
         // ── 1. DUMPADAS COMPLETADAS (solo claves de orden, sin hidratar) ──
         $queryDumpadas = Dumpada::query()
@@ -432,7 +436,7 @@ class LaboratorioController extends Controller
         if ($jornada)     $queryDumpadas->where('jornada', $jornada);
         if ($fechaInicio) $queryDumpadas->whereDate('fecha', '>=', $fechaInicio);
         if ($fechaFin)    $queryDumpadas->whereDate('fecha', '<=', $fechaFin);
-        if ($idFrente)    $queryDumpadas->where('id_frente_trabajo', $idFrente);
+        if ($idFrente)    $queryDumpadas->whereIn('id_frente_trabajo', $idFrente);
         if ($idFaena)     $queryDumpadas->where(function ($q) use ($idFaena) {
             $q->where('id_faena', $idFaena)
               ->orWhereHas('frenteTrabajo', fn($fq) => $fq->where('id_faena', $idFaena));
@@ -444,12 +448,10 @@ class LaboratorioController extends Controller
         }
         if ($certificado) $queryDumpadas->where('certificado', 'like', "%{$certificado}%");
 
-        $claves = $queryDumpadas->toBase()->get(['id', 'fecha', 'created_at'])
-            ->map(fn($d) => [
-                'id'    => $d->id,
-                'tipo'  => 'dumpada',
-                'orden' => $ordenKey($d->fecha, $d->created_at, $d->id),
-            ]);
+        $filasDumpadas = $queryDumpadas->toBase()->get([
+            'id', 'fecha', 'certificado', 'id_frente_trabajo', 'jornada', 'numero_jornada', 'numero_dumpada',
+        ]);
+        $filasMuestras = collect();
 
         // ── 2. MUESTRAS LIBRES COMPLETADAS (solo claves de orden) ─────────
         // Solo si no se filtra por jornada, certificado o estado_certificado
@@ -470,21 +472,49 @@ class LaboratorioController extends Controller
             }
             if ($fechaInicio) $queryMuestras->whereDate('fecha', '>=', $fechaInicio);
             if ($fechaFin)    $queryMuestras->whereDate('fecha', '<=', $fechaFin);
-            if ($idFrente)    $queryMuestras->where('id_frente_trabajo', $idFrente);
+            if ($idFrente)    $queryMuestras->whereIn('id_frente_trabajo', $idFrente);
             if ($idFaena)     $queryMuestras->where('id_faena', $idFaena);
 
-            $claves = $claves->concat(
-                $queryMuestras->toBase()->get(['id', 'fecha', 'created_at'])
-                    ->map(fn($m) => [
-                        'id'    => $m->id,
-                        'tipo'  => 'muestra_libre',
-                        'orden' => $ordenKey($m->fecha, $m->created_at, $m->id),
-                    ])
-            );
+            $filasMuestras = $queryMuestras->toBase()->get([
+                'id', 'fecha', 'certificado', 'id_frente_trabajo', 'created_at',
+            ]);
         }
 
-        // ── 3. MERGE + PAGINACIÓN (sobre las claves livianas) ─────────────
-        $claves   = $claves->sortByDesc('orden')->values();
+        // ── 3. MERGE + ORDEN + PAGINACIÓN (sobre las claves livianas) ─────
+        // Mapa id_frente => codigo_completo (una sola consulta chica) para poder
+        // ordenar por frente sin hidratar cada registro.
+        $idsFrente = $filasDumpadas->pluck('id_frente_trabajo')
+            ->merge($filasMuestras->pluck('id_frente_trabajo'))
+            ->filter()->unique()->values();
+        $codigosFrente = $idsFrente->isEmpty()
+            ? collect()
+            : FrenteTrabajo::whereIn('id', $idsFrente)->pluck('codigo_completo', 'id');
+
+        $claves = $filasDumpadas->map(fn($d) => [
+            'id'    => $d->id,
+            'tipo'  => 'dumpada',
+            'orden' => OrdenMuestras::claveHistorial(
+                $d->certificado,
+                $codigosFrente[$d->id_frente_trabajo] ?? null,
+                $d->fecha,
+                $d->jornada,
+                $d->numero_jornada,
+                $d->numero_dumpada
+            ),
+        ])->concat($filasMuestras->map(fn($m) => [
+            'id'    => $m->id,
+            'tipo'  => 'muestra_libre',
+            'orden' => OrdenMuestras::claveHistorial(
+                $m->certificado,
+                $codigosFrente[$m->id_frente_trabajo] ?? null,
+                $m->fecha,
+                null,
+                0,
+                $m->id
+            ),
+        ]));
+
+        $claves   = $claves->sortBy('orden', SORT_STRING)->values();
         $total    = $claves->count();
         $lastPage = max(1, (int) ceil($total / $perPage));
         $offset   = ($page - 1) * $perPage;
