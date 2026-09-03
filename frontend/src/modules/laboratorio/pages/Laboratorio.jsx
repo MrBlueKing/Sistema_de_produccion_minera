@@ -408,26 +408,25 @@ export default function Laboratorio() {
   const handleSelectAllHistorial = (dumpadasList) => {
     const sinCertificado = dumpadasList.filter(d => !d.certificado);
 
-    // Si todas las sin certificado están seleccionadas, deseleccionar
-    // (comparar por _key, no por id: selectedHistorialIds guarda _key para no
-    // colisionar entre dumpadas y muestras libres — comparar por id acá nunca
-    // matcheaba y el checkbox de "seleccionar todo" no deseleccionaba nunca)
-    const allSinCertificadoKeys = sinCertificado.map(d => d._key);
-    const todasSeleccionadas = allSinCertificadoKeys.every(key => selectedHistorialIds.includes(key));
+    // "Seleccionar todo" agrega/quita SOLO las muestras de la página actual,
+    // sin pisar lo que ya se marcó en otras páginas (comparar por _key para no
+    // colisionar entre dumpadas y muestras libres).
+    const keysPagina = sinCertificado.map(d => d._key);
+    const todasEnEstaPagina = keysPagina.length > 0 && keysPagina.every(key => selectedHistorialIds.includes(key));
 
-    if (todasSeleccionadas && selectedHistorialIds.length > 0) {
-      setSelectedHistorialIds([]);
+    if (todasEnEstaPagina) {
+      setSelectedHistorialIds(prev => prev.filter(k => !keysPagina.includes(k)));
       return;
     }
 
-    // Seleccionar todas sin certificado
-    if (sinCertificado.length > 0) {
-      setSelectedHistorialIds(sinCertificado.map(d => d._key));
+    // Agregar las de esta página a lo ya seleccionado
+    if (keysPagina.length > 0) {
+      setSelectedHistorialIds(prev => [...new Set([...prev, ...keysPagina])]);
       const conCertificado = dumpadasList.length - sinCertificado.length;
       if (conCertificado > 0) {
         toast.info(
           'Selección parcial',
-          `Se seleccionaron ${sinCertificado.length} muestras sin certificado. ${conCertificado} ya tienen certificado y solo se pueden descargar.`
+          `Se agregaron ${sinCertificado.length} muestras sin certificado. ${conCertificado} ya tienen certificado y solo se pueden descargar.`
         );
       }
     } else {

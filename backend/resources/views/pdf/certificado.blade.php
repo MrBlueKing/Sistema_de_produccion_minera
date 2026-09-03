@@ -11,6 +11,12 @@
             box-sizing: border-box;
         }
 
+        /* Margen por página: así la hoja 2/3 (cuando hay muchas muestras) también
+           tiene aire arriba y el encabezado de la tabla no queda pegado al borde. */
+        @page {
+            margin: 16mm 15mm 18mm 15mm;
+        }
+
         body {
             font-family: Arial, Helvetica, sans-serif;
             font-size: 11px;
@@ -19,9 +25,7 @@
         }
 
         .container {
-            max-width: 700px;
-            margin: 0 auto;
-            padding: 20px 30px;
+            padding: 0;
         }
 
         /* Header / Logo */
@@ -125,7 +129,7 @@
         table th,
         table td {
             border: 1px solid #333;
-            padding: 8px 10px;
+            padding: 6px 10px;
             text-align: center;
         }
 
@@ -180,7 +184,7 @@
 
         /* Footer / Signature */
         .footer {
-            margin-top: 40px;
+            margin-top: 28px;
             text-align: center;
             page-break-inside: avoid;
         }
