@@ -266,7 +266,7 @@ class ReportePerforacionController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'id_frente_trabajo' => 'required|exists:frentes_trabajo,id',
+            'id_frente_trabajo' => ['required', Rule::exists('frentes_trabajo', 'id')->where('estado', 'activo')],
             'id_personal' => 'required|exists:personal_autorizado_explosivos,id',
             'id_tipo_frente' => 'required|exists:tipos_frente,id',
             'seccion_ancho' => 'nullable|numeric|min:0',
@@ -280,6 +280,8 @@ class ReportePerforacionController extends Controller
             'explosivos.*.id_tipo_explosivo' => 'required_with:explosivos|exists:tipos_explosivos,id',
             'explosivos.*.cantidad_calculada' => 'required_with:explosivos|numeric|min:0',
             'explosivos.*.cantidad_final' => 'required_with:explosivos|numeric|min:0',
+        ], [
+            'id_frente_trabajo.exists' => 'El frente de trabajo seleccionado no existe o está inactivo. Actualiza la página e intenta de nuevo.',
         ]);
 
         if ($validator->fails()) {
@@ -382,6 +384,18 @@ class ReportePerforacionController extends Controller
 
         if ($validator->fails()) {
             return response()->json(['mensaje' => 'Datos inválidos', 'errores' => $validator->errors()], 422);
+        }
+
+        // No permitir mover la línea a un frente inactivo (sí se permite dejarla en el
+        // frente que ya tenía, aunque ese frente se haya desactivado después) — mismo
+        // criterio que DumpadaController::update().
+        if ($request->has('id_frente_trabajo') && $request->id_frente_trabajo != $linea->id_frente_trabajo) {
+            $frenteNuevo = \App\Models\Ingenieria\FrenteTrabajo::find($request->id_frente_trabajo);
+            if (!$frenteNuevo || $frenteNuevo->estado !== 'activo') {
+                return response()->json([
+                    'mensaje' => 'El frente de trabajo seleccionado está inactivo. Actualiza la página e intenta de nuevo.'
+                ], 422);
+            }
         }
 
         try {
