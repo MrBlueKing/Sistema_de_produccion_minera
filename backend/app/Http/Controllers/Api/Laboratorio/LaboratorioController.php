@@ -454,9 +454,11 @@ class LaboratorioController extends Controller
         $filasMuestras = collect();
 
         // ── 2. MUESTRAS LIBRES COMPLETADAS (solo claves de orden) ─────────
-        // Solo si no se filtra por jornada, certificado o estado_certificado
-        // (esos filtros no aplican a muestras libres)
-        $incluirMuestras = !$jornada && !$certificado && !$estadoCertificado;
+        // Solo si no se filtra por jornada (MuestraLibre no tiene ese campo).
+        // certificado y estado_certificado SÍ aplican a muestras libres — antes
+        // se excluían junto con jornada por error, dejando invisibles del
+        // Historial los certificados armados solo con muestras específicas.
+        $incluirMuestras = !$jornada;
 
         if ($incluirMuestras) {
             $queryMuestras = MuestraLibre::query()
@@ -474,6 +476,12 @@ class LaboratorioController extends Controller
             if ($fechaFin)    $queryMuestras->whereDate('fecha', '<=', $fechaFin);
             if ($idFrente)    $queryMuestras->whereIn('id_frente_trabajo', $idFrente);
             if ($idFaena)     $queryMuestras->where('id_faena', $idFaena);
+            if ($estadoCertificado === 'con') {
+                $queryMuestras->whereNotNull('certificado')->where('certificado', '!=', '');
+            } elseif ($estadoCertificado === 'sin') {
+                $queryMuestras->where(fn($q) => $q->whereNull('certificado')->orWhere('certificado', ''));
+            }
+            if ($certificado) $queryMuestras->where('certificado', 'like', "%{$certificado}%");
 
             $filasMuestras = $queryMuestras->toBase()->get([
                 'id', 'fecha', 'certificado', 'id_frente_trabajo', 'created_at',
