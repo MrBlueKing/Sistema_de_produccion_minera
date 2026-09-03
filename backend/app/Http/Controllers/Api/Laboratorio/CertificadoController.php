@@ -8,6 +8,7 @@ use App\Models\Dispatch\Dumpada;
 use App\Models\Dispatch\MuestraLibre;
 use App\Models\Laboratorio\Certificado;
 use App\Mail\CertificadoLaboratorioMail;
+use App\Support\OrdenMuestras;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Validator;
@@ -519,20 +520,22 @@ class CertificadoController extends Controller
      */
     public function dumpadasPorCertificado(string $numeroCertificado)
     {
-        $dumpadas = Dumpada::with('frenteTrabajo')
-            ->porCertificadoPdf($numeroCertificado)
-            ->orderBy('fecha')
-            ->orderBy('numero_jornada')
-            ->get();
+        $dumpadas = OrdenMuestras::ordenarDumpadas(
+            Dumpada::with('frenteTrabajo')
+                ->porCertificadoPdf($numeroCertificado)
+                ->get()
+        );
 
         $dumpadas->each(function ($dumpada) {
             $dumpada->codigo_completo = $dumpada->generarCodigoCompleto();
             $dumpada->tipo = 'dumpada';
         });
 
-        $muestrasLibres = MuestraLibre::where('certificado', $numeroCertificado)
-            ->orderBy('fecha')
-            ->get();
+        $muestrasLibres = OrdenMuestras::ordenarMuestrasLibres(
+            MuestraLibre::with('frenteTrabajo')
+                ->where('certificado', $numeroCertificado)
+                ->get()
+        );
 
         $muestrasLibres->each(function ($muestra) {
             $muestra->tipo = 'muestra_libre';
@@ -569,12 +572,12 @@ class CertificadoController extends Controller
             ], 422);
         }
 
-        $dumpadas = Dumpada::with('frenteTrabajo')
-            ->whereIn('id', $request->dumpada_ids)
-            ->conAnalisisCompleto()
-            ->orderBy('fecha')
-            ->orderBy('numero_jornada')
-            ->get();
+        $dumpadas = OrdenMuestras::ordenarDumpadas(
+            Dumpada::with('frenteTrabajo')
+                ->whereIn('id', $request->dumpada_ids)
+                ->conAnalisisCompleto()
+                ->get()
+        );
 
         if ($dumpadas->isEmpty()) {
             return response()->json([
