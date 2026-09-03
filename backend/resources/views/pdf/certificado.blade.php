@@ -11,6 +11,13 @@
             box-sizing: border-box;
         }
 
+        /* Margen de página en mm (DomPDF solo parsea el @page margin en unidades
+           absolutas). El margen de arriba deja aire para que el encabezado de la
+           tabla, que DomPDF repite en cada hoja, no quede pegado al borde. */
+        @page {
+            margin: 22mm 13mm 14mm 13mm;
+        }
+
         body {
             font-family: Arial, Helvetica, sans-serif;
             font-size: 11px;
@@ -19,37 +26,22 @@
         }
 
         .container {
-            max-width: 700px;
-            margin: 0 auto;
-            padding: 20px 30px;
+            padding: 0;
         }
 
-        /* DomPDF repite el <thead> en cada hoja pero lo pega al borde superior
-           (ignora el margen de página). Un padding-top grande en el encabezado le
-           da aire a la hoja 2/3 sin descuadrar la 1. */
-        table thead th {
-            padding-top: 22px;
-        }
-
-        /* Header / Logo */
+        /* Header / Logo (solo hoja 1) */
         .header {
             text-align: center;
             margin-bottom: 15px;
             border-bottom: 4px solid #E65100;
-            padding-bottom: 15px;
-        }
-
-        .logo-img {
-            max-height: 80px;
-            margin-bottom: 5px;
+            padding-bottom: 12px;
         }
 
         .logo-text {
-            font-size: 52px;
+            font-size: 44px;
             font-weight: bold;
             color: #E65100;
             letter-spacing: 4px;
-            text-shadow: 1px 1px 2px rgba(0,0,0,0.1);
         }
 
         .logo-text .highlight {
@@ -57,11 +49,11 @@
         }
 
         .subtitle {
-            font-size: 16px;
+            font-size: 15px;
             font-weight: bold;
             color: #E65100;
             letter-spacing: 2px;
-            margin-top: 8px;
+            margin-top: 6px;
             text-transform: uppercase;
         }
 
@@ -142,9 +134,17 @@
             font-size: 10px;
         }
 
-        /* Cuando el certificado tiene muchas muestras y pasa a otra hoja: no cortar
-           filas ni la firma. (No se repite el encabezado de la tabla: DomPDF lo
-           pega al borde superior ignorando el margen de página.) */
+        /* El certificado con muchas muestras pasa a otra hoja: se repite el
+           encabezado de la tabla (arranca abajo del margen de página) y no se
+           cortan filas ni la firma. */
+        table thead {
+            display: table-header-group;
+        }
+
+        table thead th {
+            padding-top: 12px;
+        }
+
         table tr {
             page-break-inside: avoid;
         }
@@ -184,7 +184,7 @@
 
         /* Footer / Signature */
         .footer {
-            margin-top: 28px;
+            margin-top: 18px;
             text-align: center;
             page-break-inside: avoid;
         }
@@ -265,9 +265,6 @@
     <div class="container">
         <!-- Header -->
         <div class="header">
-            {{-- Si tienes logo, descomenta esta línea y pon la ruta del logo --}}
-            {{-- <img src="{{ public_path('images/logo-cimaef.png') }}" alt="CIMAEF" class="logo-img"> --}}
-
             <div class="logo-text">
                 C<span class="highlight">I</span>MA<span class="highlight">E</span>F
             </div>
