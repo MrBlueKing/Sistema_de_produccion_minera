@@ -93,9 +93,21 @@ class ReportePerforacionController extends Controller
             'user:id,name',
         ])->withCount('lineas');
 
-        $idFaena = $this->faenaParaIngenieria($request);
-        if ($idFaena !== null) {
-            $query->where('id_faena', $idFaena);
+        // id_polvorin manda por sobre la faena de la cuenta: lo usa la vista de
+        // "Solicitudes" del Polvorín (SolicitudesView.jsx), que ya sabe de qué
+        // polvorín/faena está mostrando el stock (el usuario puede tener seleccionada
+        // otra faena distinta a la suya propia). Antes este filtro se ignoraba acá,
+        // así que la lista de reportes siempre caía a la faena de la cuenta del
+        // usuario (auth_faena) sin importar qué polvorín se estuviera viendo — un
+        // polvorinero viendo "Polvorín: Cabildo" en la cabecera veía reportes de su
+        // propia faena (Catemu) en la lista de abajo.
+        if ($request->filled('id_polvorin')) {
+            $query->where('id_polvorin', $request->id_polvorin);
+        } else {
+            $idFaena = $this->faenaParaIngenieria($request);
+            if ($idFaena !== null) {
+                $query->where('id_faena', $idFaena);
+            }
         }
 
         if ($request->has('estado')) {
