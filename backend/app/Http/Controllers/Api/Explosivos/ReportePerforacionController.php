@@ -54,9 +54,20 @@ class ReportePerforacionController extends Controller
         return request()->auth_user['nombre'] ?? 'Sistema';
     }
 
+    /**
+     * NULL siempre, a propósito. La tabla local `users` de este backend satélite está
+     * vacía (0 filas) — nunca se pobló porque la autenticación real pasa por el SAC, no
+     * por este Laravel. `auditoria_reportes_perforacion.user_id` y `reportes_perforacion.
+     * user_id` tienen foreign key contra esa tabla `users` local, así que mandar el id del
+     * usuario del SAC (`auth_user_id`, un espacio de ids totalmente distinto) revienta la
+     * constraint con "Cannot add or update a child row" apenas ese id no calza con ninguna
+     * fila local — como pasó en producción al usar esto acá. El nombre real ya queda
+     * guardado en el campo `usuario` (texto) vía nombreUsuarioActual(); user_id se deja en
+     * null hasta que este backend tenga una tabla `users` real y poblada que lo respalde.
+     */
     private function idUsuarioActual(): ?int
     {
-        return request()->auth_user_id;
+        return null;
     }
 
     private function registrarAuditoria($reporte, $accion, $cambios = null, $observaciones = null)
