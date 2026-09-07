@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Fragment } from 'react';
 import gerencialService from '../../services/gerencialService';
-import { FAENA_COLORS, DEFAULT_FAENA_COLORS } from '../../../../contexts/faenaColor';
+import { FAENA_COLORS, DEFAULT_FAENA_COLORS, getFaenaColorsById } from '../../../../contexts/faenaColor';
 import SelectorFaenasGrid from '../../../../shared/components/molecules/SelectorFaenasGrid';
 import {
   BarChart, Bar,
@@ -11,10 +11,11 @@ import {
 import {
   FiTruck, FiBox, FiLayers, FiPackage, FiTrendingUp,
   FiBarChart2, FiAlertCircle, FiCheckCircle, FiClock, FiRefreshCw,
-  FiDroplet, FiTarget,
+  FiDroplet, FiTarget, FiChevronRight, FiX, FiBriefcase,
 } from 'react-icons/fi';
 import { FaIndustry, FaMountain } from 'react-icons/fa';
 import ReconstruccionLote from './ReconstruccionLote';
+import InfoPopover from '../../../../shared/components/molecules/InfoPopover';
 import { CATEGORICAL, crearAsignadorDeFrentes } from '../../utils/chartColors';
 import useDebounce from '../../../../hooks/useDebounce';
 
@@ -26,6 +27,27 @@ const COLOR_ACUMULADO = CATEGORICAL[1]; // naranjo
 // para que el color no cambie de significado entre gráficos del mismo dashboard.
 const COLOR_LOTE_ABIERTO = CATEGORICAL[3]; // amarillo
 const COLOR_LOTE_COMPLETADO = CATEGORICAL[5]; // verde
+
+// Texto explicativo del cálculo de "ley promedio (lab)" en Resumen de Dumpadas
+// — se muestra en el title/tooltip de la tarjeta para que quede claro que no es
+// un promedio simple de porcentajes.
+const LEY_PONDERADA_TOOLTIP = 'Promedio ponderado por tonelaje de Cu Insoluble (ley certificada por laboratorio): Σ(toneladas × ley) / Σ toneladas, solo dumpadas con resultado de laboratorio.';
+
+// Mismo color por jornada en todo el dashboard (tooltips, badges de "Resumen
+// de Dumpadas") — así una jornada se identifica por color sin tener que leer
+// el texto cada vez.
+const JORNADA_COLOR_TEXTO = {
+  AM: 'text-amber-600',
+  PM: 'text-sky-600',
+  Noche: 'text-teal-600',
+  Madrugada: 'text-rose-600',
+};
+// Orden cronológico del día (00:00 → 24:00), no alfabético, para que el
+// detalle del tooltip se lea en la secuencia real de turnos.
+const JORNADA_ORDEN = { Madrugada: 0, AM: 1, PM: 2, Noche: 3 };
+// Mismos tonos que JORNADA_COLOR_TEXTO pero en hex, para usar como fill de
+// barra en Recharts (no acepta clases de Tailwind).
+const JORNADA_COLOR_HEX = { AM: '#fbbf24', PM: '#38bdf8', Noche: '#2dd4bf', Madrugada: '#fb7185' };
 
 // Helpers de formato
 const formatNumber = (num) => {
@@ -71,17 +93,10 @@ const TendenciaSinDato = ({ ratioAnterior, denominadorAnterior, etiqueta }) => {
   return <p className="text-xs text-gray-500 mt-0.5">sin {etiqueta} en el período anterior — no se puede comparar</p>;
 };
 
-// Ícono ⓘ con tooltip nativo (title): usado en las tarjetas de litros de
-// combustible acotado por equipo, para explicar qué máquinas cuentan sin
-// recargar el subtítulo de la tarjeta con la lista completa siempre visible.
-const InfoTooltip = ({ texto }) => (
-  <span
-    title={texto}
-    className="ml-auto inline-flex items-center justify-center w-3.5 h-3.5 rounded-full border border-gray-300 text-gray-400 text-[9px] font-bold leading-none cursor-help hover:border-amber-400 hover:text-amber-600 flex-none"
-  >
-    i
-  </span>
-);
+// Ícono ⓘ clickeable (InfoPopover) usado en las tarjetas de KPIs de este tab
+// para explicar cómo se calcula cada número — mismo patrón que en "Resumen
+// de Dumpadas": click para abrir en vez de solo hover, más descubrible.
+const InfoTooltip = ({ texto }) => <InfoPopover text={texto} className="ml-auto flex-none" />;
 
 // Punto del scatter de lotes: r=5 (≥8px de diámetro) + anillo blanco de 2px para
 // que se distingan al solaparse, en vez de un stroke de color que sumaría tinta.
@@ -409,9 +424,27 @@ export const ProduccionCompleta = () => {
   const [dumpLoading, setDumpLoading]       = useState(false);
   const [dumpMetrica, setDumpMetrica]       = useState('toneladas'); // 'toneladas' | 'cantidad'
   const [dumpJornada, setDumpJornada]       = useState('Todos'); // 'Todos' | 'AM' | 'PM' | 'Madrugada' | 'Noche' — filtro instantáneo, sin recargar
+  const [dumpAgrupacion, setDumpAgrupacion] = useState('grupo'); // 'grupo' (túnel/manto) | 'jornada' | 'faena' — qué apila/colorea la barra
+  // Detalle completo al hacer clic en un segmento de "Avance Diario por Frente"
+  // (no en el tooltip de hover — con muchos frentes esa lista no entra ni se
+  // puede scrollear sin que el mouse se salga y el tooltip desaparezca).
+  const [detalleClicDump, setDetalleClicDump] = useState(null); // { fecha, dataKey, etiqueta, detalles, color } | null
   const [mostrarTendencia, setMostrarTendencia] = useState(false); // línea de promedio móvil en "Avance Diario"
   const [eficiencia, setEficiencia]         = useState(null);
   const [eficienciaLoading, setEficienciaLoading] = useState(false);
+  const [resumenDumpadas, setResumenDumpadas] = useState([]);
+  const [resumenDumpadasLoading, setResumenDumpadasLoading] = useState(false);
+  // Detalle desplegable de "Por Empresa y Planta": qué filas (empresa|||planta)
+  // están expandidas ahora mismo (pueden ser varias a la vez, cada una con su
+  // propio fetch independiente) y los lotes que le corresponden a cada una
+  // dentro del período/faenas filtrados. A propósito NO hay un botón "abrir
+  // todas" — cada fetch es liviano (una sola empresa+planta+período) y clic a
+  // clic no sobrecarga nada, pero disparar las 8-10 filas de un tirón sí
+  // podría saturar el servidor de desarrollo de PHP (de un solo hilo, ver el
+  // comentario de cargarResumenDumpadas más abajo).
+  const [filasExpandidas, setFilasExpandidas] = useState(() => new Set());
+  const [lotesPorFila, setLotesPorFila] = useState({});
+  const [loadingPorFila, setLoadingPorFila] = useState({});
   const [lotesAnalisis, setLotesAnalisis]   = useState([]);
   const [lotesAnalisisLoading, setLotesAnalisisLoading] = useState(false);
   const [hoverCruceLotes, setHoverCruceLotes] = useState(false); // etiqueta del cruce de promedios solo al pasar el mouse
@@ -459,6 +492,13 @@ export const ProduccionCompleta = () => {
     ? (faenasConDatos.find((f) => f.name === selectedFaenas[0])?.id ?? null)
     : null;
 
+  // Cierra el panel de detalle por clic de "Avance Diario por Frente" si cambia
+  // cualquier filtro que afecte al gráfico — evita dejarlo mostrando datos de
+  // un modo/fecha que ya no corresponden a lo que se ve arriba.
+  useEffect(() => {
+    setDetalleClicDump(null);
+  }, [dumpAgrupacion, dumpJornada, dumpMetrica, debouncedFechaInicio, debouncedFechaFin, faenaIdActiva]);
+
   // Faenas cargadas pero ninguna seleccionada → no mostrar datos
   const ningunaSeleccionada = faenasConDatos.length > 0 && selectedFaenas.length === 0;
 
@@ -472,6 +512,7 @@ export const ProduccionCompleta = () => {
   const genDumpRef = useRef(0);
   const genEficienciaRef = useRef(0);
   const genLotesRef = useRef(0);
+  const genResumenDumpadasRef = useRef(0);
 
   // Un AbortController por sección: al arrancar una carga nueva, se cancela
   // la anterior en vez de dejarla terminar sola — así el servidor local (de
@@ -481,6 +522,12 @@ export const ProduccionCompleta = () => {
   const abortDumpRef = useRef(null);
   const abortEficienciaRef = useRef(null);
   const abortLotesRef = useRef(null);
+  const abortResumenDumpadasRef = useRef(null);
+  // Un AbortController y un contador de generación por fila (Map keyed por
+  // "empresa_id|||planta_id") — así varias filas pueden estar cargando/abiertas
+  // a la vez sin cancelarse entre sí.
+  const abortFilaExpandidaRefs = useRef(new Map());
+  const genFilaExpandidaRefs = useRef(new Map());
   const genComparativaRef = useRef(0);
   const abortComparativaRef = useRef([]);
   const esCancelacion = (e) => e.code === 'ERR_CANCELED' || e.name === 'CanceledError';
@@ -572,6 +619,81 @@ export const ProduccionCompleta = () => {
     }
   };
 
+  const cargarResumenDumpadas = async (faenaId, fi, ff) => {
+    abortResumenDumpadasRef.current?.abort();
+    const controller = new AbortController();
+    abortResumenDumpadasRef.current = controller;
+    const miGen = ++genResumenDumpadasRef.current;
+    setResumenDumpadasLoading(true);
+    try {
+      const params = { fecha_desde: fi, fecha_hasta: ff };
+      if (faenaId) params.id_faena = faenaId;
+      const res = await gerencialService.getResumenDumpadas(params, controller.signal);
+      if (miGen !== genResumenDumpadasRef.current) return;
+      if (res.success) setResumenDumpadas(res.data ?? []);
+    } catch (e) { if (!esCancelacion(e) && miGen === genResumenDumpadasRef.current) console.error('Error resumen de dumpadas:', e); }
+    finally {
+      if (miGen === genResumenDumpadasRef.current) setResumenDumpadasLoading(false);
+    }
+  };
+
+  // Expandir/colapsar una fila de "Por Empresa y Planta": trae los lotes (abiertos
+  // Y cerrados) de esa empresa+planta dentro del mismo período/faena filtrados,
+  // con el mismo desglose Real/Teórico que usan las tarjetas de lote en Dispatch.
+  // Varias filas pueden estar abiertas a la vez — cada una guarda su propio
+  // AbortController/generación en los Map de abajo, así cerrar o volver a abrir
+  // una fila nunca cancela el fetch de otra.
+  const toggleFilaExpandida = async (fila) => {
+    const key = `${fila.empresa_id}|||${fila.planta_id}`;
+    if (filasExpandidas.has(key)) {
+      setFilasExpandidas(prev => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
+      return;
+    }
+    setFilasExpandidas(prev => new Set(prev).add(key));
+
+    // Si esta fila ya se cargó antes (con el fecha/faena actuales), no se vuelve a
+    // pedir al servidor al reabrirla — cerrar y volver a abrir es instantáneo. El
+    // caché completo se limpia en el efecto de abajo cuando cambian fecha o faena.
+    if (lotesPorFila[key] !== undefined) return;
+
+    setLotesPorFila(prev => ({ ...prev, [key]: [] }));
+
+    abortFilaExpandidaRefs.current.get(key)?.abort();
+    const controller = new AbortController();
+    abortFilaExpandidaRefs.current.set(key, controller);
+    const miGen = (genFilaExpandidaRefs.current.get(key) ?? 0) + 1;
+    genFilaExpandidaRefs.current.set(key, miGen);
+
+    setLoadingPorFila(prev => ({ ...prev, [key]: true }));
+    try {
+      const params = {
+        con_detalle: 1,
+        per_page: 100,
+        fecha_desde: fechaInicio,
+        fecha_hasta: fechaFin,
+      };
+      if (fila.empresa_id) params.empresa_id = fila.empresa_id;
+      if (fila.planta_id) params.planta_id = fila.planta_id;
+      if (faenaIdActiva) params.id_faena = faenaIdActiva;
+      else if (selectedFaenas.length > 1) {
+        params.id_faena = faenasConDatos.filter(f => selectedFaenas.includes(f.name)).map(f => f.id).join(',');
+      }
+      const res = await gerencialService.getLotes(params, controller.signal);
+      if (miGen !== genFilaExpandidaRefs.current.get(key)) return;
+      setLotesPorFila(prev => ({ ...prev, [key]: res?.data ?? [] }));
+    } catch (e) {
+      if (!esCancelacion(e) && miGen === genFilaExpandidaRefs.current.get(key)) console.error('Error al cargar lotes de la fila:', e);
+    } finally {
+      if (miGen === genFilaExpandidaRefs.current.get(key)) {
+        setLoadingPorFila(prev => ({ ...prev, [key]: false }));
+      }
+    }
+  };
+
   const cargarComparativa = async (faenaId, fi, ff) => {
     abortComparativaRef.current.forEach((c) => c?.abort());
     const controllers = [new AbortController(), new AbortController(), new AbortController()];
@@ -589,6 +711,7 @@ export const ProduccionCompleta = () => {
       if (miGen !== genComparativaRef.current) return;
       setComparativa({
         tonelaje_recepcionado: resResumen?.success ? resResumen.data?.recepcion?.tonelaje_recepcionado : null,
+        tonelaje_despachado: resReporte?.success ? resReporte.data?.total_general?.tonelaje : null,
         lotes_cerrados: resResumen?.success ? resResumen.data?.lotes?.cerrados : null,
         ley_ponderada: resReporte?.success ? resReporte.data?.total_general?.ley_ponderada : null,
         ratios: resEficiencia?.success ? resEficiencia.data?.ratios : null,
@@ -629,6 +752,12 @@ export const ProduccionCompleta = () => {
     if (ningunaSeleccionada) return;
     cargarDatos(faenaIdActiva);
     setCargandoFiltro(true);
+    // Cambió fecha o faena: el caché de lotes por fila de "Por Empresa y Planta"
+    // (ver toggleFilaExpandida) quedaría con datos del período/faena anterior —
+    // se limpia junto con las filas expandidas para que la próxima vez que se
+    // abra una fila la traiga de nuevo con los filtros correctos.
+    setLotesPorFila({});
+    setFilasExpandidas(new Set());
     Promise.all([
       cargarReporte(faenaIdActiva, debouncedFechaInicio, debouncedFechaFin),
       cargarDumpDiarias(faenaIdActiva, debouncedFechaInicio, debouncedFechaFin),
@@ -638,12 +767,33 @@ export const ProduccionCompleta = () => {
     ]).finally(() => setCargandoFiltro(false));
   }, [debouncedFechaInicio, debouncedFechaFin, faenaIdActiva, ningunaSeleccionada]);
 
+  // "Resumen de Dumpadas" es una pestaña aparte que casi nunca se abre junto
+  // con "Resumen de Producción" — se carga solo cuando el usuario la abre (o
+  // cambia el filtro estando en ella), no en el Promise.all de arriba. El
+  // servidor de desarrollo de PHP (artisan serve) es de un solo hilo: sumar
+  // una 6ª petición concurrente ahí hacía que TODAS las peticiones de esa
+  // tanda quedaran en cola y varias terminaran en timeout de 30s.
+  useEffect(() => {
+    if (vista !== 'dumpadas') return;
+    if (ningunaSeleccionada) return;
+    // Igual que cargarFilaExpandida: con una sola faena seleccionada se manda su id,
+    // con varias se mandan todas separadas por coma (si no, al quedar sin id_faena
+    // el backend devolvería TODAS las faenas existentes, no solo las tildadas).
+    const idFaenaParam = faenaIdActiva
+      || (selectedFaenas.length > 1
+        ? faenasConDatos.filter(f => selectedFaenas.includes(f.name)).map(f => f.id).join(',')
+        : null);
+    cargarResumenDumpadas(idFaenaParam, debouncedFechaInicio, debouncedFechaFin);
+  }, [vista, faenaIdActiva, selectedFaenas, faenasConDatos, debouncedFechaInicio, debouncedFechaFin, ningunaSeleccionada]);
+
   return (
     <div className="mt-6 space-y-6">
       {/* Sub-navegación */}
       <div className="flex gap-2 border-b border-gray-200 pb-0">
         {[
           { id: 'resumen', label: 'Resumen de Producción' },
+          { id: 'dumpadas', label: 'Resumen de Dumpadas' },
+          { id: 'lotes', label: 'Resumen de Lotes' },
           { id: 'trazabilidad', label: 'Trazabilidad de Lote' },
         ].map(v => (
           <button
@@ -661,6 +811,320 @@ export const ProduccionCompleta = () => {
       </div>
 
       {vista === 'trazabilidad' && <ReconstruccionLote />}
+
+      {vista === 'dumpadas' && (
+        <>
+          {faenasConDatos.length > 0 && (
+            <SelectorFaenasGrid
+              faenas={faenasConDatos}
+              mode="multi"
+              selectedFaenas={selectedFaenas}
+              onToggle={handleFaenaToggle}
+              loading={loading}
+            />
+          )}
+
+          <FiltrosProduccion
+            fechaInicio={fechaInicio} setFechaInicio={setFechaInicio}
+            fechaFin={fechaFin} setFechaFin={setFechaFin}
+            loading={loading || cargandoFiltro}
+          />
+
+          {!ningunaSeleccionada && (() => {
+            const totalDump = resumenDumpadas.reduce((s, f) => s + f.total_dumpadas, 0);
+            const totalTon  = resumenDumpadas.reduce((s, f) => s + f.ton_total, 0);
+            const todasJornadas = resumenDumpadas.flatMap(f => f.jornadas);
+            // Ley promedio ponderada por tonelaje: se combina el ley_promedio de cada
+            // frente (ya ponderado en el backend por Σ(ton×cu_insoluble)/Σton) usando
+            // ton_con_ley como peso, en vez de promediar los porcentajes tal cual —
+            // así una dumpada de 40 ton pesa más que una de 4 ton en el resultado final.
+            const frentesConLey = resumenDumpadas.filter(f => f.ley_promedio !== null && f.ton_con_ley > 0);
+            const tonConLeyTotal = frentesConLey.reduce((s, f) => s + f.ton_con_ley, 0);
+            const leyProm = tonConLeyTotal > 0
+              ? (frentesConLey.reduce((s, f) => s + f.ley_promedio * f.ton_con_ley, 0) / tonConLeyTotal).toFixed(2)
+              : null;
+            const tonPromedioDump = totalDump > 0 ? (totalTon / totalDump).toFixed(2) : null;
+            const dumpersUnicos = [...new Set(todasJornadas.flatMap(j => j.maquinas))];
+            const jornadaClasses = {
+              AM:         { badge: 'bg-amber-100 text-amber-700',   bar: 'bg-amber-400' },
+              PM:         { badge: 'bg-sky-100 text-sky-700',        bar: 'bg-sky-400' },
+              Noche:      { badge: 'bg-indigo-100 text-indigo-700',  bar: 'bg-indigo-400' },
+              Madrugada:  { badge: 'bg-purple-100 text-purple-700',  bar: 'bg-purple-400' },
+            };
+
+            // Faenas presentes en los datos (puede haber menos que las tildadas si
+            // alguna no tuvo dumpadas en el período) — solo si hay más de una se
+            // muestra el desglose por faena y la etiqueta de faena en cada tarjeta.
+            const faenaIdsPresentes = [...new Set(resumenDumpadas.map(f => f.id_faena).filter(id => id != null))];
+            const multiFaena = faenaIdsPresentes.length > 1;
+            const resumenPorFaena = multiFaena ? faenaIdsPresentes.map((id) => {
+              const frentesFaena = resumenDumpadas.filter(f => f.id_faena === id);
+              const dumpF = frentesFaena.reduce((s, f) => s + f.total_dumpadas, 0);
+              const tonF  = frentesFaena.reduce((s, f) => s + f.ton_total, 0);
+              // Mismo criterio ponderado por tonelaje que el resumen combinado, pero
+              // solo con los frentes de esta faena.
+              const frentesFaenaConLey = frentesFaena.filter(f => f.ley_promedio !== null && f.ton_con_ley > 0);
+              const tonConLeyF = frentesFaenaConLey.reduce((s, f) => s + f.ton_con_ley, 0);
+              const leyPromF = tonConLeyF > 0
+                ? (frentesFaenaConLey.reduce((s, f) => s + f.ley_promedio * f.ton_con_ley, 0) / tonConLeyF).toFixed(2)
+                : null;
+              return { id, colores: getFaenaColorsById(id), dumpF, tonF, frentesCount: frentesFaena.length, leyPromF };
+            }) : [];
+
+            return (
+              <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
+                <div className="px-6 py-4 border-b">
+                  <h3 className="text-base font-semibold text-gray-800 flex items-center gap-2">
+                    <FiTruck className="text-orange-600 w-5 h-5" /> Resumen de Dumpadas
+                  </h3>
+                  <p className="text-xs text-gray-400 mt-0.5">Producción por frente y jornada en el período filtrado — misma información de "Producción Mina" del módulo Dispatch, solo lectura. La ley que se muestra es la de laboratorio (certificada), no la Ley Visual del ingreso.</p>
+                </div>
+                {resumenDumpadasLoading ? (
+                  <div className="p-8 text-center"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-orange-500 mx-auto" /></div>
+                ) : resumenDumpadas.length === 0 ? (
+                  <div className="p-10 text-center text-gray-400 text-sm">Sin dumpadas en el período seleccionado</div>
+                ) : (
+                  <div className="p-4 space-y-4">
+                    {/* Resumen combinado — todas las faenas seleccionadas juntas */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+                      {[
+                        { value: totalDump, label: multiFaena ? 'total dumpadas (todas)' : 'total dumpadas', color: 'text-gray-900' },
+                        { value: totalTon.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 }), label: 'toneladas', color: 'text-orange-500' },
+                        { value: resumenDumpadas.length, label: 'frentes activos', color: 'text-blue-500' },
+                        ...(leyProm !== null ? [{
+                          value: `${leyProm}%`, label: 'ley promedio (lab)', color: 'text-purple-500',
+                          tooltip: LEY_PONDERADA_TOOLTIP,
+                        }] : []),
+                        ...(tonPromedioDump !== null ? [{ value: `${tonPromedioDump} t`, label: 'ton / dumpada', color: 'text-teal-600' }] : []),
+                        ...(dumpersUnicos.length > 0 ? [{ value: dumpersUnicos.length, label: 'dumpers utilizados', color: 'text-rose-500' }] : []),
+                      ].map((tile, i) => (
+                        <div key={i} className="bg-gray-50 rounded-xl border border-orange-100 px-3 py-3 text-center">
+                          <p className={`text-xl font-bold tabular-nums ${tile.color}`}>{tile.value}</p>
+                          <p className="text-[10px] text-gray-400 uppercase tracking-wide mt-0.5 flex items-center justify-center gap-1">
+                            {tile.label}
+                            {tile.tooltip && <InfoPopover text={tile.tooltip} />}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Resumen separado por faena — solo aparece si hay 2+ faenas con datos en el período */}
+                    {multiFaena && (
+                      <div className={`grid grid-cols-1 gap-3 ${resumenPorFaena.length >= 2 ? 'sm:grid-cols-2' : ''} ${resumenPorFaena.length >= 3 ? 'lg:grid-cols-3' : ''}`}>
+                        {resumenPorFaena.map((rf) => (
+                          <div key={rf.id} className={`rounded-xl border ${rf.colores.borderFull} ${rf.colores.bg} p-4`}>
+                            <div className="flex items-center gap-2 mb-3">
+                              <p className={`font-bold text-sm ${rf.colores.text}`}>{rf.colores.name}</p>
+                            </div>
+                            <div className="grid grid-cols-4 gap-2">
+                              <div className="text-center">
+                                <p className={`text-lg font-bold tabular-nums ${rf.colores.text}`}>{rf.dumpF}</p>
+                                <p className="text-[9px] text-gray-500 uppercase tracking-wide mt-0.5">dumpadas</p>
+                              </div>
+                              <div className="text-center">
+                                <p className={`text-lg font-bold tabular-nums ${rf.colores.text}`}>{rf.tonF.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</p>
+                                <p className="text-[9px] text-gray-500 uppercase tracking-wide mt-0.5">toneladas</p>
+                              </div>
+                              <div className="text-center">
+                                <p className={`text-lg font-bold tabular-nums ${rf.colores.text}`}>{rf.frentesCount}</p>
+                                <p className="text-[9px] text-gray-500 uppercase tracking-wide mt-0.5">frentes</p>
+                              </div>
+                              <div className="text-center">
+                                <p className={`text-lg font-bold tabular-nums ${rf.colores.text}`}>{rf.leyPromF !== null ? `${rf.leyPromF}%` : '—'}</p>
+                                <p className="text-[9px] text-gray-500 uppercase tracking-wide mt-0.5 flex items-center justify-center gap-1">
+                                  ley (lab)
+                                  <InfoPopover text={LEY_PONDERADA_TOOLTIP} />
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                      {resumenDumpadas.map((frente) => {
+                        const coloresFrente = multiFaena ? getFaenaColorsById(frente.id_faena) : null;
+                        return (
+                        <div key={frente.id_frente_trabajo} className={`bg-white rounded-xl border border-gray-200 border-l-4 ${coloresFrente ? coloresFrente.border : 'border-l-orange-400'} shadow-sm overflow-hidden`}>
+                          <div className="px-4 pt-4 pb-3 bg-orange-50/50">
+                            <div className="flex items-center justify-between gap-2 mb-3 min-w-0">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className="w-2 h-2 rounded-full bg-orange-400 flex-shrink-0" />
+                                <p className="font-bold text-gray-800 text-sm truncate">{frente.frente}</p>
+                              </div>
+                              {coloresFrente && (
+                                <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full flex-shrink-0 whitespace-nowrap ${coloresFrente.badge}`}>
+                                  {coloresFrente.name}
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-5">
+                              <div>
+                                <p className="text-3xl font-bold text-gray-900 tabular-nums leading-none">{frente.total_dumpadas}</p>
+                                <p className="text-[10px] text-gray-400 uppercase tracking-wide mt-1">dumpadas</p>
+                              </div>
+                              <div className="w-px h-10 bg-orange-200" />
+                              <div>
+                                <p className="text-3xl font-bold text-orange-500 tabular-nums leading-none">{frente.ton_total.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</p>
+                                <p className="text-[10px] text-gray-400 uppercase tracking-wide mt-1">toneladas</p>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="divide-y divide-gray-100">
+                            {frente.jornadas.map((j) => {
+                              const pct = frente.total_dumpadas > 0 ? Math.round((j.total_dumpadas / frente.total_dumpadas) * 100) : 0;
+                              const cls = jornadaClasses[j.jornada] || { badge: 'bg-gray-100 text-gray-600', bar: 'bg-gray-400' };
+                              return (
+                                <div key={j.jornada} className="px-4 py-2.5">
+                                  <div className="flex items-center gap-3 mb-1.5">
+                                    <span className={`text-[10px] font-bold w-16 text-center py-0.5 rounded-full flex-shrink-0 ${cls.badge}`}>{j.jornada}</span>
+                                    <div className="flex items-center gap-2 flex-1 text-xs">
+                                      <span className="font-semibold text-gray-700">{j.total_dumpadas} dump</span>
+                                      <span className="text-gray-300">·</span>
+                                      <span className="font-semibold text-gray-600">{j.ton_total.toLocaleString('es-CL')} t</span>
+                                      {j.ley_promedio !== null && (
+                                        <span className="ml-auto font-bold text-orange-500">{j.ley_promedio}%</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="h-1 bg-gray-100 rounded-full overflow-hidden">
+                                    <div className={`h-full rounded-full ${cls.bar}`} style={{ width: `${pct}%` }} />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          {frente.jornadas.some(j => j.maquinas.length > 0) && (
+                            <div className="px-4 py-2 flex items-center gap-2 bg-gray-50 border-t border-gray-100">
+                              <FiTruck className="w-3 h-3 text-gray-300 flex-shrink-0" />
+                              <p className="text-[10px] text-gray-400 truncate">
+                                {[...new Set(frente.jornadas.flatMap(j => j.maquinas))].join(' · ') || '—'}
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </>
+      )}
+
+      {vista === 'lotes' && (
+        <>
+          {faenasConDatos.length > 0 && (
+            <SelectorFaenasGrid
+              faenas={faenasConDatos}
+              mode="multi"
+              selectedFaenas={selectedFaenas}
+              onToggle={handleFaenaToggle}
+              loading={loading}
+            />
+          )}
+
+          <FiltrosProduccion
+            fechaInicio={fechaInicio} setFechaInicio={setFechaInicio}
+            fechaFin={fechaFin} setFechaFin={setFechaFin}
+            loading={loading || cargandoFiltro}
+          />
+
+          {!ningunaSeleccionada && (
+            reporteLoading ? (
+              <div className="p-8 text-center"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-500 mx-auto" /></div>
+            ) : !reporte?.filas?.length ? (
+              <div className="flex flex-col items-center justify-center py-16 text-gray-400 gap-3">
+                <FiLayers className="text-5xl opacity-30" />
+                <p className="text-lg font-medium">Sin lotes en el período seleccionado</p>
+              </div>
+            ) : (() => {
+              // Total General + agrupado por Planta > Empresa, con Ley Mezcla, lotes/viajes
+              // y el desglose Real+Teórico de Despachado — mismos datos ya agregados por el
+              // backend que usa la tabla "Por Empresa y Planta" de Resumen de Producción
+              // (reporte.filas / total_general), cuentan lotes Abiertos y Cerrados juntos.
+              const porPlanta = {};
+              reporte.filas.forEach((f) => {
+                if (!porPlanta[f.planta]) porPlanta[f.planta] = [];
+                porPlanta[f.planta].push(f);
+              });
+              const tg = reporte.total_general;
+              return (
+                <div className="bg-white rounded-lg shadow-sm border border-gray-200 border-l-4 border-l-indigo-400 p-4">
+                  <h3 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
+                    <FiLayers className="text-indigo-500" />
+                    Resumen General
+                  </h3>
+
+                  <div className="bg-white border-2 border-indigo-200 rounded-lg px-4 py-3 mb-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-bold uppercase tracking-wide text-indigo-700">Total General</p>
+                      {tg?.ley_ponderada != null && (
+                        <span className="text-sm font-bold whitespace-nowrap text-orange-600">Ley Mezcla: {formatNumber(tg.ley_ponderada)}%</span>
+                      )}
+                    </div>
+                    <p className="text-sm text-gray-500 mt-0.5">
+                      {tg?.n_lotes} lote{tg?.n_lotes !== 1 ? 's' : ''} | {tg?.n_viajes} cam.
+                    </p>
+                    <div className="mt-2 pt-2 border-t border-indigo-100 overflow-x-auto">
+                      <p className="text-base font-bold whitespace-nowrap text-gray-700">
+                        Despachado{' '}
+                        <span className="font-extrabold text-lg text-indigo-700 tabular-nums">{formatNumber(tg?.tonelaje)} t</span>
+                        {' = '}
+                        <span className="text-green-600 font-extrabold">{formatNumber(tg?.tonelaje_vendido)} t</span> real
+                        {' + '}
+                        <span className="text-amber-600 font-extrabold">{formatNumber(tg?.tonelaje_pendiente)} t</span> teórico
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3">
+                    {Object.entries(porPlanta).map(([planta, filas]) => (
+                      <div key={planta}>
+                        <p className="text-xs font-bold text-gray-600 mb-1.5 flex items-center gap-1">
+                          <FaIndustry className="text-amber-600 w-3 h-3" />
+                          {planta}
+                        </p>
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 ml-4">
+                          {filas.map((f) => (
+                            <div key={`${f.empresa_id}|||${f.planta_id}`} className="bg-gray-50 rounded-lg px-3 py-2.5 border border-gray-200">
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="text-sm font-semibold text-gray-800 flex items-center gap-1 truncate min-w-0">
+                                  <FiBriefcase className="text-purple-500 w-3.5 h-3.5 shrink-0" />
+                                  {f.empresa}
+                                </p>
+                                {f.ley_ponderada != null && (
+                                  <span className="text-sm text-orange-600 font-bold shrink-0 whitespace-nowrap">Ley Mezcla: {formatNumber(f.ley_ponderada)}%</span>
+                                )}
+                              </div>
+                              <p className="text-sm text-gray-500 mt-0.5">
+                                {f.n_lotes} lote{f.n_lotes !== 1 ? 's' : ''} | {f.n_viajes} cam.
+                              </p>
+                              <div className="mt-2 pt-2 border-t border-gray-200 overflow-x-auto">
+                                <p className="text-sm font-semibold whitespace-nowrap">
+                                  <span className="text-gray-700">Despachado</span>{' '}
+                                  <span className="text-indigo-700 font-extrabold text-base tabular-nums">{formatNumber(f.tonelaje)} t</span>
+                                  <span className="text-gray-500"> = </span>
+                                  <span className="text-green-600 font-bold">{formatNumber(f.tonelaje_vendido)} t</span> real
+                                  {' + '}
+                                  <span className="text-amber-600 font-bold">{formatNumber(f.tonelaje_pendiente)} t</span> teórico
+                                </p>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()
+          )}
+        </>
+      )}
 
       {vista === 'resumen' && (
         <>
@@ -695,11 +1159,29 @@ export const ProduccionCompleta = () => {
               {/* 3 KPIs gerenciales grandes — fondo blanco + acento de color
                   (no gradiente sólido): más sobrio para lectura ejecutiva y
                   menos fatiga visual que 3 tarjetas de color pleno seguidas. */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-white rounded-xl p-6 shadow-md border-l-4 border-indigo-500">
+                  <div className="flex items-center gap-2 mb-1 text-indigo-600">
+                    <FiTruck className="w-5 h-5" />
+                    <span className="text-sm font-medium text-gray-500">Tonelaje Despachado</span>
+                    <InfoTooltip texto="Real + Teórico: por cada camionada usa el peso real si ya fue recepcionada en planta (con ticket), o el peso teórico declarado en el despacho si todavía no llega. El total se mantiene estable en el tiempo — cada camionada solo cambia de teórico a real al recepcionarse, no se suma ni se resta tonelaje. Cuando todas las camionadas del período ya fueron recepcionadas, este número coincide con Tonelaje Recepcionado." />
+                  </div>
+                  <div className="flex items-end justify-between gap-2 mt-2">
+                    <p className="text-4xl font-bold text-gray-800">{formatNumber(reporte?.total_general?.tonelaje)} t</p>
+                    <TendenciaBadge actual={reporte?.total_general?.tonelaje} anterior={comparativa?.tonelaje_despachado} />
+                  </div>
+                  <TendenciaAnterior actual={reporte?.total_general?.tonelaje} anterior={comparativa?.tonelaje_despachado} unidad=" t" />
+                  <p className="text-sm text-gray-500 mt-1">peso real + teórico declarado, de los lotes creados en el período</p>
+                  <p className="text-xs text-gray-400 mt-2">
+                    {formatNumber(reporte?.total_general?.tonelaje_vendido)} t real + {formatNumber(reporte?.total_general?.tonelaje_pendiente)} t teórico
+                  </p>
+                </div>
+
                 <div className="bg-white rounded-xl p-6 shadow-md border-l-4 border-emerald-500">
                   <div className="flex items-center gap-2 mb-1 text-emerald-600">
                     <FiTruck className="w-5 h-5" />
                     <span className="text-sm font-medium text-gray-500">Tonelaje Recepcionado</span>
+                    <InfoTooltip texto="Suma del peso real (con ticket de planta) de las camionadas ya recepcionadas, de lotes creados en el período — sin importar si su lote sigue Abierto o ya se cerró. Es el subconjunto 'ya con ticket' de Tonelaje Despachado: parte más bajo y va subiendo a medida que llegan los tickets, hasta emparejarse con Despachado cuando ya no queda tonelaje teórico pendiente. Es lo mismo que 'Recepcionado' en la tabla Por Empresa y Planta." />
                   </div>
                   <div className="flex items-end justify-between gap-2 mt-2">
                     <p className="text-4xl font-bold text-gray-800">{formatNumber(datos.recepcion?.tonelaje_recepcionado)} t</p>
@@ -716,6 +1198,7 @@ export const ProduccionCompleta = () => {
                   <div className="flex items-center gap-2 mb-1 text-blue-600">
                     <FiTrendingUp className="w-5 h-5" />
                     <span className="text-sm font-medium text-gray-500">Ley Cu Ponderada</span>
+                    <InfoTooltip texto="Ley Mezcla de cada camionada, ponderada por su peso Real+Teórico (Despachado) — de todos los lotes creados en el período, cerrados o no. 'en dumpadas' abajo es un dato distinto: el Cu Insoluble de las dumpadas del mismo período, del lado de la mina." />
                   </div>
                   <div className="flex items-end justify-between gap-2 mt-2">
                     <p className="text-4xl font-bold text-gray-800">
@@ -727,13 +1210,14 @@ export const ProduccionCompleta = () => {
                   </div>
                   <TendenciaAnterior actual={reporte?.total_general?.ley_ponderada} anterior={comparativa?.ley_ponderada} unidad="%" />
                   <p className="text-sm text-gray-500 mt-1">Cu en lotes despachados</p>
-                  <p className="text-xs text-gray-400 mt-2">{formatNumber(datos.dumpadas?.ley_promedio)}% en dumpadas</p>
+                  <p className="text-xs text-gray-400 mt-2">{formatNumber(datos.dumpadas?.ley_promedio)}% Cu Insoluble en dumpadas</p>
                 </div>
 
                 <div className="bg-white rounded-xl p-6 shadow-md border-l-4 border-purple-500">
                   <div className="flex items-center gap-2 mb-1 text-purple-600">
                     <FiPackage className="w-5 h-5" />
                     <span className="text-sm font-medium text-gray-500">Lotes Cerrados</span>
+                    <InfoTooltip texto="Lotes que pasaron a estado Completado dentro del período (fecha de cierre, o fecha de la última camionada recepcionada para lotes cerrados antes de que existiera esa columna) — sin importar cuándo se crearon." />
                   </div>
                   <div className="flex items-end justify-between gap-2 mt-2">
                     <p className="text-4xl font-bold text-gray-800">{formatInteger(datos.lotes?.cerrados)}</p>
@@ -761,7 +1245,7 @@ export const ProduccionCompleta = () => {
                   <FiTarget className="text-cyan-600 w-5 h-5" />
                   <div>
                     <h3 className="text-base font-semibold text-gray-800">Eficiencia Operacional</h3>
-                    <p className="text-xs text-gray-400">Tonelaje por tiro de tronadura y por litro de combustible — vendido (recepcionado, lote cerrado) vs. extraído (suma de dumpadas)</p>
+                    <p className="text-xs text-gray-400">Tonelaje por tiro de tronadura y por litro de combustible — despachado (real+teórico), recepcionado (solo real, con ticket de planta) y extraído (suma de dumpadas)</p>
                   </div>
                 </div>
                 {eficienciaLoading ? (
@@ -781,10 +1265,28 @@ export const ProduccionCompleta = () => {
                         <div className="h-px bg-gray-100 flex-1" />
                       </div>
                       <div className="flex flex-wrap justify-center gap-3">
+                        <div className="bg-gray-50 rounded-lg p-4 border-l-4 border-t border-r border-b border-l-indigo-400 border-t-gray-100 border-r-gray-100 border-b-gray-100 flex-1 min-w-[220px] max-w-xs">
+                          <div className="flex items-center gap-1.5 text-indigo-600 mb-1">
+                            <FiTarget className="w-3.5 h-3.5" />
+                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Despachado / Tiro</span>
+                            <InfoTooltip texto="Despachado = Real + Teórico de toda camionada que salió en el período (por fecha de despacho, no de recepción). Dividido por tiros de Perforación y Tronadura confirmados o cerrados." />
+                          </div>
+                          <div className="flex items-end justify-between gap-1">
+                            <p className="text-2xl font-bold text-gray-800">
+                              {eficiencia?.ratios?.despachado_por_tiro != null ? `${formatNumber(eficiencia.ratios.despachado_por_tiro)} ton/tiro` : '—'}
+                            </p>
+                            <TendenciaBadge actual={eficiencia?.ratios?.despachado_por_tiro} anterior={comparativa?.ratios?.despachado_por_tiro} />
+                          </div>
+                          <TendenciaAnterior actual={eficiencia?.ratios?.despachado_por_tiro} anterior={comparativa?.ratios?.despachado_por_tiro} unidad=" ton/tiro" />
+                          <TendenciaSinDato ratioAnterior={comparativa?.ratios?.despachado_por_tiro} denominadorAnterior={comparativa?.tiros} etiqueta="tiros confirmados" />
+                          <p className="text-xs text-gray-500 mt-1">{formatNumber(eficiencia?.tonelaje_despachado)} t despachadas / {formatInteger(eficiencia?.tiros)} tiros</p>
+                        </div>
+
                         <div className="bg-gray-50 rounded-lg p-4 border-l-4 border-t border-r border-b border-l-emerald-400 border-t-gray-100 border-r-gray-100 border-b-gray-100 flex-1 min-w-[220px] max-w-xs">
                           <div className="flex items-center gap-1.5 text-emerald-600 mb-1">
                             <FiTarget className="w-3.5 h-3.5" />
-                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Vendido / Tiro</span>
+                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Recepcionado / Tiro</span>
+                            <InfoTooltip texto="Recepcionado = peso real de camionadas ya recepcionadas (con ticket de planta) en el período, filtrado por fecha de recepción — sin importar si su lote ya se cerró o sigue Abierto. Dividido por tiros de Perforación y Tronadura confirmados o cerrados." />
                           </div>
                           <div className="flex items-end justify-between gap-1">
                             <p className="text-2xl font-bold text-gray-800">
@@ -794,13 +1296,14 @@ export const ProduccionCompleta = () => {
                           </div>
                           <TendenciaAnterior actual={eficiencia?.ratios?.vendido_por_tiro} anterior={comparativa?.ratios?.vendido_por_tiro} unidad=" ton/tiro" />
                           <TendenciaSinDato ratioAnterior={comparativa?.ratios?.vendido_por_tiro} denominadorAnterior={comparativa?.tiros} etiqueta="tiros confirmados" />
-                          <p className="text-xs text-gray-500 mt-1">{formatNumber(eficiencia?.tonelaje_vendido)} t vendidas / {formatInteger(eficiencia?.tiros)} tiros</p>
+                          <p className="text-xs text-gray-500 mt-1">{formatNumber(eficiencia?.tonelaje_vendido)} t recepcionadas / {formatInteger(eficiencia?.tiros)} tiros</p>
                         </div>
 
                         <div className="bg-gray-50 rounded-lg p-4 border-l-4 border-t border-r border-b border-l-blue-400 border-t-gray-100 border-r-gray-100 border-b-gray-100 flex-1 min-w-[220px] max-w-xs">
                           <div className="flex items-center gap-1.5 text-blue-600 mb-1">
                             <FiTarget className="w-3.5 h-3.5" />
                             <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Extraído / Tiro</span>
+                            <InfoTooltip texto="Extraído = suma de toneladas de dumpadas (mineral que salió de la mina) en el período, sin importar si ya se despachó o vendió. Dividido por tiros de Perforación y Tronadura confirmados o cerrados." />
                           </div>
                           <div className="flex items-end justify-between gap-1">
                             <p className="text-2xl font-bold text-gray-800">
@@ -824,7 +1327,8 @@ export const ProduccionCompleta = () => {
                         <div className="bg-gray-50 rounded-lg p-4 border-l-4 border-t border-r border-b border-l-emerald-400 border-t-gray-100 border-r-gray-100 border-b-gray-100 flex-1 min-w-[210px] max-w-[260px]">
                           <div className="flex items-center gap-1.5 text-emerald-600 mb-1">
                             <FiDroplet className="w-3.5 h-3.5" />
-                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Litros / Ton Vendida</span>
+                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Litros / Ton Recepcionada</span>
+                            <InfoTooltip texto="Consumo total de combustible de la faena, dividido por Recepcionado (peso real de camionadas con ticket de planta) en el período." />
                           </div>
                           <div className="flex items-end justify-between gap-1">
                             <p className="text-2xl font-bold text-gray-800">
@@ -843,7 +1347,7 @@ export const ProduccionCompleta = () => {
                           <p className="text-xs text-gray-500 mt-1">
                             {eficiencia?.litros == null
                               ? 'Sin datos de combustible'
-                              : `${formatNumber(eficiencia.litros)} L / ${formatNumber(eficiencia.tonelaje_vendido)} t vendidas`}
+                              : `${formatNumber(eficiencia.litros)} L / ${formatNumber(eficiencia.tonelaje_vendido)} t recepcionadas`}
                           </p>
                         </div>
 
@@ -851,6 +1355,7 @@ export const ProduccionCompleta = () => {
                           <div className="flex items-center gap-1.5 text-blue-600 mb-1">
                             <FiDroplet className="w-3.5 h-3.5" />
                             <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">Litros / Ton Extraída</span>
+                            <InfoTooltip texto="Consumo total de combustible de la faena, dividido por Extraído (suma de toneladas de dumpadas) en el período." />
                           </div>
                           <div className="flex items-end justify-between gap-1">
                             <p className="text-2xl font-bold text-gray-800">
@@ -958,7 +1463,7 @@ export const ProduccionCompleta = () => {
                           <th className="px-4 py-3 text-left font-medium text-gray-500 uppercase tracking-wide">Planta</th>
                           <th className="px-4 py-3 text-right font-medium text-gray-500 uppercase tracking-wide">Viajes</th>
                           <th className="px-4 py-3 text-right font-medium text-gray-500 uppercase tracking-wide">Despachado</th>
-                          <th className="px-4 py-3 text-right font-medium text-gray-500 uppercase tracking-wide">Vendido</th>
+                          <th className="px-4 py-3 text-right font-medium text-gray-500 uppercase tracking-wide">Recepcionado</th>
                           <th className="px-4 py-3 text-right font-medium text-gray-500 uppercase tracking-wide">Ley %</th>
                           <th className="px-4 py-3 text-right font-medium text-gray-500 uppercase tracking-wide">Pendiente</th>
                         </tr>
@@ -972,16 +1477,22 @@ export const ProduccionCompleta = () => {
                           // columna "Planta" en cada fila.
                           const esNuevaPlanta = i === 0 || reporte.filas[i - 1].planta !== f.planta;
                           const colorPlanta = obtenerColorPlanta(f.planta);
+                          const key = `${f.empresa_id}|||${f.planta_id}`;
+                          const expandida = filasExpandidas.has(key);
                           return (
+                            <Fragment key={i}>
                             <tr
-                              key={i}
+                              onClick={() => toggleFilaExpandida(f)}
+                              className="cursor-pointer hover:brightness-95 transition-[filter]"
+                              title="Ver lotes de esta empresa y planta en el período"
                               style={{
-                                backgroundColor: `${colorPlanta}14`, // fondo tenue (~8% opacidad) para todo el grupo de esa planta
+                                backgroundColor: expandida ? `${colorPlanta}28` : `${colorPlanta}14`, // fondo tenue (~8% opacidad) para todo el grupo de esa planta
                                 borderTop: esNuevaPlanta ? `3px solid ${colorPlanta}` : undefined,
                               }}
                             >
                               <td className="px-4 py-2 font-medium text-gray-800">
                                 <span className="inline-flex items-center gap-1.5">
+                                  <FiChevronRight className={`w-3 h-3 text-gray-400 transition-transform ${expandida ? 'rotate-90' : ''}`} />
                                   <span className="w-2.5 h-2.5 rounded-full inline-block flex-shrink-0" style={{ backgroundColor: obtenerColorEmpresa(f.empresa) }} />
                                   {f.empresa}
                                 </span>
@@ -1000,6 +1511,48 @@ export const ProduccionCompleta = () => {
                                 {f.tonelaje_pendiente > 0 ? `${formatNumber(f.tonelaje_pendiente)} t` : <span className="text-gray-400">—</span>}
                               </td>
                             </tr>
+                            {expandida && (
+                              <tr>
+                                <td colSpan={7} className="px-4 py-3 bg-gray-50 border-b border-gray-200">
+                                  {loadingPorFila[key] ? (
+                                    <div className="py-4 text-center"><div className="animate-spin rounded-full h-5 w-5 border-b-2 border-amber-500 mx-auto" /></div>
+                                  ) : (lotesPorFila[key] ?? []).length === 0 ? (
+                                    <p className="text-xs text-gray-400 text-center py-2">Sin lotes de {f.empresa} / {f.planta} en este período</p>
+                                  ) : (
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                                      {(lotesPorFila[key] ?? []).map((lote) => {
+                                        const real = parseFloat(lote.peso_recibido || 0);
+                                        const teorico = parseFloat(lote.peso_teorico_pendiente || 0);
+                                        // Mismo formato compacto que las cajas de "Resumen General" de
+                                        // arriba (nombre / Ley Mezcla / lote+cam. / Despachado) — no la
+                                        // tarjeta completa de Dispatch con badges y barra de progreso.
+                                        return (
+                                          <div key={lote.id} className="bg-gray-50 rounded-lg px-3 py-2.5 border border-gray-200 text-xs">
+                                            <div className="flex items-center justify-between gap-2">
+                                              <p className="font-semibold text-gray-800 truncate min-w-0">{lote.numero_lote || `Lote #${lote.id}`}</p>
+                                              {lote.ley_lote_promedio != null && (
+                                                <span className="text-orange-600 font-bold shrink-0 whitespace-nowrap">Ley Mezcla: {parseFloat(lote.ley_lote_promedio).toFixed(2)}%</span>
+                                              )}
+                                            </div>
+                                            <p className="text-gray-500 mt-0.5">1 lote | {lote.numero_camionadas || 0} cam.</p>
+                                            <div className="mt-2 pt-2 border-t border-gray-200 overflow-x-auto">
+                                              <p className="font-semibold whitespace-nowrap">
+                                                <span className="text-gray-700">Despachado</span>{' '}
+                                                <span className="text-indigo-700 font-extrabold">{(real + teorico).toFixed(2)} t</span>
+                                                <span className="text-gray-500"> = </span>
+                                                <span className="text-green-600">{real.toFixed(2)} t</span> real +{' '}
+                                                <span className="text-amber-600">{teorico.toFixed(2)} t</span> teórico
+                                              </p>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  )}
+                                </td>
+                              </tr>
+                            )}
+                            </Fragment>
                           );
                         })}
                         {reporte.totales_por_planta.map((t, i) => (
@@ -1048,35 +1601,99 @@ export const ProduccionCompleta = () => {
                 // _leyDia es la ley ponderada por tonelaje de TODOS los frentes ese día (etiqueta sobre la barra).
                 // Jornadas presentes en el período (para no mostrar botones de jornadas sin datos)
                 const jornadasDisponibles = [...new Set(dumpDiarias.map(d => d.jornada))].sort();
-                const dumpDiariasFiltradas = dumpJornada === 'Todos'
+                // Faenas presentes en los datos (para saber si tiene sentido ofrecer "Por Faena")
+                const faenaIdsPresentes = [...new Set(dumpDiarias.map(d => d.id_faena).filter(id => id != null))];
+                const nombrePorFaena = {};
+                faenaIdsPresentes.forEach(id => {
+                  nombrePorFaena[id] = faenasConDatos.find(f => f.id === id)?.name ?? `Faena ${id}`;
+                });
+
+                // Apilando por jornada, el filtro Todos/AM/PM/... deja de tener sentido (el
+                // gráfico ya muestra las 4 jornadas como segmentos separados) — se ignora.
+                const dumpDiariasFiltradas = (dumpAgrupacion === 'jornada' || dumpJornada === 'Todos')
                   ? dumpDiarias
                   : dumpDiarias.filter(d => d.jornada === dumpJornada);
 
-                const grupos = [...new Set(dumpDiariasFiltradas.map(d => d.grupo))].sort();
+                // Clave por la que se apila/colorea cada barra: túnel/manto (por defecto),
+                // jornada — "jornada" arma una clave compuesta "Faena__Jornada" para que
+                // CADA faena sea su propio grupo de columnas (vía stackId distinto),
+                // coloreado por jornada adentro de cada una. Con una sola faena en los
+                // datos, esto se ve igual que un "por jornada" simple (un solo grupo) —
+                // por eso NO hay un tercer modo aparte: sería redundante con este.
+                const obtenerClave = dumpAgrupacion === 'jornada'
+                  ? (d) => `${nombrePorFaena[d.id_faena]}__${d.jornada}`
+                  : (d) => d.grupo;
+                // Solo se listan las combinaciones faena+jornada que realmente existen en
+                // los datos — ordenadas por faena (id) y, adentro de cada una,
+                // cronológicamente (Madrugada→AM→PM→Noche).
+                const combosFaenaJornada = dumpAgrupacion === 'jornada'
+                  ? faenaIdsPresentes.flatMap((id) => {
+                      const nombre = nombrePorFaena[id];
+                      return jornadasDisponibles
+                        .filter((j) => dumpDiariasFiltradas.some((d) => d.id_faena === id && d.jornada === j))
+                        .sort((a, b) => (JORNADA_ORDEN[a] ?? 99) - (JORNADA_ORDEN[b] ?? 99))
+                        .map((j) => `${nombre}__${j}`);
+                    })
+                  : null;
+                const grupos = dumpAgrupacion === 'jornada'
+                  ? combosFaenaJornada
+                  : [...new Set(dumpDiariasFiltradas.map(obtenerClave))].sort();
+                const obtenerColorSerie = dumpAgrupacion === 'jornada'
+                  ? (g) => JORNADA_COLOR_HEX[g.split('__')[1]] ?? '#9ca3af'
+                  : obtenerColorFrente;
+                // stackId por barra: en modo jornada, cada faena tiene su propio stackId
+                // (sus jornadas se apilan JUNTAS pero quedan como grupo separado de otra
+                // faena); en "por frente" todo comparte un único stack.
+                const obtenerStackId = (g) => dumpAgrupacion === 'jornada' ? g.split('__')[0] : 'a';
+                const ultimoIndicePorStack = {};
+                grupos.forEach((g, i) => { ultimoIndicePorStack[obtenerStackId(g)] = i; });
 
                 // Se arranca con TODOS los días del rango elegido (aunque no tengan dumpadas), para que
                 // un día sin producción se vea como barra vacía en vez de desaparecer del eje X.
                 const byFecha = {};
                 generarRangoFechas(debouncedFechaInicio, debouncedFechaFin).forEach((fechaISO) => {
-                  byFecha[fechaISO] = { fechaISO, fecha: formatFechaCorta(fechaISO), _detalle: {}, _tonTotal: 0, _tonLeyTotal: 0, _total: 0 };
+                  byFecha[fechaISO] = { fechaISO, fecha: formatFechaCorta(fechaISO), _detalle: {}, _tonTotal: 0, _tonLeyTotal: 0, _total: 0, _ton: {}, _tonLey: {} };
                 });
                 dumpDiariasFiltradas.forEach(d => {
                   if (!byFecha[d.fecha]) {
-                    byFecha[d.fecha] = { fechaISO: d.fecha, fecha: formatFechaCorta(d.fecha), _detalle: {}, _tonTotal: 0, _tonLeyTotal: 0, _total: 0 };
+                    byFecha[d.fecha] = { fechaISO: d.fecha, fecha: formatFechaCorta(d.fecha), _detalle: {}, _tonTotal: 0, _tonLeyTotal: 0, _total: 0, _ton: {}, _tonLey: {} };
                   }
                   const row = byFecha[d.fecha];
                   const valor = dumpMetrica === 'toneladas' ? d.toneladas : d.cantidad;
-                  row[d.grupo] = (row[d.grupo] ?? 0) + valor;
+                  const clave = obtenerClave(d);
+                  row[clave] = (row[clave] ?? 0) + valor;
                   row._total += valor;
-                  if (!row._detalle[d.grupo]) row._detalle[d.grupo] = [];
-                  row._detalle[d.grupo].push({ frente: d.frente, toneladas: d.toneladas, cantidad: d.cantidad, ley_promedio: d.ley_promedio });
+                  if (!row._detalle[clave]) row._detalle[clave] = [];
+                  row._detalle[clave].push({ frente: d.frente, grupo: d.grupo, jornada: d.jornada, toneladas: d.toneladas, cantidad: d.cantidad, ley_promedio: d.ley_promedio });
                   if (d.ley_promedio != null) {
                     row._tonTotal += d.toneladas;
                     row._tonLeyTotal += d.toneladas * d.ley_promedio;
+                    row._ton[clave] = (row._ton[clave] ?? 0) + d.toneladas;
+                    row._tonLey[clave] = (row._tonLey[clave] ?? 0) + d.toneladas * d.ley_promedio;
+                    // En modo faena, acumula TAMBIÉN bajo el nombre de faena solo (sin
+                    // jornada) — es la ley que va arriba de todo el grupo de columnas.
+                    if (dumpAgrupacion === 'jornada') {
+                      const nombreFaena = obtenerStackId(clave);
+                      row._ton[nombreFaena] = (row._ton[nombreFaena] ?? 0) + d.toneladas;
+                      row._tonLey[nombreFaena] = (row._tonLey[nombreFaena] ?? 0) + d.toneladas * d.ley_promedio;
+                    }
                   }
                 });
+                // Claves a las que calcularles ley ponderada: los grupos/combos que se
+                // dibujan, más (en modo faena) el nombre de cada faena sola, para la
+                // etiqueta que va arriba de todo su grupo de columnas.
+                const clavesParaLey = dumpAgrupacion === 'jornada'
+                  ? [...grupos, ...faenaIdsPresentes.map(id => nombrePorFaena[id])]
+                  : grupos;
                 const diasOrdenados = Object.values(byFecha)
-                  .map((row) => ({ ...row, _leyDia: row._tonTotal > 0 ? row._tonLeyTotal / row._tonTotal : null }))
+                  .map((row) => {
+                    const leyesPorSerie = {};
+                    clavesParaLey.forEach((g) => {
+                      const ton = row._ton[g] ?? 0;
+                      leyesPorSerie[`_ley_${g}`] = ton > 0 ? row._tonLey[g] / ton : null;
+                    });
+                    return { ...row, ...leyesPorSerie, _leyDia: row._tonTotal > 0 ? row._tonLeyTotal / row._tonTotal : null };
+                  })
                   .sort((a, b) => a.fechaISO.localeCompare(b.fechaISO));
 
                 // Promedio móvil de los últimos 3 días CON producción (los días en cero se
@@ -1097,43 +1714,63 @@ export const ProduccionCompleta = () => {
                   _promedioMovil: promedioPorFecha[row.fechaISO] ?? null,
                 }));
 
+                // El filtro de jornada individual no tiene efecto apilando por jornada (ahí
+                // ya se ven las 4 separadas) — se deshabilita en vez de desaparecer, para que
+                // el layout de controles no salte al cambiar de modo.
+                const filtroJornadaDeshabilitado = dumpAgrupacion === 'jornada';
+                const claseBoton = (activo, deshabilitado) => `px-2.5 py-1 rounded-full font-semibold transition-colors ${
+                  deshabilitado
+                    ? 'bg-gray-50 text-gray-300 cursor-not-allowed'
+                    : activo
+                    ? 'bg-emerald-600 text-white'
+                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                }`;
+
                 return (
                   <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
-                    <div className="px-6 py-4 border-b flex items-center justify-between">
+                    <div className="px-6 py-4 border-b flex flex-col gap-3">
                       <div className="flex items-center gap-2">
                         <FiBarChart2 className="text-emerald-600 w-5 h-5" />
                         <div>
                           <h3 className="text-base font-semibold text-gray-800">Avance Diario por Frente</h3>
-                          <p className="text-xs text-gray-400">Tonelaje/cantidad por día y frente — la ley Cu de cada uno aparece en el detalle y la ley del día sobre la barra</p>
+                          <p className="text-xs text-gray-400">Tonelaje/cantidad por día y frente — la ley Cu de cada uno aparece en el detalle y la ley del día sobre la barra. Es el Cu Insoluble de cada dumpada, ponderado por tonelaje — no Cu Total ni la Ley Visual del ingreso.</p>
                         </div>
                       </div>
-                      <div className="flex gap-1 text-xs">
-                        <button onClick={() => setDumpMetrica('toneladas')}
-                          className={`px-3 py-1 rounded-full font-semibold transition-colors ${dumpMetrica === 'toneladas' ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
-                          Toneladas
-                        </button>
-                        <button onClick={() => setDumpMetrica('cantidad')}
-                          className={`px-3 py-1 rounded-full font-semibold transition-colors ${dumpMetrica === 'cantidad' ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
-                          Cantidad
-                        </button>
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
+                        <div className="flex items-center gap-1">
+                          <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 mr-0.5">Métrica</span>
+                          <button onClick={() => setDumpMetrica('toneladas')} className={claseBoton(dumpMetrica === 'toneladas', false)}>Toneladas</button>
+                          <button onClick={() => setDumpMetrica('cantidad')} className={claseBoton(dumpMetrica === 'cantidad', false)}>Cantidad</button>
+                        </div>
+
                         <button onClick={() => setMostrarTendencia((v) => !v)}
-                          className={`px-3 py-1 rounded-full font-semibold transition-colors ${mostrarTendencia ? 'bg-gray-700 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
+                          className={`px-2.5 py-1 rounded-full font-semibold transition-colors ${mostrarTendencia ? 'bg-gray-700 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
                           Tendencia
                         </button>
+
+                        {/* "Jornada" ya incluye la separación por faena cuando hay más de una
+                            (ver comentario junto a obtenerClave) — no hace falta un tercer
+                            botón aparte para eso, sería mostrar lo mismo dos veces. */}
                         {jornadasDisponibles.length > 1 && (
-                          <>
-                            <span className="w-px bg-gray-200 mx-1" />
-                            <button onClick={() => setDumpJornada('Todos')}
-                              className={`px-3 py-1 rounded-full font-semibold transition-colors ${dumpJornada === 'Todos' ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
-                              Todos
+                          <div className="flex items-center gap-1">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 mr-0.5">Agrupar</span>
+                            <button onClick={() => setDumpAgrupacion('grupo')} className={claseBoton(dumpAgrupacion === 'grupo', false)}>Frente</button>
+                            <button onClick={() => setDumpAgrupacion('jornada')} className={claseBoton(dumpAgrupacion === 'jornada', false)}>Jornada</button>
+                          </div>
+                        )}
+
+                        {jornadasDisponibles.length > 1 && (
+                          <div className="flex items-center gap-1" title={filtroJornadaDeshabilitado ? 'No aplica agrupando por jornada — ya se ven las 4 por separado' : undefined}>
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 mr-0.5">Jornada</span>
+                            <button disabled={filtroJornadaDeshabilitado} onClick={() => setDumpJornada('Todos')} className={claseBoton(dumpJornada === 'Todos', filtroJornadaDeshabilitado)}>
+                              Todas
                             </button>
                             {jornadasDisponibles.map((j) => (
-                              <button key={j} onClick={() => setDumpJornada(j)}
-                                className={`px-3 py-1 rounded-full font-semibold transition-colors ${dumpJornada === j ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
+                              <button key={j} disabled={filtroJornadaDeshabilitado} onClick={() => setDumpJornada(j)} className={claseBoton(dumpJornada === j, filtroJornadaDeshabilitado)}>
                                 {j}
                               </button>
                             ))}
-                          </>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -1153,27 +1790,22 @@ export const ProduccionCompleta = () => {
                                 const row = payload[0]?.payload;
                                 const barras = payload.filter((p) => p.dataKey !== '_promedioMovil');
                                 const total = barras.reduce((s, p) => s + (p.value ?? 0), 0);
+                                // Tooltip corto a propósito — es de hover, no se puede scrollear
+                                // cómodo sin que el mouse se salga y desaparezca. El detalle
+                                // completo por frente se ve haciendo CLIC en el segmento.
                                 return (
-                                  <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-xs min-w-[220px]">
+                                  <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-xs min-w-[200px]">
                                     <p className="font-semibold text-gray-700 mb-2">{label}</p>
                                     {barras.map((p) => {
-                                      const detalles = row?._detalle?.[p.dataKey] ?? [];
+                                      const leySerie = row?.[`_ley_${p.dataKey}`];
+                                      const etiquetaSerie = dumpAgrupacion === 'jornada' ? p.dataKey.split('__').join(' · ') : p.dataKey;
                                       return (
-                                        <div key={p.dataKey} className="mb-1.5">
-                                          <div className="flex justify-between gap-3">
-                                            <span style={{ color: p.fill }} className="font-medium">{p.dataKey}</span>
-                                            <span className="font-mono font-semibold">
-                                              {formatNumber(p.value)} {dumpMetrica === 'toneladas' ? 't' : 'dumpadas'}
-                                            </span>
-                                          </div>
-                                          {detalles.map((det) => (
-                                            <div key={det.frente} className="flex justify-between gap-3 text-gray-500 pl-2">
-                                              <span>{det.frente}</span>
-                                              <span className="font-mono">
-                                                {formatNumber(det.toneladas)} t{det.ley_promedio != null ? ` · ${formatNumber(det.ley_promedio)}%` : ''}
-                                              </span>
-                                            </div>
-                                          ))}
+                                        <div key={p.dataKey} className="flex justify-between gap-3">
+                                          <span style={{ color: p.fill }} className="font-medium">{etiquetaSerie}</span>
+                                          <span className="font-mono font-semibold">
+                                            {formatNumber(p.value)} {dumpMetrica === 'toneladas' ? 't' : 'dumpadas'}
+                                            {leySerie != null && ` · ${formatNumber(leySerie)}%`}
+                                          </span>
                                         </div>
                                       );
                                     })}
@@ -1192,6 +1824,7 @@ export const ProduccionCompleta = () => {
                                         </span>
                                       </div>
                                     )}
+                                    <p className="text-gray-400 mt-1.5 pt-1.5 border-t italic">Clic en la barra → detalle por frente</p>
                                   </div>
                                 );
                               }}
@@ -1212,29 +1845,64 @@ export const ProduccionCompleta = () => {
                                 connectNulls
                               />
                             )}
-                            {grupos.map((g, i) => (
-                              <Bar key={g} dataKey={g} stackId="a" fill={obtenerColorFrente(g)}
-                                radius={i === grupos.length - 1 ? [3, 3, 0, 0] : [0, 0, 0, 0]}>
-                                {i === grupos.length - 1 && (
-                                  <LabelList
-                                    dataKey="_leyDia"
-                                    position="top"
-                                    formatter={(v) => (v != null ? `Ley ${formatNumber(v)}%` : '')}
-                                    fontSize={10}
-                                    fill="#374151"
-                                  />
-                                )}
-                              </Bar>
-                            ))}
+                            {/* "Por Faena" va SIN stackId (apiladoJuntas=false): columnas lado a
+                                lado por faena, cada una con su propia ley encima — no una barra
+                                dividida en 2. Frente/Jornada siguen apiladas, con una sola ley
+                                combinada arriba de toda la barra. */}
+                            {grupos.map((g, i) => {
+                              const esUltimoDeSuStack = ultimoIndicePorStack[obtenerStackId(g)] === i;
+                              const dataKeyLey = dumpAgrupacion === 'jornada' ? `_ley_${obtenerStackId(g)}` : '_leyDia';
+                              return (
+                                <Bar key={g} dataKey={g} stackId={obtenerStackId(g)} fill={obtenerColorSerie(g)}
+                                  radius={esUltimoDeSuStack ? [3, 3, 0, 0] : [0, 0, 0, 0]}
+                                  className="cursor-pointer"
+                                  onClick={(data) => {
+                                    const fila = data?.payload;
+                                    if (!fila) return;
+                                    setDetalleClicDump({
+                                      fecha: fila.fecha,
+                                      etiqueta: dumpAgrupacion === 'jornada' ? g.split('__').join(' · ') : g,
+                                      color: obtenerColorSerie(g),
+                                      valor: fila[g],
+                                      ley: fila[`_ley_${g}`],
+                                      detalles: fila._detalle?.[g] ?? [],
+                                    });
+                                  }}>
+                                  {esUltimoDeSuStack && (
+                                    <LabelList
+                                      dataKey={dataKeyLey}
+                                      position="top"
+                                      formatter={(v) => (v != null ? `${dumpAgrupacion === 'jornada' ? '' : 'Ley '}${formatNumber(v)}%` : '')}
+                                      fontSize={dumpAgrupacion === 'jornada' ? 9 : 10}
+                                      fill="#374151"
+                                    />
+                                  )}
+                                </Bar>
+                              );
+                            })}
                           </ComposedChart>
                         </ResponsiveContainer>
                         <div className="flex flex-wrap justify-center gap-3 mt-1">
-                          {grupos.map((g) => (
-                            <span key={g} className="flex items-center gap-1.5 text-xs text-gray-600">
-                              <span className="w-3 h-3 rounded-sm inline-block" style={{ backgroundColor: obtenerColorFrente(g) }} />
-                              {g}
-                            </span>
-                          ))}
+                          {dumpAgrupacion === 'jornada' ? (
+                            // El color acá es la jornada (una sola leyenda, sin repetir por
+                            // faena) — a qué faena pertenece cada grupo de columnas ya se ve
+                            // por posición, aclarado en la nota de abajo.
+                            [...new Set(grupos.map((g) => g.split('__')[1]))]
+                              .sort((a, b) => (JORNADA_ORDEN[a] ?? 99) - (JORNADA_ORDEN[b] ?? 99))
+                              .map((j) => (
+                                <span key={j} className="flex items-center gap-1.5 text-xs text-gray-600">
+                                  <span className="w-3 h-3 rounded-sm inline-block" style={{ backgroundColor: JORNADA_COLOR_HEX[j] ?? '#9ca3af' }} />
+                                  {j}
+                                </span>
+                              ))
+                          ) : (
+                            grupos.map((g) => (
+                              <span key={g} className="flex items-center gap-1.5 text-xs text-gray-600">
+                                <span className="w-3 h-3 rounded-sm inline-block" style={{ backgroundColor: obtenerColorSerie(g) }} />
+                                {g}
+                              </span>
+                            ))
+                          )}
                           {mostrarTendencia && (
                             <span className="flex items-center gap-1.5 text-xs text-gray-600">
                               <span className="w-3 h-0.5 rounded-sm inline-block" style={{ backgroundColor: '#1f2937' }} />
@@ -1242,8 +1910,68 @@ export const ProduccionCompleta = () => {
                             </span>
                           )}
                         </div>
+                        {dumpAgrupacion === 'jornada' && faenaIdsPresentes.length > 1 && (
+                          <p className="text-[10px] text-gray-400 text-center mt-1">
+                            Cada grupo de columnas es una faena, en este orden: {faenaIdsPresentes.map(id => nombrePorFaena[id]).join(' · ')}
+                          </p>
+                        )}
                       </div>
                     )}
+                  </div>
+                );
+              })()}
+
+              {/* Detalle completo por frente al hacer CLIC en un segmento de la barra de
+                  arriba (no en el hover del tooltip, que no se puede scrollear cómodo). */}
+              {detalleClicDump && (() => {
+                const detallesOrdenados = [...detalleClicDump.detalles].sort((a, b) => {
+                  const oa = JORNADA_ORDEN[a.jornada] ?? 99;
+                  const ob = JORNADA_ORDEN[b.jornada] ?? 99;
+                  return oa !== ob ? oa - ob : a.frente.localeCompare(b.frente);
+                });
+                return (
+                  <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
+                    <div className="px-6 py-4 border-b flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="w-3 h-3 rounded-sm inline-block flex-shrink-0 mt-1" style={{ backgroundColor: detalleClicDump.color }} />
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-wider text-gray-400">Detalle por frente — clic en la barra</p>
+                          <h3 className="text-base font-semibold text-gray-800">{detalleClicDump.etiqueta} — {detalleClicDump.fecha}</h3>
+                          <p className="text-xs text-gray-400">
+                            {formatNumber(detalleClicDump.valor)} {dumpMetrica === 'toneladas' ? 't' : 'dumpadas'}
+                            {detalleClicDump.ley != null && ` · Ley ${formatNumber(detalleClicDump.ley)}%`}
+                            {' · '}{detallesOrdenados.length} frente{detallesOrdenados.length !== 1 ? 's' : ''}
+                          </p>
+                        </div>
+                      </div>
+                      <button onClick={() => setDetalleClicDump(null)} className="text-gray-400 hover:text-gray-600 p-1" title="Cerrar">
+                        <FiX className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <div className="p-4 max-h-72 overflow-y-auto">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="text-left text-gray-400 uppercase text-[10px]">
+                            <th className="pb-1.5 font-semibold">Frente</th>
+                            <th className="pb-1.5 font-semibold">Túnel</th>
+                            <th className="pb-1.5 font-semibold">Jornada</th>
+                            <th className="pb-1.5 font-semibold text-right">{dumpMetrica === 'toneladas' ? 'Toneladas' : 'Dumpadas'}</th>
+                            <th className="pb-1.5 font-semibold text-right">Ley</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {detallesOrdenados.map((det, i) => (
+                            <tr key={i}>
+                              <td className="py-1.5 font-medium text-gray-700">{det.frente}</td>
+                              <td className="py-1.5 text-gray-400">{det.grupo || '—'}</td>
+                              <td className={`py-1.5 font-semibold ${JORNADA_COLOR_TEXTO[det.jornada] ?? 'text-gray-400'}`}>{det.jornada || '—'}</td>
+                              <td className="py-1.5 text-right font-mono">{formatNumber(dumpMetrica === 'toneladas' ? det.toneladas : det.cantidad)}</td>
+                              <td className="py-1.5 text-right font-mono">{det.ley_promedio != null ? `${formatNumber(det.ley_promedio)}%` : '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 );
               })()}
@@ -1257,7 +1985,7 @@ export const ProduccionCompleta = () => {
                       <FiBarChart2 className="text-indigo-600 w-5 h-5" />
                       <div>
                         <h3 className="text-base font-semibold text-gray-800">Pareto de Frentes</h3>
-                        <p className="text-xs text-gray-400">% del tonelaje total por frente + % acumulado — la ley Cu de cada frente va sobre su barra</p>
+                        <p className="text-xs text-gray-400">% del tonelaje total por frente + % acumulado — el Cu Insoluble de cada frente va sobre su barra</p>
                       </div>
                     </div>
                     <div className="p-4">
@@ -1278,7 +2006,7 @@ export const ProduccionCompleta = () => {
                                   <p className="font-semibold text-gray-800 mb-1">{label}</p>
                                   {total && <p style={{ color: COLOR_TONELAJE }}>% del total: {total.value}% ({formatNumber(row?.tonelaje)} t)</p>}
                                   {acum && <p style={{ color: COLOR_ACUMULADO }}>% Acumulado: {acum.value}%</p>}
-                                  {row?.ley_promedio != null && <p className="text-gray-600">Ley Cu: {formatNumber(row.ley_promedio)}%</p>}
+                                  {row?.ley_promedio != null && <p className="text-gray-600">Cu Insoluble: {formatNumber(row.ley_promedio)}%</p>}
                                 </div>
                               );
                             }}
@@ -1432,7 +2160,7 @@ export const ProduccionCompleta = () => {
                               <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3 text-sm">
                                 <p className="font-semibold text-gray-800 mb-1">{label}</p>
                                 <p style={{ color: COLOR_TONELAJE }}>Tonelaje: {formatNumber(row?.tonelaje)} t</p>
-                                {row?.ley_promedio != null && <p className="text-gray-600">Ley Cu: {formatNumber(row.ley_promedio)}%</p>}
+                                {row?.ley_promedio != null && <p className="text-gray-600">Cu Insoluble: {formatNumber(row.ley_promedio)}%</p>}
                               </div>
                             );
                           }}
@@ -1448,7 +2176,7 @@ export const ProduccionCompleta = () => {
                         </Bar>
                       </BarChart>
                     </ResponsiveContainer>
-                    <p className="text-xs text-gray-400 mt-1 text-right">Etiqueta al final de cada barra = ley Cu promedio del frente</p>
+                    <p className="text-xs text-gray-400 mt-1 text-right">Etiqueta al final de cada barra = Cu Insoluble promedio del frente</p>
                   </div>
                 </div>
               )}

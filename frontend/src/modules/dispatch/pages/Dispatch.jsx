@@ -126,6 +126,7 @@ function DispatchContent() {
     id_frente_trabajo: '',
     id_faena: '',
     numero_dumpada: '',
+    en_mezcla: '',
   });
 
   // Debounce para la búsqueda
@@ -414,6 +415,7 @@ function DispatchContent() {
             id_frente_trabajo: filters.id_frente_trabajo || undefined,
             id_faena: idFaenaParam || filters.id_faena || undefined,
             numero_dumpada: filters.numero_dumpada || undefined,
+            en_mezcla: filters.en_mezcla || undefined,
           };
 
           // Limpiar parámetros undefined
@@ -541,6 +543,7 @@ function DispatchContent() {
       id_frente_trabajo: '',
       id_faena: '',
       numero_dumpada: '',
+      en_mezcla: '',
     });
     setCurrentPage(1);
   };
@@ -1820,6 +1823,15 @@ function DispatchContent() {
                   name: 'fecha_fin',
                   label: 'Fecha Hasta',
                   type: 'date'
+                },
+                {
+                  name: 'en_mezcla',
+                  label: 'Uso en Mezclas',
+                  type: 'select',
+                  options: [
+                    { value: 'no', label: 'No usadas en mezclas' },
+                    { value: 'si', label: 'Usadas en mezclas' }
+                  ]
                 }
               ]}
               filterValues={filters}
@@ -1887,6 +1899,7 @@ function DispatchContent() {
                         <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs" title="Código del acopio de origen">Código</th>
                         <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs" title="Jornada laboral">Jornada</th>
                         <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs" title="Fecha de registro">Fecha</th>
+                        <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs whitespace-nowrap" title="Dumper/máquina que realizó la dumpada">Dumper</th>
                         <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs" title="Toneladas">Ton</th>
                         <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs" title="Ley de laboratorio">Ley</th>
                         <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs whitespace-nowrap" title="Ley Cup de laboratorio">Ley Cup</th>
@@ -1899,8 +1912,12 @@ function DispatchContent() {
                     </thead>
                     <tbody>
                       {[...dumpadas].sort((a, b) => {
-                        // Ordenar por ID descendente (últimos registros arriba)
-                        return b.id - a.id;
+                        // Ordenar por fecha descendente (igual que el backend), no por id de creación:
+                        // el id no refleja la fecha real si la dumpada se editó después de crearse.
+                        const fechaA = new Date(a.fecha).getTime();
+                        const fechaB = new Date(b.fecha).getTime();
+                        if (fechaB !== fechaA) return fechaB - fechaA;
+                        return Number(b.numero_dumpada) - Number(a.numero_dumpada);
                       }).map((dumpada, index, sortedArray) => {
                         // Obtener el color según grupo (frente + jornada + fecha)
                         const backgroundColor = getBackgroundColorByGroup(sortedArray, index);
@@ -1944,12 +1961,15 @@ function DispatchContent() {
                             <td className="py-3 px-3 text-gray-800 text-xs">
                               <div className="flex flex-col">
                                 <span className="font-semibold">{formatearFecha(dumpada.fecha)}</span>
-                                {dumpada.created_at && (
+                                {(dumpada.hora || dumpada.created_at) && (
                                   <span className="text-gray-500 text-[10px]">
-                                    {dumpada.created_at.split(' ')[1]?.substring(0, 5)} hrs
+                                    {(dumpada.hora || dumpada.created_at.split(' ')[1])?.substring(0, 5)} hrs
                                   </span>
                                 )}
                               </div>
+                            </td>
+                            <td className="py-3 px-3 text-gray-700 text-xs whitespace-nowrap" title={dumpada.nombre_maquina || 'Sin dumper registrado'}>
+                              {dumpada.nombre_maquina || '-'}
                             </td>
                             <td className="py-3 px-3 text-gray-800 font-semibold text-xs">
                               {dumpada.ton ? `${parseFloat(dumpada.ton).toFixed(2)}` : '-'}

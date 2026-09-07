@@ -1585,7 +1585,7 @@ export default function Laboratorio() {
                             <td className="py-3 px-2">
                               {esMuestraLibre ? (
                                 <span className="font-bold text-purple-900 bg-purple-100 px-3 py-1.5 rounded-lg text-xs font-mono">
-                                  {dumpada.codigo || `ME-${String(dumpada.id).padStart(5, '0')}`}
+                                  {dumpada.codigo || `ME-${String(dumpada.id).padStart(5, '0')}`}{dumpada.nombre ? `-${dumpada.nombre}` : ''}
                                 </span>
                               ) : (
                                 <span className="font-bold text-orange-900 bg-orange-100 px-3 py-1.5 rounded-lg text-xs font-mono">
@@ -1749,7 +1749,7 @@ export default function Laboratorio() {
 
                           // Código a mostrar
                           const codigoMuestra = esMuestraLibre
-                            ? (dumpada.codigo || `ME-${String(dumpada.id).padStart(5, '0')}`)
+                            ? (dumpada.codigo || `ME-${String(dumpada.id).padStart(5, '0')}`) + (dumpada.nombre ? `-${dumpada.nombre}` : '')
                             : (dumpada.acopios || dumpada.numero_dumpada || dumpada.id);
 
                           return (

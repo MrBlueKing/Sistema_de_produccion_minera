@@ -53,6 +53,7 @@ class DumpadaController extends Controller
         $idFrenteTrabajo = $request->get('id_frente_trabajo');
         $idFaena = $request->get('id_faena');
         $numeroDumpada = $request->get('numero_dumpada');
+        $enMezcla = $request->get('en_mezcla'); // 'si' | 'no'
 
         $query = Dumpada::with(['frenteTrabajo.tipoFrente'])
             ->orderByRaw('DATE(fecha) DESC, CAST(numero_dumpada AS UNSIGNED) DESC');
@@ -129,6 +130,14 @@ class DumpadaController extends Controller
             $query->where('numero_dumpada', $numeroDumpada);
         }
 
+        // Filtro por uso en mezclas: 'no' = sin ningún registro en mezcla_dumpada (libre),
+        // 'si' = con al menos un registro (completa o con paladas parciales)
+        if ($enMezcla === 'no') {
+            $query->whereDoesntHave('mezclaDumpadas');
+        } elseif ($enMezcla === 'si') {
+            $query->whereHas('mezclaDumpadas');
+        }
+
         $dumpadas = $query->paginate($perPage, ['*'], 'page', $page);
 
         Log::info('📊 [DUMPADAS] Resultados obtenidos', [
@@ -160,8 +169,11 @@ class DumpadaController extends Controller
     public function resumenSemana(Request $request)
     {
         $idFaena  = $request->get('id_faena');
-        $inicioMes = Carbon::now()->startOfMonth()->format('Y-m-d');
-        $finMes    = Carbon::now()->endOfMonth()->format('Y-m-d');
+        // fecha_desde/fecha_hasta son opcionales (el hub de Dispatch no las manda y
+        // sigue viendo "este mes" como siempre) — el Dashboard Gerencial las usa para
+        // reusar este mismo endpoint con el rango de fechas que el usuario elija ahí.
+        $inicioMes = $request->get('fecha_desde', Carbon::now()->startOfMonth()->format('Y-m-d'));
+        $finMes    = $request->get('fecha_hasta', Carbon::now()->endOfMonth()->format('Y-m-d'));
 
         $query = Dumpada::with('frenteTrabajo')
             ->whereDate('fecha', '>=', $inicioMes)
@@ -229,6 +241,7 @@ class DumpadaController extends Controller
             'id_frente_trabajo'  => ['required', Rule::exists('frentes_trabajo', 'id')->where('estado', 'activo')],
             'jornada'            => 'required|in:AM,PM,Madrugada,Noche',
             'fecha'              => 'nullable|date',
+            'hora'               => 'nullable|date_format:H:i',
             'ton'                => 'nullable|numeric|min:0',
             'ley'                => 'nullable|numeric|min:0',
             'ley_cup'            => 'nullable|numeric|min:0',
@@ -305,6 +318,7 @@ class DumpadaController extends Controller
             'numero_dumpada' => $numeroDumpada,
             'acopios' => $acopios,
             'fecha' => $fecha,
+            'hora' => $request->hora ?? now()->format('H:i:s'),
             'rango' => $rango,
             'estado' => $estado,
             'user_id' => $request->auth_user_id,
@@ -335,6 +349,7 @@ class DumpadaController extends Controller
             'dumpadas.*.id_frente_trabajo'   => ['required', Rule::exists('frentes_trabajo', 'id')->where('estado', 'activo')],
             'dumpadas.*.jornada'             => 'required|in:AM,PM,Madrugada,Noche',
             'dumpadas.*.fecha'               => 'nullable|date',
+            'dumpadas.*.hora'                => 'nullable|date_format:H:i',
             'dumpadas.*.ton'                 => 'nullable|numeric|min:0',
             'dumpadas.*.ley'                 => 'nullable|numeric|min:0',
             'dumpadas.*.ley_cup'             => 'nullable|numeric|min:0',
@@ -425,6 +440,7 @@ class DumpadaController extends Controller
                     'numero_dumpada' => $numeroDumpada,
                     'acopios' => $acopios,
                     'fecha' => $fecha,
+                    'hora' => $dumpadaData['hora'] ?? now()->format('H:i:s'),
                     'rango' => $rango,
                     'estado' => $estado,
                     'user_id' => $request->auth_user_id,
@@ -515,6 +531,7 @@ class DumpadaController extends Controller
             'id_frente_trabajo'  => 'required|exists:frentes_trabajo,id',
             'jornada'            => 'required|in:AM,PM,Madrugada,Noche',
             'fecha'              => 'nullable|date',
+            'hora'               => 'nullable|date_format:H:i',
             'ton'                => 'nullable|numeric|min:0',
             'ley'                => 'nullable|numeric|min:0',
             'ley_cup'            => 'nullable|numeric|min:0',
@@ -591,6 +608,7 @@ class DumpadaController extends Controller
             'jornada' => $request->jornada,
             'numero_jornada' => $numeroJornada,
             'fecha' => $fecha,
+            'hora' => $request->hora ?? $dumpada->hora,
             'ton' => $request->ton ?? $dumpada->ton,
             'ley' => $request->ley ?? $dumpada->ley,
             'ley_cup' => $leyCup,

@@ -130,6 +130,21 @@ class Lote extends Model
             ->sum('peso_real');
     }
 
+    /**
+     * Peso teórico PENDIENTE: solo el peso declarado de camionadas que
+     * TODAVÍA no se recepcionan (peso_real IS NULL). A diferencia de
+     * getPesoTotal() (que suma el teórico de TODAS, recepcionadas o no —
+     * se usa para el Remanente), este método es para "Despachado = Real +
+     * Teórico", donde una camionada ya recepcionada deja de contar como
+     * teórico y pasa completa a Real.
+     */
+    public function getPesoTeoricoPendiente()
+    {
+        return $this->camionadas
+            ->whereNull('peso_real')
+            ->sum('peso');
+    }
+
     public function getNumeroCamionadas()
     {
         return $this->camionadas->count();

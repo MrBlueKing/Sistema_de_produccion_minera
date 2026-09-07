@@ -26,6 +26,7 @@ class Dumpada extends Model
         'jornada',
         'numero_jornada', // Número secuencial por frente+jornada+fecha
         'fecha',
+        'hora', // Hora real de la dumpada, editable (por defecto la hora de ingreso)
         'ton',
         'ley',
         'ley_cup',

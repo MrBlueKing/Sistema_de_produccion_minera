@@ -1862,6 +1862,7 @@ const DespachosView = () => {
                   empresa: empresaNombre,
                   lotes: 0,
                   totalPeso: 0,
+                  totalPesoTeorico: 0,
                   totalCamionadas: 0,
                   pendientesRecepcion: 0,
                   sumProductoLey: 0,
@@ -1870,14 +1871,20 @@ const DespachosView = () => {
               }
               resumen[key].lotes += 1;
               const pesoRecibido = parseFloat(lote.peso_recibido || 0);
+              const pesoTeoricoPendiente = parseFloat(lote.peso_teorico_pendiente || 0);
               resumen[key].totalPeso += pesoRecibido;
+              resumen[key].totalPesoTeorico += pesoTeoricoPendiente;
               resumen[key].totalCamionadas += (lote.numero_camionadas || lote.camionadas?.length || 0);
               const recep = lote.camionadas_recepcionadas || 0;
               const total = lote.numero_camionadas || lote.camionadas?.length || 0;
               resumen[key].pendientesRecepcion += (total - recep);
 
-              if (lote.ley_lab_promedio != null && pesoRecibido > 0) {
-                resumen[key].sumProductoLey += pesoRecibido * parseFloat(lote.ley_lab_promedio);
+              // "Ley Mezcla" acá debe ser el mismo campo que muestra la tarjeta de
+              // cada lote (ley_lote_promedio) — antes usaba ley_lab_promedio (ley de
+              // laboratorio, un dato distinto) y por eso el resumen agregado podía
+              // mostrar un % distinto al de la única tarjeta de lote que lo compone.
+              if (lote.ley_lote_promedio != null && pesoRecibido > 0) {
+                resumen[key].sumProductoLey += pesoRecibido * parseFloat(lote.ley_lote_promedio);
                 resumen[key].sumPesoConLey += pesoRecibido;
               }
             });
@@ -1890,12 +1897,52 @@ const DespachosView = () => {
               porPlanta[g.planta].push(g);
             });
 
+            // Total general: suma de todas las planta/empresa, no solo por grupo.
+            const totalGeneral = grupos.reduce((acc, g) => ({
+              lotes: acc.lotes + g.lotes,
+              totalCamionadas: acc.totalCamionadas + g.totalCamionadas,
+              pendientesRecepcion: acc.pendientesRecepcion + g.pendientesRecepcion,
+              totalPeso: acc.totalPeso + g.totalPeso,
+              totalPesoTeorico: acc.totalPesoTeorico + g.totalPesoTeorico,
+              sumProductoLey: acc.sumProductoLey + g.sumProductoLey,
+              sumPesoConLey: acc.sumPesoConLey + g.sumPesoConLey,
+            }), { lotes: 0, totalCamionadas: 0, pendientesRecepcion: 0, totalPeso: 0, totalPesoTeorico: 0, sumProductoLey: 0, sumPesoConLey: 0 });
+            const leyPromGeneral = totalGeneral.sumPesoConLey > 0
+              ? (totalGeneral.sumProductoLey / totalGeneral.sumPesoConLey).toFixed(2)
+              : null;
+
             return (
               <Card className="border-l-4 border-indigo-400">
                 <h3 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
                   <HiChartBar className="text-indigo-500" />
                   Resumen General
                 </h3>
+
+                <div className="bg-white border-2 border-indigo-200 rounded-lg px-4 py-3 mb-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-bold uppercase tracking-wide text-indigo-700">Total General</p>
+                    {leyPromGeneral && (
+                      <span className="text-sm font-bold whitespace-nowrap text-orange-600">Ley Mezcla: {leyPromGeneral}%</span>
+                    )}
+                  </div>
+                  <p className="text-sm text-gray-500 mt-0.5">
+                    {totalGeneral.lotes} lote{totalGeneral.lotes !== 1 ? 's' : ''} | {totalGeneral.totalCamionadas} cam.
+                    {totalGeneral.pendientesRecepcion > 0 && (
+                      <span className="text-yellow-600 font-semibold"> | {totalGeneral.pendientesRecepcion} pend.</span>
+                    )}
+                  </p>
+                  <div className="mt-2 pt-2 border-t border-indigo-100 overflow-x-auto">
+                    <p className="text-base font-bold whitespace-nowrap text-gray-700">
+                      Despachado{' '}
+                      <span className="font-extrabold text-lg text-indigo-700 tabular-nums">{(totalGeneral.totalPeso + totalGeneral.totalPesoTeorico).toFixed(2)} t</span>
+                      {' = '}
+                      <span className="text-green-600 font-extrabold">{totalGeneral.totalPeso.toFixed(2)} t</span> real
+                      {' + '}
+                      <span className="text-amber-600 font-extrabold">{totalGeneral.totalPesoTeorico.toFixed(2)} t</span> teórico
+                    </p>
+                  </div>
+                </div>
+
                 <div className="space-y-3">
                   {Object.entries(porPlanta).map(([planta, empresas]) => (
                     <div key={planta}>
@@ -1903,30 +1950,37 @@ const DespachosView = () => {
                         <HiOfficeBuilding className="text-blue-500" />
                         {planta}
                       </p>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 ml-4">
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 ml-4">
                         {empresas.map((emp) => {
                           const leyProm = emp.sumPesoConLey > 0
                             ? (emp.sumProductoLey / emp.sumPesoConLey).toFixed(2)
                             : null;
                           return (
-                            <div key={emp.empresa} className="bg-gray-50 rounded-lg px-3 py-2 border border-gray-200 flex items-center justify-between gap-3">
-                              <div>
-                                <p className="text-sm font-semibold text-gray-800 flex items-center gap-1">
-                                  <HiBriefcase className="text-purple-500 w-3.5 h-3.5" />
+                            <div key={emp.empresa} className="bg-gray-50 rounded-lg px-3 py-2.5 border border-gray-200">
+                              <div className="flex items-center justify-between gap-2">
+                                <p className="text-sm font-semibold text-gray-800 flex items-center gap-1 truncate min-w-0">
+                                  <HiBriefcase className="text-purple-500 w-3.5 h-3.5 shrink-0" />
                                   {emp.empresa}
                                 </p>
-                                <p className="text-[11px] text-gray-500">
-                                  {emp.lotes} lote{emp.lotes !== 1 ? 's' : ''} | {emp.totalCamionadas} cam.
-                                  {emp.pendientesRecepcion > 0 && (
-                                    <span className="text-yellow-600 font-semibold"> | {emp.pendientesRecepcion} pend.</span>
-                                  )}
-                                </p>
-                              </div>
-                              <div className="text-right">
-                                <p className="text-sm font-bold text-green-700">{emp.totalPeso.toFixed(2)} t</p>
                                 {leyProm && (
-                                  <p className="text-[10px] text-orange-600 font-semibold">Ley Mezcla: {leyProm}%</p>
+                                  <span className="text-sm text-orange-600 font-bold shrink-0 whitespace-nowrap">Ley Mezcla: {leyProm}%</span>
                                 )}
+                              </div>
+                              <p className="text-sm text-gray-500 mt-0.5">
+                                {emp.lotes} lote{emp.lotes !== 1 ? 's' : ''} | {emp.totalCamionadas} cam.
+                                {emp.pendientesRecepcion > 0 && (
+                                  <span className="text-yellow-600 font-semibold"> | {emp.pendientesRecepcion} pend.</span>
+                                )}
+                              </p>
+                              <div className="mt-2 pt-2 border-t border-gray-200 overflow-x-auto">
+                                <p className="text-sm font-semibold whitespace-nowrap">
+                                  <span className="text-gray-700">Despachado</span>{' '}
+                                  <span className="text-indigo-700 font-extrabold text-base tabular-nums">{(emp.totalPeso + emp.totalPesoTeorico).toFixed(2)} t</span>
+                                  <span className="text-gray-500"> = </span>
+                                  <span className="text-green-600 font-bold">{emp.totalPeso.toFixed(2)} t</span> real
+                                  {' + '}
+                                  <span className="text-amber-600 font-bold">{emp.totalPesoTeorico.toFixed(2)} t</span> teórico
+                                </p>
                               </div>
                             </div>
                           );
@@ -1972,7 +2026,10 @@ const DespachosView = () => {
                     ? Math.round((camionadasRecepcionadas / totalCamionadas) * 100)
                     : 0;
                   const pesoRecibido = parseFloat(lote.peso_recibido || 0);
-                  const pesoTeorico = parseFloat(lote.peso_total || 0);
+                  // Teórico = solo camionadas que TODAVÍA no se recepcionan. Una camionada
+                  // ya recepcionada pasa completa a "Real" y deja de contar acá — por eso NO
+                  // se usa peso_total (que suma el declarado de TODAS, recepcionadas o no).
+                  const pesoTeorico = parseFloat(lote.peso_teorico_pendiente || 0);
                   const todasRecepcionadas = lote.todas_recepcionadas || (camionadasRecepcionadas === totalCamionadas && totalCamionadas > 0);
 
                   return (
@@ -2069,6 +2126,16 @@ const DespachosView = () => {
                                 {lote.ley_visual_promedio != null ? `${parseFloat(lote.ley_visual_promedio).toFixed(2)}%` : 'N/A'}
                               </p>
                             </div>
+                          </div>
+
+                          <div className="bg-indigo-50 border border-indigo-100 rounded-lg py-1.5 px-2 overflow-x-auto">
+                            <p className="text-xs font-semibold text-center whitespace-nowrap">
+                              <span className="text-gray-700">Despachado</span>{' '}
+                              <span className="text-indigo-700 font-extrabold">{(pesoRecibido + pesoTeorico).toFixed(2)} t</span>
+                              <span className="text-gray-500"> = </span>
+                              <span className="text-green-600">{pesoRecibido.toFixed(2)} t</span> real +{' '}
+                              <span className="text-amber-600">{pesoTeorico.toFixed(2)} t</span> teórico
+                            </p>
                           </div>
 
                           {/* Barra de progreso recepción */}
@@ -2601,7 +2668,7 @@ const DespachosView = () => {
                   </div>
 
                   {/* Estadísticas */}
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
                     <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
                       <p className="text-xs text-gray-600 mb-1">Total Camionadas</p>
                       <p className="text-2xl font-bold text-blue-700">
@@ -2621,6 +2688,14 @@ const DespachosView = () => {
                       <p className="text-xs text-gray-600 mb-1">Mezclas</p>
                       <p className="text-2xl font-bold text-purple-700">
                         {new Set(loteSeleccionado.camionadas?.flatMap(c => (c.mezclas ?? []).map(m => m.id))).size || 0}
+                      </p>
+                    </div>
+                    <div className="bg-red-50 rounded-lg p-4 border border-red-200">
+                      <p className="text-xs text-gray-600 mb-1">Ley Lote</p>
+                      <p className="text-2xl font-bold text-red-700">
+                        {loteSeleccionado.ley_lote_promedio !== null && loteSeleccionado.ley_lote_promedio !== undefined
+                          ? `${loteSeleccionado.ley_lote_promedio.toFixed(2)}%`
+                          : 'N/A'}
                       </p>
                     </div>
                     <div className="bg-orange-50 rounded-lg p-4 border border-orange-200">

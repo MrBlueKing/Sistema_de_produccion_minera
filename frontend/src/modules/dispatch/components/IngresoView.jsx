@@ -23,8 +23,19 @@ export default function IngresoView({
   const [showInfo, setShowInfo] = useState(false);
   const [showLote, setShowLote] = useState(false);
 
+  // Fecha/hora "ahora" para autocompletar una fila nueva — separado para que
+  // cada fila agregada tome el momento en que se agrega, no un valor congelado.
+  const fechaHoraActual = () => {
+    const ahora = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    return {
+      fecha: `${ahora.getFullYear()}-${pad(ahora.getMonth() + 1)}-${pad(ahora.getDate())}`,
+      hora: `${pad(ahora.getHours())}:${pad(ahora.getMinutes())}`,
+    };
+  };
+
   const [formsIngresoMasivo, setFormsIngresoMasivo] = useState([{
-    id: 1, id_frente_trabajo: '', jornada: '', ley_visual: '', id_maquina: '', nombre_maquina: '', ton: '',
+    id: 1, id_frente_trabajo: '', jornada: '', ley_visual: '', id_maquina: '', nombre_maquina: '', ton: '', ...fechaHoraActual(),
   }]);
 
   const [ingresoRapido, setIngresoRapido] = useState({
@@ -38,14 +49,14 @@ export default function IngresoView({
 
   const resetFormIngreso = () => {
     setFormsIngresoMasivo([{
-      id: 1, id_frente_trabajo: '', jornada: '', ley_visual: '', id_maquina: '', nombre_maquina: '', ton: '',
+      id: 1, id_frente_trabajo: '', jornada: '', ley_visual: '', id_maquina: '', nombre_maquina: '', ton: '', ...fechaHoraActual(),
     }]);
   };
 
   const agregarFilaIngreso = () => {
     const newId = Math.max(...formsIngresoMasivo.map(f => f.id)) + 1;
     setFormsIngresoMasivo([...formsIngresoMasivo, {
-      id: newId, id_frente_trabajo: '', jornada: '', ley_visual: '', id_maquina: '', nombre_maquina: '', ton: '',
+      id: newId, id_frente_trabajo: '', jornada: '', ley_visual: '', id_maquina: '', nombre_maquina: '', ton: '', ...fechaHoraActual(),
     }]);
   };
 
@@ -73,6 +84,7 @@ export default function IngresoView({
         id_maquina: filaToDuplicate.id_maquina,
         nombre_maquina: filaToDuplicate.nombre_maquina,
         ton: filaToDuplicate.ton,
+        ...fechaHoraActual(),
       }]);
       toast.success('Fila duplicada', 'Se ha agregado una nueva fila con los mismos datos');
     }
@@ -97,6 +109,7 @@ export default function IngresoView({
         jornada: ingresoRapido.jornada,
         ley_visual: ingresoRapido.ley_visual,
         id_maquina: '', nombre_maquina: '', ton: '',
+        ...fechaHoraActual(),
       });
     }
     setFormsIngresoMasivo([...formsIngresoMasivo, ...nuevasFilas]);
@@ -134,6 +147,8 @@ export default function IngresoView({
         id_maquina: form.id_maquina ? parseInt(form.id_maquina) : null,
         nombre_maquina: form.nombre_maquina || null,
         ton: form.ton ? parseFloat(form.ton) : tonelajeDumpadaDefault,
+        fecha: form.fecha || undefined,
+        hora: form.hora || undefined,
       }));
 
       const bulkResponse = await dispatchService.createDumpadasBulk(dumpadasData);
@@ -158,7 +173,7 @@ export default function IngresoView({
       const dumpadasParaDeteccion = filasValidas.map(form => ({
         id_frente_trabajo: form.id_frente_trabajo,
         jornada: form.jornada,
-        fecha: new Date().toISOString().split('T')[0],
+        fecha: form.fecha || new Date().toISOString().split('T')[0],
       }));
       const deteccionResponse = await acopiosService.detectarAcopiosExistentes(dumpadasParaDeteccion);
       const grupos = deteccionResponse.data || [];
@@ -455,7 +470,7 @@ export default function IngresoView({
                 </div>
 
                 {/* Campos */}
-                <div className="flex-1 grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-3 items-end">
+                <div className="flex-1 grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-3 items-end">
                   <SearchableSelect
                     label="Frente de Trabajo *"
                     options={frentes.map(frente => ({ value: frente.id, label: frente.codigo_completo }))}
@@ -538,6 +553,22 @@ export default function IngresoView({
                     placeholder="Ej: 30.00"
                     required
                   />
+
+                  <Input
+                    label="Fecha"
+                    type="date"
+                    value={form.fecha}
+                    onChange={(e) => actualizarFilaIngreso(form.id, 'fecha', e.target.value)}
+                    title="Se autocompleta con hoy — editala si esta dumpada es de otro día"
+                  />
+
+                  <Input
+                    label="Hora"
+                    type="time"
+                    value={form.hora}
+                    onChange={(e) => actualizarFilaIngreso(form.id, 'hora', e.target.value)}
+                    title="Se autocompleta con la hora actual — editala si esta dumpada es de otro momento"
+                  />
                 </div>
 
                 {/* Acciones fila */}
@@ -568,7 +599,7 @@ export default function IngresoView({
           {/* Footer */}
           <div className="flex items-center justify-between pt-2">
             <p className="text-xs text-gray-400">
-              Fecha: hoy · Tonelaje default: {tonelajeDumpadaDefault} ton · N° acopio: automático
+              Fecha/hora: se autocompletan y son editables · Tonelaje default: {tonelajeDumpadaDefault} ton · N° acopio: automático
             </p>
             <div className="flex gap-2">
               <Button type="button" variant="secondary" onClick={resetFormIngreso}>

@@ -3,6 +3,8 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Dispatch\Dumpada;
+use App\Models\Laboratorio\Camionada;
 use App\Models\Laboratorio\Lote;
 use App\Models\Laboratorio\Planta;
 use App\Models\Laboratorio\Empresa;
@@ -35,12 +37,13 @@ class GerencialController extends Controller
             // Estadísticas de dumpadas (columnas reales: ton, ley, estado: Ingresado/Completado/etc)
             // ley_promedio ponderada por tonelaje (no AVG simple) — mismo criterio que
             // dumpadasDiarias()/produccionPorTurno(), para que "ley promedio" signifique
-            // lo mismo en todo el dashboard gerencial.
+            // lo mismo en todo el dashboard gerencial. Usa cu_insoluble (no ley/Cu Total)
+            // a pedido explícito del usuario — es la ley que le interesa a gerencia acá.
             $statsDumpadas = (clone $queryDumpadas)
                 ->select(
                     DB::raw('COUNT(*) as total'),
                     DB::raw('SUM(ton) as tonelaje_total'),
-                    DB::raw('CASE WHEN SUM(ton) > 0 THEN SUM(ton * ley) / SUM(ton) ELSE NULL END as ley_promedio'),
+                    DB::raw('CASE WHEN SUM(ton) > 0 THEN SUM(ton * cu_insoluble) / SUM(ton) ELSE NULL END as ley_promedio'),
                     DB::raw('COUNT(CASE WHEN estado = "Completado" THEN 1 END) as completadas'),
                     DB::raw('COUNT(CASE WHEN estado = "Ingresado" THEN 1 END) as pendientes')
                 )
@@ -188,7 +191,9 @@ class GerencialController extends Controller
                     'frentes_trabajo.codigo_completo as nombre',
                     DB::raw('COUNT(*) as cantidad'),
                     DB::raw('SUM(dumpadas.ton) as tonelaje'),
-                    DB::raw('AVG(dumpadas.ley) as ley_promedio')
+                    // cu_insoluble (no ley/Cu Total) — mismo criterio que statsDumpadas
+                    // de arriba y dumpadasDiarias() más abajo.
+                    DB::raw('AVG(dumpadas.cu_insoluble) as ley_promedio')
                 )
                 ->whereBetween('dumpadas.fecha', [$fechaInicio, $fechaFin])
                 ->when($idFaena, function ($q) use ($idFaena) {
@@ -281,29 +286,33 @@ class GerencialController extends Controller
                 ->whereBetween('lotes.fecha_creacion', [$fechaInicio, $fechaFin])
                 ->when($idFaena, fn($q) => $q->where('lotes.id_faena', $idFaena))
                 ->select(
+                    'lotes.empresa_id',
+                    'lotes.planta_id',
                     DB::raw('COALESCE(empresas.nombre, "Sin empresa") as empresa'),
                     DB::raw('COALESCE(plantas.nombre,  "Sin planta")  as planta'),
                     DB::raw('COUNT(DISTINCT lotes.id) as n_lotes'),
                     DB::raw('COUNT(camionadas.id)     as n_viajes'),
-                    DB::raw('COALESCE(SUM(camionadas.peso), 0) as tonelaje'),
-                    DB::raw('CASE WHEN SUM(camionadas.peso) > 0
-                        THEN SUM(camionadas.peso * COALESCE(camionadas.ley_mezcla, 0)) / SUM(camionadas.peso)
+                    // Despachado = Real + Teórico: usa peso_real cuando la camionada ya se
+                    // recepcionó, y cae al peso teórico declarado mientras no se recepcione.
+                    // Así, a medida que se van recepcionando camionadas, Despachado converge
+                    // solo hacia Vendido (nunca al revés) — antes usaba siempre el teórico
+                    // declarado, aunque ya existiera un peso real más preciso.
+                    DB::raw('COALESCE(SUM(COALESCE(camionadas.peso_real, camionadas.peso)), 0) as tonelaje'),
+                    // Ley ponderada por el mismo criterio Real+Teórico de "Despachado" (no
+                    // solo por el teórico) — consistente con el tonelaje que se muestra arriba.
+                    DB::raw('CASE WHEN SUM(COALESCE(camionadas.peso_real, camionadas.peso)) > 0
+                        THEN SUM(COALESCE(camionadas.peso_real, camionadas.peso) * COALESCE(camionadas.ley_mezcla, 0)) / SUM(COALESCE(camionadas.peso_real, camionadas.peso))
                         ELSE NULL END as ley_ponderada'),
-                    // Tonelaje pendiente: solo camionadas de lotes Abiertos que TODAVÍA no
-                    // se pesaron en destino (peso_real IS NULL) — no basta con que el lote
-                    // siga Abierto, porque puede tener camionadas ya recepcionadas esperando
-                    // que alguien cierre el lote formalmente. Antes se usaba
-                    // "peso - COALESCE(peso_real,0)" para toda camionada de un lote Abierto,
-                    // pero como peso_real casi siempre es MAYOR al peso declarado al despachar
-                    // (sin báscula en la mina), eso daba negativo para las ya recepcionadas y
-                    // netaba contra el pendiente real de las que sí faltan — subestimándolo
-                    // (verificado con datos reales: 3 grupos mostraban 8-18 t cuando el
-                    // pendiente real era 29 t).
-                    DB::raw('COALESCE(SUM(CASE WHEN lotes.estado = "Abierto" AND camionadas.peso_real IS NULL THEN camionadas.peso ELSE 0 END), 0) as tonelaje_pendiente'),
-                    // Tonelaje vendido: peso_real de camionadas cuyo lote ya cerró (Completado)
-                    // — a diferencia de "tonelaje" (despachado teórico, con lote cerrado o no),
-                    // esto es lo confirmado de verdad.
-                    DB::raw('COALESCE(SUM(CASE WHEN lotes.estado = "Completado" THEN camionadas.peso_real ELSE 0 END), 0) as tonelaje_vendido')
+                    // Tonelaje pendiente: el teórico de camionadas que TODAVÍA no se pesan en
+                    // destino (peso_real IS NULL), sin importar si el lote ya está Completado
+                    // — mismo criterio que "tonelaje" de arriba, es la porción que falta para
+                    // que Despachado termine de convertirse en Vendido.
+                    DB::raw('COALESCE(SUM(CASE WHEN camionadas.peso_real IS NULL THEN camionadas.peso ELSE 0 END), 0) as tonelaje_pendiente'),
+                    // Tonelaje vendido: peso_real de TODA camionada ya recepcionada, sin
+                    // importar si su lote sigue Abierto o ya se cerró (Completado) — antes
+                    // exigía lote Completado, lo que subcontaba camionadas ya recepcionadas
+                    // cuyo lote nadie había cerrado formalmente todavía.
+                    DB::raw('COALESCE(SUM(camionadas.peso_real), 0) as tonelaje_vendido')
                 )
                 ->groupBy('lotes.empresa_id', 'lotes.planta_id', 'empresas.nombre', 'plantas.nombre')
                 ->orderBy('plantas.nombre')
@@ -335,6 +344,7 @@ class GerencialController extends Controller
 
             $totalTon        = array_sum(array_column($totalesPlanta, 'tonelaje'));
             $totalViajes     = array_sum(array_column($totalesPlanta, 'n_viajes'));
+            $totalLotes      = array_sum(array_column($filas->all(), 'n_lotes'));
             $totalPesLey     = array_sum(array_map(fn($p) => $p['tonelaje'] * ($p['ley_ponderada'] ?? 0), $totalesPlanta));
             $totalPendiente  = array_sum(array_column($totalesPlanta, 'tonelaje_pendiente'));
             $totalVendido    = array_sum(array_column($totalesPlanta, 'tonelaje_vendido'));
@@ -343,6 +353,8 @@ class GerencialController extends Controller
                 'success' => true,
                 'data' => [
                     'filas' => $filas->map(fn($r) => [
+                        'empresa_id'         => $r->empresa_id,
+                        'planta_id'          => $r->planta_id,
                         'empresa'            => $r->empresa,
                         'planta'             => $r->planta,
                         'n_lotes'            => $r->n_lotes,
@@ -354,6 +366,7 @@ class GerencialController extends Controller
                     ]),
                     'totales_por_planta' => $totalesPlanta,
                     'total_general' => [
+                        'n_lotes'            => $totalLotes,
                         'n_viajes'           => $totalViajes,
                         'tonelaje'           => round($totalTon, 2),
                         'tonelaje_pendiente' => round($totalPendiente, 2),
@@ -392,17 +405,30 @@ class GerencialController extends Controller
                 ->when($idFaena, fn($q) => $q->where('id_faena', $idFaena))
                 ->sum('ton');
 
-            // Tonelaje vendido: recepcionado (peso_real) Y perteneciente a un lote
-            // cerrado (Completado) — no basta con "despachado", tiene que estar vendido
-            // de verdad. Se filtra por fecha_recepcion (cuándo se vendió en el período),
-            // no por la fecha de creación del lote.
+            // Tonelaje vendido (Recepcionado): peso_real ya cargado — tiene ticket real
+            // de planta, sin importar si alguien cerró el lote formalmente o sigue
+            // Abierto (mismo criterio que "Vendido" en reporteProduccion() y que el KPI
+            // "Tonelaje Recepcionado"). Se filtra por fecha_recepcion (cuándo se vendió
+            // en el período), no por la fecha de creación del lote.
             $tonelajeVendido = DB::table('camionadas')
                 ->join('lotes', 'camionadas.lote_id', '=', 'lotes.id')
-                ->where('lotes.estado', 'Completado')
                 ->whereNotNull('camionadas.peso_real')
                 ->whereBetween('camionadas.fecha_recepcion', [$fechaInicio, $fechaFin])
                 ->when($idFaena, fn($q) => $q->where('lotes.id_faena', $idFaena))
                 ->sum('camionadas.peso_real');
+
+            // Tonelaje despachado: Real + Teórico de toda camionada que SALIÓ en el
+            // período (fecha_despacho, no fecha_recepcion — una camionada teórica
+            // todavía sin recepcionar no tiene fecha_recepcion). Mismo criterio
+            // COALESCE que "Despachado" en reporteProduccion(), pero aquí agrupado
+            // por la fecha en que salió de la mina en vez de la fecha de creación
+            // del lote, para que el ratio por tiro compare períodos equivalentes.
+            $tonelajeDespachado = DB::table('camionadas')
+                ->join('lotes', 'camionadas.lote_id', '=', 'lotes.id')
+                ->whereBetween('camionadas.fecha_despacho', [$fechaInicio, $fechaFin])
+                ->when($idFaena, fn($q) => $q->where('lotes.id_faena', $idFaena))
+                ->selectRaw('COALESCE(SUM(COALESCE(camionadas.peso_real, camionadas.peso)), 0) as total')
+                ->value('total');
 
             // Tiros: solo reportes de Perforación y Tronadura confirmados o cerrados —
             // un reporte en Borrador no representa trabajo ejecutado ni consumo real.
@@ -468,6 +494,7 @@ class GerencialController extends Controller
                     'periodo' => ['fecha_inicio' => $fechaInicio, 'fecha_fin' => $fechaFin],
                     'tonelaje_extraido' => round($tonelajeExtraido ?? 0, 2),
                     'tonelaje_vendido' => round($tonelajeVendido ?? 0, 2),
+                    'tonelaje_despachado' => round($tonelajeDespachado ?? 0, 2),
                     'tiros' => (int) $tiros,
                     'litros' => $litros !== null ? round($litros, 2) : null,
                     'litros_perforacion' => $litrosPerforacion !== null ? round($litrosPerforacion, 2) : null,
@@ -475,6 +502,7 @@ class GerencialController extends Controller
                     'ratios' => [
                         'extraido_por_tiro' => $dividir($tonelajeExtraido, $tiros),
                         'vendido_por_tiro' => $dividir($tonelajeVendido, $tiros),
+                        'despachado_por_tiro' => $dividir($tonelajeDespachado, $tiros),
                         'litros_por_ton_extraido' => $dividir($litros, $tonelajeExtraido),
                         'litros_por_ton_vendido' => $dividir($litros, $tonelajeVendido),
                         'litros_por_tiro' => $dividir($litrosPerforacion, $tiros),
@@ -522,10 +550,18 @@ class GerencialController extends Controller
      */
     public function buscarLotes(Request $request)
     {
-        $query = Lote::with(['planta', 'empresa'])
+        // id_faena acepta múltiples ids separados por coma (selector de faenas del
+        // Dashboard Gerencial) además del caso simple de un solo id.
+        $conDetalle = $request->boolean('con_detalle');
+        $query = Lote::with($conDetalle ? ['planta', 'empresa', 'camionadas'] : ['planta', 'empresa'])
             ->orderBy('fecha_creacion', 'desc');
 
-        if ($request->filled('id_faena'))   $query->where('id_faena', $request->id_faena);
+        if ($request->filled('id_faena')) {
+            $idFaena = $request->id_faena;
+            strpos($idFaena, ',') !== false
+                ? $query->whereIn('id_faena', array_map('trim', explode(',', $idFaena)))
+                : $query->where('id_faena', $idFaena);
+        }
         if ($request->filled('planta_id'))  $query->where('planta_id', $request->planta_id);
         if ($request->filled('empresa_id')) $query->where('empresa_id', $request->empresa_id);
         if ($request->filled('estado'))     $query->where('estado', $request->estado);
@@ -541,8 +577,30 @@ class GerencialController extends Controller
             });
         }
 
-        $perPage = min((int) $request->get('per_page', 30), 100);
-        return response()->json($query->paginate($perPage));
+        $perPage = min((int) $request->get('per_page', $conDetalle ? 100 : 30), 100);
+        $resultado = $query->paginate($perPage);
+
+        // Con detalle: agrega los MISMOS campos calculados que usa la tarjeta de lote
+        // de Dispatch (DespachosView.jsx) — Real, Teórico pendiente, leyes, estado de
+        // recepción — para que el detalle desplegable de "Por Empresa y Planta" en el
+        // Dashboard Gerencial se vea idéntico, no una versión reducida.
+        if ($conDetalle) {
+            $resultado->getCollection()->transform(function (Lote $lote) {
+                $data = $lote->toArray();
+                $data['peso_recibido'] = $lote->getPesoRecibido();
+                $data['peso_teorico_pendiente'] = $lote->getPesoTeoricoPendiente();
+                $data['numero_camionadas'] = $lote->getNumeroCamionadas();
+                $data['ley_lote_promedio'] = $lote->getLeyLotePromedio();
+                $data['ley_visual_promedio'] = $lote->getLeyVisualPromedio();
+                $data['todas_recepcionadas'] = $lote->todasCamionadasRecepcionadas();
+                $data['camionadas_recepcionadas'] = $lote->camionadas
+                    ->whereIn('estado', [Camionada::ESTADO_RECIBIDO, Camionada::ESTADO_COMPLETADO])
+                    ->count();
+                return $data;
+            });
+        }
+
+        return response()->json($resultado);
     }
 
     /**
@@ -775,6 +833,7 @@ class GerencialController extends Controller
             ->join('frentes_trabajo as f', 'f.id', '=', 'd.id_frente_trabajo')
             ->select(
                 'd.fecha',
+                'd.id_faena',
                 DB::raw('COALESCE(f.codigo_completo, CONCAT(f.manto, "-", COALESCE(f.calle, ""), COALESCE(f.hebra, ""))) as frente'),
                 // Grupo = túnel (o manto cuando el frente no tiene túnel cargado, ej.
                 // los "M3-"/"M5-"). Con 20-30+ frentes distintos, colorear/apilar por
@@ -788,7 +847,9 @@ class GerencialController extends Controller
                 DB::raw('COALESCE(d.jornada, "Sin jornada") as jornada'),
                 DB::raw('COUNT(d.id) as cantidad'),
                 DB::raw('COALESCE(SUM(d.ton), 0) as toneladas'),
-                DB::raw('CASE WHEN SUM(d.ton) > 0 THEN SUM(d.ton * d.ley) / SUM(d.ton) ELSE NULL END as ley_promedio')
+                // cu_insoluble (no ley/Cu Total) — mismo criterio que statsDumpadas y
+                // topFrentes en resumen().
+                DB::raw('CASE WHEN SUM(d.ton) > 0 THEN SUM(d.ton * d.cu_insoluble) / SUM(d.ton) ELSE NULL END as ley_promedio')
             )
             ->whereNotNull('d.fecha')
             ->whereBetween('d.fecha', [$fechaDesde, $fechaHasta]);
@@ -796,7 +857,7 @@ class GerencialController extends Controller
         if ($idFaena) $query->where('d.id_faena', $idFaena);
 
         $rows = $query
-            ->groupBy('d.fecha', 'frente', 'grupo', 'jornada')
+            ->groupBy('d.fecha', 'd.id_faena', 'frente', 'grupo', 'jornada')
             ->orderBy('d.fecha')
             ->orderBy('frente')
             ->get();
@@ -805,6 +866,7 @@ class GerencialController extends Controller
             'success' => true,
             'data'    => $rows->map(fn($r) => [
                 'fecha'        => $r->fecha,
+                'id_faena'     => $r->id_faena,
                 'frente'       => $r->frente,
                 'grupo'        => $r->grupo,
                 'jornada'      => $r->jornada,
@@ -812,6 +874,88 @@ class GerencialController extends Controller
                 'toneladas'    => (float) $r->toneladas,
                 'ley_promedio' => $r->ley_promedio !== null ? round((float) $r->ley_promedio, 3) : null,
             ]),
+        ]);
+    }
+
+    /**
+     * Resumen de dumpadas por frente + jornada, en el rango de fechas y faena(s)
+     * filtrados desde el Dashboard Gerencial.
+     *
+     * Nota: NO reusa /dispatch/resumen-semana (DumpadaController::resumenSemana) porque
+     * ese endpoint bloquea a usuarios no-globales (ej. "Gerente Operaciones") a su propia
+     * auth_faena e ignora el id_faena que mande el selector — correcto para el hub de
+     * Dispatch, pero rompe el selector multi-faena del Dashboard Gerencial (con 2 faenas
+     * seleccionadas solo mostraba la faena del usuario). Este método sigue el mismo patrón
+     * que el resto de GerencialController: confía en el id_faena de la query (uno o varios
+     * separados por coma), sin filtro adicional por rol.
+     * GET /api/gerencial/resumen-dumpadas
+     */
+    public function resumenDumpadas(Request $request)
+    {
+        $idFaena = $request->get('id_faena');
+        $fechaDesde = $request->get('fecha_desde', Carbon::now()->startOfMonth()->format('Y-m-d'));
+        $fechaHasta = $request->get('fecha_hasta', Carbon::now()->format('Y-m-d'));
+
+        $query = Dumpada::with('frenteTrabajo')
+            ->whereDate('fecha', '>=', $fechaDesde)
+            ->whereDate('fecha', '<=', $fechaHasta);
+
+        if ($idFaena) {
+            $ids = strpos($idFaena, ',') !== false
+                ? array_map('trim', explode(',', $idFaena))
+                : [$idFaena];
+            $query->whereIn('id_faena', $ids);
+        }
+
+        $dumpadas = $query->get(['id_frente_trabajo', 'id_faena', 'jornada', 'ton', 'cu_insoluble', 'nombre_maquina']);
+
+        $resultado = [];
+        foreach ($dumpadas->groupBy('id_frente_trabajo') as $idFrente => $dumpadasFrente) {
+            $frente = $dumpadasFrente->first()->frenteTrabajo;
+            $jornadas = [];
+
+            foreach ($dumpadasFrente->groupBy('jornada') as $jornada => $dumpadasJornada) {
+                // Ley promedio ponderada por tonelaje: Σ(ton × cu_insoluble) / Σton, solo
+                // sobre las dumpadas que ya tienen resultado de laboratorio. Una dumpada de
+                // 40 ton pesa más que una de 4 ton — evita que muchas dumpadas chicas con
+                // ley atípica distorsionen el promedio igual que una grande.
+                $conLey    = $dumpadasJornada->whereNotNull('cu_insoluble');
+                $tonConLey = (float) $conLey->sum('ton');
+                $maquinas  = $dumpadasJornada->pluck('nombre_maquina')->filter()->unique()->values()->toArray();
+
+                $jornadas[] = [
+                    'jornada'        => $jornada,
+                    'total_dumpadas' => $dumpadasJornada->count(),
+                    'ton_total'      => round((float) $dumpadasJornada->sum('ton'), 2),
+                    'ley_promedio'   => $tonConLey > 0 ? round($conLey->sum(fn($d) => $d->ton * $d->cu_insoluble) / $tonConLey, 3) : null,
+                    'maquinas'       => $maquinas,
+                ];
+            }
+
+            $conLeyFrente    = $dumpadasFrente->whereNotNull('cu_insoluble');
+            $tonConLeyFrente = (float) $conLeyFrente->sum('ton');
+
+            $resultado[] = [
+                'id_frente_trabajo' => $idFrente,
+                'id_faena'          => $dumpadasFrente->first()->id_faena,
+                'frente'            => $frente?->codigo_completo ?? 'Sin frente',
+                'total_dumpadas'    => $dumpadasFrente->count(),
+                'ton_total'         => round((float) $dumpadasFrente->sum('ton'), 2),
+                'ley_promedio'      => $tonConLeyFrente > 0 ? round($conLeyFrente->sum(fn($d) => $d->ton * $d->cu_insoluble) / $tonConLeyFrente, 3) : null,
+                // Toneladas con resultado de laboratorio (denominador del ponderado) — el
+                // frontend lo necesita para combinar el ley_promedio de varios frentes/faenas
+                // en un ponderado conjunto sin tener que traer las dumpadas una por una.
+                'ton_con_ley'       => $tonConLeyFrente,
+                'jornadas'          => $jornadas,
+            ];
+        }
+
+        usort($resultado, fn($a, $b) => $b['total_dumpadas'] - $a['total_dumpadas']);
+
+        return response()->json([
+            'success' => true,
+            'data'    => $resultado,
+            'periodo' => ['desde' => $fechaDesde, 'hasta' => $fechaHasta],
         ]);
     }
 

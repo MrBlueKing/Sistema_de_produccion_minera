@@ -138,6 +138,7 @@ class LoteController extends Controller
         $loteData['todas_recepcionadas'] = $lote->todasCamionadasRecepcionadas();
         $loteData['peso_total'] = $lote->getPesoTotal();
         $loteData['peso_recibido'] = $lote->getPesoRecibido();
+        $loteData['peso_teorico_pendiente'] = $lote->getPesoTeoricoPendiente();
         $loteData['remanente'] = $lote->getRemanente();
         $loteData['numero_camionadas'] = $lote->getNumeroCamionadas();
 

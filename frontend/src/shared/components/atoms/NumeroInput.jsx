@@ -26,6 +26,11 @@ const NumeroInput = forwardRef(function NumeroInput(
       autoComplete="off"
       onChange={(e) => {
         if (patron.test(e.target.value)) {
+          // Normaliza coma a punto ANTES de que el consumidor reciba el evento:
+          // parseFloat("3,25") corta en la coma y da 3, no 3.25 — como el patrón
+          // de arriba permite tipear con coma (costumbre chilena), sin esto
+          // cualquier parseFloat() río abajo trunca el decimal en silencio.
+          e.target.value = e.target.value.replace(',', '.');
           onChange?.(e);
         }
       }}

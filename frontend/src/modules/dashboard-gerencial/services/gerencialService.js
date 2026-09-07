@@ -21,8 +21,18 @@ const gerencialService = {
     return response.data;
   },
 
-  getLotes: async (params = {}) => {
-    const response = await api.get('/gerencial/lotes', { params });
+  getLotes: async (params = {}, signal) => {
+    const response = await api.get('/gerencial/lotes', { params, signal });
+    return response.data;
+  },
+
+  // Resumen de dumpadas por frente + jornada, con rango de fechas y faenas
+  // elegidos desde el Dashboard Gerencial. Endpoint propio (no el de Dispatch
+  // /dispatch/resumen-semana): ese bloquea a usuarios no-globales a su propia
+  // faena e ignora el id_faena de la query, lo que rompía el selector
+  // multi-faena de este dashboard.
+  getResumenDumpadas: async (params = {}, signal) => {
+    const response = await api.get('/gerencial/resumen-dumpadas', { params, signal });
     return response.data;
   },
 
