@@ -198,6 +198,11 @@ class ExplosivosService {
     return response.data;
   }
 
+  async registrarTransferencia(data) {
+    const response = await api.post('/explosivos/movimientos/transferencia', data);
+    return response.data;
+  }
+
   async getReporteMovimientos(params) {
     const response = await api.get('/explosivos/movimientos/reporte', { params });
     return response.data;

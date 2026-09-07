@@ -10,6 +10,7 @@ import {
   HiDocumentText,
   HiCalendar,
   HiTag,
+  HiArrowsRightLeft,
 } from 'react-icons/hi2';
 import Card from '../../../shared/components/atoms/Card';
 import Button from '../../../shared/components/atoms/Button';
@@ -101,7 +102,7 @@ function MovimientoCard({ mov }) {
 
 // ─── MovimientosView principal ────────────────────────────────────────────────
 
-export default function MovimientosView({ polvorin, tipos, onRefresh, faenaActual }) {
+export default function MovimientosView({ polvorin, polvorines = [], tipos, onRefresh, faenaActual, esAdmin = false }) {
   const toast = useToast();
 
   const [loading, setLoading] = useState(true);
@@ -125,6 +126,22 @@ export default function MovimientosView({ polvorin, tipos, onRefresh, faenaActua
     { id_tipo_explosivo: '', cantidad: '', numero_lote: '', fecha_vencimiento: '', precio_unitario: '' },
   ]);
   const [submitting, setSubmitting] = useState(false);
+
+  const [showTrasladoModal, setShowTrasladoModal] = useState(false);
+  const [trasladoForm, setTrasladoForm] = useState({
+    id_polvorin_destino: '', id_tipo_explosivo: '', cantidad: '',
+    guia_despacho: '', autorizado_por: '', entregado_por: '', recibido_por: '', motivo: '',
+  });
+  const [submittingTraslado, setSubmittingTraslado] = useState(false);
+  const polvorinesDestino = polvorines.filter((p) => p.id !== polvorin?.id);
+
+  const hoyISO = () => new Date().toISOString().split('T')[0];
+  const [showSalidaModal, setShowSalidaModal] = useState(false);
+  const [salidaForm, setSalidaForm] = useState({
+    id_tipo_explosivo: '', cantidad: '', fecha: hoyISO(),
+    autorizado_por: '', entregado_por: '', motivo: '',
+  });
+  const [submittingSalida, setSubmittingSalida] = useState(false);
 
   useEffect(() => {
     if (polvorin?.id) loadMovimientos();
@@ -237,6 +254,83 @@ export default function MovimientosView({ polvorin, tipos, onRefresh, faenaActua
     }
   };
 
+  const abrirModalTraslado = () => {
+    setTrasladoForm({
+      id_polvorin_destino: '', id_tipo_explosivo: '', cantidad: '',
+      guia_despacho: '', autorizado_por: '', entregado_por: '', recibido_por: '', motivo: '',
+    });
+    setShowTrasladoModal(true);
+  };
+
+  const handleSubmitTraslado = async (e) => {
+    e.preventDefault();
+    if (!trasladoForm.id_polvorin_destino || !trasladoForm.id_tipo_explosivo || !trasladoForm.cantidad) {
+      toast.error('Error', 'Completa polvorín destino, tipo de explosivo y cantidad');
+      return;
+    }
+    setSubmittingTraslado(true);
+    try {
+      const ahora = new Date();
+      const destino = polvorinesDestino.find((p) => p.id === parseInt(trasladoForm.id_polvorin_destino));
+      await explosivosService.registrarTransferencia({
+        id_polvorin_origen: polvorin.id,
+        id_polvorin_destino: parseInt(trasladoForm.id_polvorin_destino),
+        id_tipo_explosivo: parseInt(trasladoForm.id_tipo_explosivo),
+        cantidad: parseFloat(trasladoForm.cantidad),
+        id_faena: faenaActual.id,
+        fecha: ahora.toISOString().split('T')[0],
+        hora: ahora.toTimeString().slice(0, 5),
+        guia_despacho: trasladoForm.guia_despacho || null,
+        autorizado_por: trasladoForm.autorizado_por || null,
+        entregado_por: trasladoForm.entregado_por || null,
+        recibido_por: trasladoForm.recibido_por || null,
+        motivo: trasladoForm.motivo || `Traslado a ${destino?.nombre || 'otro polvorín'}`,
+      });
+      toast.success('Traslado registrado', `Se descontó de ${polvorin.nombre} y se sumó a ${destino?.nombre || 'destino'}`);
+      setShowTrasladoModal(false);
+      loadMovimientos();
+      onRefresh?.();
+    } catch (error) {
+      toast.error('Error', error.response?.data?.mensaje || 'No se pudo registrar el traslado');
+    } finally {
+      setSubmittingTraslado(false);
+    }
+  };
+
+  const abrirModalSalida = () => {
+    setSalidaForm({ id_tipo_explosivo: '', cantidad: '', fecha: hoyISO(), autorizado_por: '', entregado_por: '', motivo: '' });
+    setShowSalidaModal(true);
+  };
+
+  const handleSubmitSalida = async (e) => {
+    e.preventDefault();
+    if (!salidaForm.id_tipo_explosivo || !salidaForm.cantidad || !salidaForm.motivo) {
+      toast.error('Error', 'Completa tipo de explosivo, cantidad y motivo (obligatorio para dejar registro claro)');
+      return;
+    }
+    setSubmittingSalida(true);
+    try {
+      await explosivosService.registrarSalida({
+        id_polvorin: polvorin.id,
+        id_tipo_explosivo: parseInt(salidaForm.id_tipo_explosivo),
+        cantidad: parseFloat(salidaForm.cantidad),
+        id_faena: faenaActual.id,
+        fecha: salidaForm.fecha,
+        autorizado_por: salidaForm.autorizado_por || null,
+        entregado_por: salidaForm.entregado_por || null,
+        motivo: salidaForm.motivo,
+      });
+      toast.success('Salida registrada', `Se descontó del stock de ${polvorin.nombre}`);
+      setShowSalidaModal(false);
+      loadMovimientos();
+      onRefresh?.();
+    } catch (error) {
+      toast.error('Error', error.response?.data?.mensaje || 'No se pudo registrar la salida');
+    } finally {
+      setSubmittingSalida(false);
+    }
+  };
+
   const hayFiltros = Object.values(filtros).some(v => v !== '');
 
   return (
@@ -249,9 +343,19 @@ export default function MovimientosView({ polvorin, tipos, onRefresh, faenaActua
             <h3 className="text-base font-semibold text-gray-800">Movimientos de Explosivos</h3>
             <p className="text-xs text-gray-500 mt-0.5">{polvorin?.nombre}</p>
           </div>
-          <Button variant="success" icon={HiDocumentText} onClick={abrirModalGuia} className="shrink-0">
-            Registrar Guía de Despacho
-          </Button>
+          <div className="flex flex-wrap gap-2 shrink-0">
+            {esAdmin && (
+              <Button variant="outline" icon={HiAdjustmentsHorizontal} onClick={abrirModalSalida}>
+                Registrar Salida / Ajuste Manual
+              </Button>
+            )}
+            <Button variant="outline" icon={HiArrowsRightLeft} onClick={abrirModalTraslado} disabled={polvorinesDestino.length === 0}>
+              Registrar Traslado
+            </Button>
+            <Button variant="success" icon={HiDocumentText} onClick={abrirModalGuia}>
+              Registrar Guía de Despacho
+            </Button>
+          </div>
         </div>
 
         {/* Filtros */}
@@ -266,6 +370,7 @@ export default function MovimientosView({ polvorin, tipos, onRefresh, faenaActua
             <option value="salida">Salidas</option>
             <option value="ajuste">Ajustes</option>
             <option value="devolucion">Devoluciones</option>
+            <option value="transferencia">Traslados</option>
           </select>
           <select
             value={filtros.id_tipo_explosivo}
@@ -639,6 +744,243 @@ export default function MovimientosView({ polvorin, tipos, onRefresh, faenaActua
                 {submitting
                   ? 'Registrando...'
                   : `Registrar (${guiaItems.filter(i => i.id_tipo_explosivo && i.cantidad).length} producto${guiaItems.filter(i => i.id_tipo_explosivo && i.cantidad).length !== 1 ? 's' : ''})`}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal Traslado entre Polvorines ───────────────────────────────── */}
+      {showTrasladoModal && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/30 backdrop-blur-sm p-0 sm:p-4">
+          <div className="bg-white w-full sm:rounded-xl shadow-2xl sm:max-w-lg max-h-[95vh] flex flex-col rounded-t-2xl">
+
+            {/* Header */}
+            <div className="px-5 py-4 border-b bg-purple-50 rounded-t-2xl sm:rounded-t-xl flex items-start justify-between shrink-0">
+              <div>
+                <h3 className="text-base font-semibold text-purple-800">Registrar Traslado</h3>
+                <p className="text-xs text-purple-600 mt-0.5">
+                  Descuenta de <span className="font-semibold">{polvorin?.nombre}</span> y suma al polvorín destino
+                </p>
+              </div>
+              <button onClick={() => setShowTrasladoModal(false)} className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-white/60">
+                <HiXMark className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Contenido */}
+            <form onSubmit={handleSubmitTraslado} className="flex-1 overflow-y-auto">
+              <div className="p-5 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Polvorín Destino *</label>
+                  <select
+                    value={trasladoForm.id_polvorin_destino}
+                    onChange={(e) => setTrasladoForm((prev) => ({ ...prev, id_polvorin_destino: e.target.value }))}
+                    required
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 bg-white"
+                  >
+                    <option value="">Seleccione...</option>
+                    {polvorinesDestino.map((p) => (
+                      <option key={p.id} value={p.id}>{p.nombre} ({p.codigo})</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de Explosivo *</label>
+                  <select
+                    value={trasladoForm.id_tipo_explosivo}
+                    onChange={(e) => setTrasladoForm((prev) => ({ ...prev, id_tipo_explosivo: e.target.value }))}
+                    required
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 bg-white"
+                  >
+                    <option value="">Seleccione...</option>
+                    {tipos.map((tipo) => (
+                      <option key={tipo.id} value={tipo.id}>{tipo.codigo} — {tipo.nombre} ({tipo.unidad_medida})</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Cantidad *</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    value={trasladoForm.cantidad}
+                    onChange={(e) => setTrasladoForm((prev) => ({ ...prev, cantidad: e.target.value }))}
+                    required
+                    placeholder="0"
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">N° Guía de Despacho</label>
+                  <input
+                    type="text"
+                    value={trasladoForm.guia_despacho}
+                    onChange={(e) => setTrasladoForm((prev) => ({ ...prev, guia_despacho: e.target.value }))}
+                    placeholder="Opcional — referencia del traslado"
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Entregado por</label>
+                    <input
+                      type="text"
+                      value={trasladoForm.entregado_por}
+                      onChange={(e) => setTrasladoForm((prev) => ({ ...prev, entregado_por: e.target.value }))}
+                      placeholder="Opcional"
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Recibido por</label>
+                    <input
+                      type="text"
+                      value={trasladoForm.recibido_por}
+                      onChange={(e) => setTrasladoForm((prev) => ({ ...prev, recibido_por: e.target.value }))}
+                      placeholder="Opcional"
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Motivo / Observaciones</label>
+                  <textarea
+                    value={trasladoForm.motivo}
+                    onChange={(e) => setTrasladoForm((prev) => ({ ...prev, motivo: e.target.value }))}
+                    rows={2}
+                    placeholder={`Ej: Traslado a Cabildo, Guía 123456`}
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500"
+                  />
+                </div>
+              </div>
+            </form>
+
+            {/* Footer */}
+            <div className="px-5 py-4 border-t bg-gray-50 flex gap-3 shrink-0">
+              <Button type="button" variant="secondary" onClick={() => setShowTrasladoModal(false)} className="flex-1">
+                Cancelar
+              </Button>
+              <Button type="submit" variant="primary" disabled={submittingTraslado} onClick={handleSubmitTraslado} className="flex-1 justify-center">
+                {submittingTraslado ? 'Registrando...' : 'Registrar Traslado'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal Salida / Ajuste Manual ──────────────────────────────────── */}
+      {showSalidaModal && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/30 backdrop-blur-sm p-0 sm:p-4">
+          <div className="bg-white w-full sm:rounded-xl shadow-2xl sm:max-w-lg max-h-[95vh] flex flex-col rounded-t-2xl">
+
+            {/* Header */}
+            <div className="px-5 py-4 border-b bg-red-50 rounded-t-2xl sm:rounded-t-xl flex items-start justify-between shrink-0">
+              <div>
+                <h3 className="text-base font-semibold text-red-800">Registrar Salida / Ajuste Manual</h3>
+                <p className="text-xs text-red-600 mt-0.5">
+                  Descuenta stock de <span className="font-semibold">{polvorin?.nombre}</span> sin pasar por un reporte — para correcciones puntuales (ej. material que salió sin quedar registrado en un reporte, o que se trasladó a otra faena antes de que existiera esta función)
+                </p>
+              </div>
+              <button onClick={() => setShowSalidaModal(false)} className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-white/60">
+                <HiXMark className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Contenido */}
+            <form onSubmit={handleSubmitSalida} className="flex-1 overflow-y-auto">
+              <div className="p-5 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Tipo de Explosivo *</label>
+                  <select
+                    value={salidaForm.id_tipo_explosivo}
+                    onChange={(e) => setSalidaForm((prev) => ({ ...prev, id_tipo_explosivo: e.target.value }))}
+                    required
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 bg-white"
+                  >
+                    <option value="">Seleccione...</option>
+                    {tipos.map((tipo) => (
+                      <option key={tipo.id} value={tipo.id}>{tipo.codigo} — {tipo.nombre} ({tipo.unidad_medida})</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Cantidad *</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0.01"
+                      value={salidaForm.cantidad}
+                      onChange={(e) => setSalidaForm((prev) => ({ ...prev, cantidad: e.target.value }))}
+                      required
+                      placeholder="0"
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Fecha *</label>
+                    <input
+                      type="date"
+                      value={salidaForm.fecha}
+                      onChange={(e) => setSalidaForm((prev) => ({ ...prev, fecha: e.target.value }))}
+                      required
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Autorizado por</label>
+                    <input
+                      type="text"
+                      value={salidaForm.autorizado_por}
+                      onChange={(e) => setSalidaForm((prev) => ({ ...prev, autorizado_por: e.target.value }))}
+                      placeholder="Opcional"
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">Entregado por</label>
+                    <input
+                      type="text"
+                      value={salidaForm.entregado_por}
+                      onChange={(e) => setSalidaForm((prev) => ({ ...prev, entregado_por: e.target.value }))}
+                      placeholder="Opcional"
+                      className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Motivo *</label>
+                  <textarea
+                    value={salidaForm.motivo}
+                    onChange={(e) => setSalidaForm((prev) => ({ ...prev, motivo: e.target.value }))}
+                    rows={2}
+                    required
+                    placeholder="Ej: Corrección — material trasladado a Cabildo el 05-09, Guía 123456 (registrado en Cabildo antes de existir Traslado)"
+                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
+                  />
+                </div>
+              </div>
+            </form>
+
+            {/* Footer */}
+            <div className="px-5 py-4 border-t bg-gray-50 flex gap-3 shrink-0">
+              <Button type="button" variant="secondary" onClick={() => setShowSalidaModal(false)} className="flex-1">
+                Cancelar
+              </Button>
+              <Button type="submit" variant="primary" disabled={submittingSalida} onClick={handleSubmitSalida} className="flex-1 justify-center">
+                {submittingSalida ? 'Registrando...' : 'Registrar Salida'}
               </Button>
             </div>
           </div>

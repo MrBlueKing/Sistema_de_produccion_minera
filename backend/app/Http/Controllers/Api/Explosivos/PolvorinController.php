@@ -21,7 +21,14 @@ class PolvorinController extends Controller
     {
         $query = Polvorin::with('autoridadFiscalizadora:id,codigo,nombre');
 
-        $this->aplicarFiltroFaena($query, $request);
+        // `todas=1` se salta el filtro de faena habitual — lo usa el selector de
+        // polvorín DESTINO al "Registrar Traslado" (Movimientos), donde un
+        // polvorinero de una faena necesita ver el polvorín de OTRA faena como
+        // destino posible. El resto de los usos de este listado no manda el
+        // parámetro y siguen viendo solo su propia faena, como antes.
+        if (!$request->boolean('todas')) {
+            $this->aplicarFiltroFaena($query, $request);
+        }
 
         if ($request->has('activo')) {
             $query->where('activo', $request->activo === 'true' || $request->activo === '1');

@@ -222,6 +222,66 @@ class MovimientoExplosivo extends Model
     }
 
     /**
+     * Registrar traslado de explosivos entre polvorines (típicamente entre faenas
+     * distintas, ej. Catemu -> Cabildo). Un solo movimiento con origen Y destino a
+     * la vez (tipo=transferencia) — descuenta el stock del polvorín origen y lo
+     * suma al del polvorín destino, dentro de la misma transacción. Antes de esto
+     * no existía forma de registrar un traslado: un ingreso manual en el polvorín
+     * destino (vía "Registrar Guía de Despacho") sumaba stock ahí pero nunca
+     * restaba del origen, dejando el origen con stock inflado (no reflejaba que
+     * el material ya no estaba físicamente ahí).
+     */
+    public static function registrarTransferencia($datos)
+    {
+        return DB::transaction(function () use ($datos) {
+            // Validar stock disponible en el polvorín origen
+            $stockOrigen = StockExplosivo::where('id_polvorin', $datos['id_polvorin_origen'])
+                ->where('id_tipo_explosivo', $datos['id_tipo_explosivo'])
+                ->first();
+
+            if (!$stockOrigen || $stockOrigen->cantidad_disponible < $datos['cantidad']) {
+                throw new \Exception('Stock insuficiente en el polvorín de origen para el traslado');
+            }
+
+            $polvorinDestino = Polvorin::findOrFail($datos['id_polvorin_destino']);
+
+            // Crear el movimiento (un solo registro representa el traslado completo)
+            $movimiento = self::create([
+                'codigo' => self::generarCodigo(),
+                'tipo' => self::TIPO_TRANSFERENCIA,
+                'id_polvorin_origen' => $datos['id_polvorin_origen'],
+                'id_polvorin_destino' => $datos['id_polvorin_destino'],
+                'id_tipo_explosivo' => $datos['id_tipo_explosivo'],
+                'cantidad' => $datos['cantidad'],
+                'fecha' => $datos['fecha'] ?? Carbon::now()->toDateString(),
+                'hora' => $datos['hora'] ?? Carbon::now()->format('H:i'),
+                'autorizado_por' => $datos['autorizado_por'] ?? null,
+                'entregado_por' => $datos['entregado_por'] ?? null,
+                'recibido_por' => $datos['recibido_por'] ?? null,
+                'guia_despacho' => $datos['guia_despacho'] ?? null,
+                'motivo' => $datos['motivo'] ?? 'Traslado entre polvorines',
+                'observaciones' => $datos['observaciones'] ?? null,
+                // id_faena queda con la faena de origen — el movimiento igual aparece
+                // en la lista de Movimientos de AMBOS polvorines, porque esa vista
+                // filtra por id_polvorin (origen o destino), no por id_faena.
+                'id_faena' => $datos['id_faena'],
+                'user_id' => $datos['user_id'] ?? auth()->id(),
+            ]);
+
+            // Descontar del origen, sumar al destino
+            $stockOrigen->decrementar($datos['cantidad']);
+            $stockDestino = StockExplosivo::obtenerOCrear(
+                $datos['id_polvorin_destino'],
+                $datos['id_tipo_explosivo'],
+                $polvorinDestino->id_faena
+            );
+            $stockDestino->incrementar($datos['cantidad']);
+
+            return $movimiento;
+        });
+    }
+
+    /**
      * Registrar ajuste de inventario
      */
     public static function registrarAjuste($datos)

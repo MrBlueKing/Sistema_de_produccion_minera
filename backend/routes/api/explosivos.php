@@ -79,6 +79,7 @@ Route::prefix('movimientos')->group(function () {
     Route::post('/salida', [MovimientoExplosivoController::class, 'registrarSalida']);
     Route::post('/salida-multiple', [MovimientoExplosivoController::class, 'registrarSalidaMultiple']);
     Route::post('/ajuste', [MovimientoExplosivoController::class, 'registrarAjuste']);
+    Route::post('/transferencia', [MovimientoExplosivoController::class, 'registrarTransferencia']);
     Route::get('/{id}', [MovimientoExplosivoController::class, 'show']);
 });
 

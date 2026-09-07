@@ -92,10 +92,18 @@ class MovimientoExplosivoController extends Controller
             ->orderBy('id', 'desc')
             ->paginate($request->get('per_page', 15));
 
-        // Agregar atributos calculados
-        $movimientos->getCollection()->transform(function ($mov) {
+        // Agregar atributos calculados. Para "transferencia" el signo depende de
+        // desde qué polvorín se está mirando (el mismo movimiento es una salida
+        // para el origen y una entrada para el destino) — el accessor del modelo
+        // no tiene ese contexto, así que se resuelve acá contra id_polvorin.
+        $idPolvorinVisto = $request->get('id_polvorin');
+        $movimientos->getCollection()->transform(function ($mov) use ($idPolvorinVisto) {
             $mov->tipo_formateado = $mov->tipo_formateado;
-            $mov->es_positivo = $mov->es_positivo;
+            if ($mov->tipo === MovimientoExplosivo::TIPO_TRANSFERENCIA && $idPolvorinVisto) {
+                $mov->es_positivo = (int) $mov->id_polvorin_destino === (int) $idPolvorinVisto;
+            } else {
+                $mov->es_positivo = $mov->es_positivo;
+            }
             return $mov;
         });
 
@@ -262,6 +270,18 @@ class MovimientoExplosivoController extends Controller
      */
     public function registrarSalida(Request $request)
     {
+        // Salida manual sin reporte: puede "hacer desaparecer" stock con solo escribir
+        // un motivo, sin la trazabilidad de un reporte de perforación de por medio.
+        // Restringido a Administrador de Explosivos — el polvorinero que maneja el
+        // material físico día a día no debe poder también ajustar el libro contable
+        // sin supervisión (separación de funciones, pedido explícito del usuario:
+        // "es mucho privilegio, para que me falsifiquen datos").
+        if (!$this->esUsuarioGlobal($request)) {
+            return response()->json([
+                'mensaje' => 'Solo el Administrador de Explosivos puede registrar salidas manuales.'
+            ], 403);
+        }
+
         $validator = Validator::make($request->all(), [
             'id_polvorin' => 'required|integer|exists:polvorines,id',
             'id_tipo_explosivo' => 'required|integer|exists:tipos_explosivos,id',
@@ -300,6 +320,56 @@ class MovimientoExplosivoController extends Controller
         } catch (Exception $e) {
             return response()->json([
                 'error' => 'Error al registrar la salida',
+                'mensaje' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * POST /api/explosivos/movimientos/transferencia
+     * Registrar un traslado de explosivos entre polvorines (ej. Catemu -> Cabildo).
+     */
+    public function registrarTransferencia(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'id_polvorin_origen' => 'required|integer|exists:polvorines,id',
+            'id_polvorin_destino' => 'required|integer|exists:polvorines,id|different:id_polvorin_origen',
+            'id_tipo_explosivo' => 'required|integer|exists:tipos_explosivos,id',
+            'cantidad' => 'required|numeric|min:0.01',
+            'fecha' => 'required|date',
+            'hora' => 'nullable|date_format:H:i',
+            'guia_despacho' => 'nullable|string|max:100',
+            'autorizado_por' => 'nullable|string|max:150',
+            'entregado_por' => 'nullable|string|max:150',
+            'recibido_por' => 'nullable|string|max:150',
+            'motivo' => 'nullable|string|max:255',
+            'observaciones' => 'nullable|string',
+            'id_faena' => 'required|integer',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'error' => 'Datos inválidos',
+                'detalles' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            $movimiento = MovimientoExplosivo::registrarTransferencia($request->all());
+            $movimiento->load([
+                'tipoExplosivo:id,codigo,nombre',
+                'polvorinOrigen:id,codigo,nombre',
+                'polvorinDestino:id,codigo,nombre',
+            ]);
+
+            return response()->json([
+                'mensaje' => 'Traslado registrado exitosamente',
+                'movimiento' => $movimiento
+            ], 201);
+
+        } catch (Exception $e) {
+            return response()->json([
+                'error' => 'Error al registrar el traslado',
                 'mensaje' => $e->getMessage()
             ], 500);
         }

@@ -97,14 +97,15 @@ export default function Explosivos() {
 
     setLoading(true);
     try {
-      // Para admin, cargar todos los polvorines
-      if (esAdmin) {
-        try {
-          const polvorinesRes = await explosivosService.getPolvorines();
-          setPolvorines(polvorinesRes || []);
-        } catch {
-          setPolvorines([]);
-        }
+      // Se carga siempre (no solo para admin): "Registrar Traslado" en Movimientos
+      // necesita listar TODOS los polvorines como posible destino, aunque el usuario
+      // sea polvorinero de una sola faena — un traslado por definición va hacia
+      // OTRA faena distinta a la propia.
+      try {
+        const polvorinesRes = await explosivosService.getPolvorines({ todas: 1 });
+        setPolvorines(polvorinesRes || []);
+      } catch {
+        setPolvorines([]);
       }
 
       // Cargar polvorín de la faena (si hay faena seleccionada)
@@ -205,8 +206,10 @@ export default function Explosivos() {
         return (
           <MovimientosView
             polvorin={polvorin}
+            polvorines={polvorines}
             tipos={tipos}
             faenaActual={faenaActual}
+            esAdmin={esAdmin}
             onRefresh={loadDatosIniciales}
           />
         );
