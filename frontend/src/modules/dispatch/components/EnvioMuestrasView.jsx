@@ -534,7 +534,11 @@ export default function EnvioMuestrasView({
                         </span>
                       </td>
                       <td className="py-2 px-2">
-                        {dumpada.ley != null ? (
+                        {/* > 0, no != null: un ley de 0.00 no es un resultado real de
+                            laboratorio (bug de backend ya corregido podía dejarlo en 0
+                            en vez de NULL al editar sin tocar Ley) — no debe mostrarse
+                            como "Con Ley". */}
+                        {dumpada.ley != null && parseFloat(dumpada.ley) > 0 ? (
                           <span className="bg-green-500 text-white px-2 py-0.5 rounded-full text-xs font-bold whitespace-nowrap">Con Ley</span>
                         ) : dumpada.para_muestreo ? (
                           <span className="bg-blue-500 text-white px-2 py-0.5 rounded-full text-xs font-bold whitespace-nowrap">Esperando ley</span>

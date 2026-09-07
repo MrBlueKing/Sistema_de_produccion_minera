@@ -587,7 +587,12 @@ class DumpadaController extends Controller
         // Determinar el rango automáticamente si cambió la ley
         $rango = $request->ley ? Dumpada::determinarRango($request->ley) : $dumpada->rango;
 
-        $ley = $request->ley ?? $dumpada->ley;
+        // $request->filled(), no ??: si el campo Ley se deja en blanco en el formulario
+        // de edición, el frontend manda ley:'' (string vacío), no null — '' ?? $x no cae
+        // al fallback porque '' no es null, y el cast decimal del modelo termina
+        // guardando 0.00 en vez de mantener el valor anterior (o NULL si nunca se había
+        // cargado). filled() trata '' igual que "no venía", preservando el valor real.
+        $ley = $request->filled('ley') ? $request->ley : $dumpada->ley;
         // Recalcular ley_cup automáticamente si hay ley
         $leyCup = $ley ? Dumpada::calcularCapping($ley, $frente->id_faena) : null;
         $certificado = $request->certificado ?? $dumpada->certificado;
@@ -609,10 +614,13 @@ class DumpadaController extends Controller
             'numero_jornada' => $numeroJornada,
             'fecha' => $fecha,
             'hora' => $request->hora ?? $dumpada->hora,
-            'ton' => $request->ton ?? $dumpada->ton,
-            'ley' => $request->ley ?? $dumpada->ley,
+            // filled(), no ?? — mismo motivo que $ley más arriba: un campo decimal
+            // dejado en blanco manda '' (no null) y ?? no lo detecta, pisando el
+            // valor real con 0.00.
+            'ton' => $request->filled('ton') ? $request->ton : $dumpada->ton,
+            'ley' => $ley,
             'ley_cup' => $leyCup,
-            'certificado' => $request->certificado ?? $dumpada->certificado,
+            'certificado' => $request->filled('certificado') ? $request->certificado : $dumpada->certificado,
             'ley_visual' => $request->ley_visual ?? $dumpada->ley_visual,
             'acopios' => $acopios,
             'rango' => $rango,
