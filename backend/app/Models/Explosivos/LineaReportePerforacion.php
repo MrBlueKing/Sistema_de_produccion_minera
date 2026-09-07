@@ -68,8 +68,14 @@ class LineaReportePerforacion extends Model
 
     public function calcularExplosivos($idFaena)
     {
+        // whereHas('tipoExplosivo', activos) — antes calculaba y guardaba cantidad para
+        // CUALQUIER explosivo con fórmula configurada, sin importar si estaba Activo o
+        // Inactivo en el Catálogo. El formulario de líneas solo pinta columnas para los
+        // tipos activos, así que un tipo inactivo con fórmula vieja quedaba calculado y
+        // guardado igual, pero invisible — solo aparecía después en el total del polvorín.
         $formulas = FormulaExplosivo::where('id_tipo_frente', $this->id_tipo_frente)
             ->where('id_faena', $idFaena)
+            ->whereHas('tipoExplosivo', fn($q) => $q->activos())
             ->get();
 
         $resultados = [];

@@ -40,13 +40,32 @@ class ReportePerforacionController extends Controller
         return $request->auth_faena;
     }
 
+    /**
+     * Nombre del usuario autenticado para auditoría. auth()->user() SIEMPRE es null
+     * en este backend satélite: la sesión no pasa por el guard nativo de Laravel, la
+     * valida ValidateTokenWithCentral contra el SAC y deja los datos del usuario en
+     * $request->auth_user (array con 'nombre', 'rut', etc.), no en auth(). Usar
+     * auth()->user()/auth()->id() acá siempre cae al fallback 'Sistema' sin importar
+     * quién esté conectado — por eso el Historial del Reporte mostraba "Sistema" en
+     * todas las acciones en vez del nombre real.
+     */
+    private function nombreUsuarioActual(): string
+    {
+        return request()->auth_user['nombre'] ?? 'Sistema';
+    }
+
+    private function idUsuarioActual(): ?int
+    {
+        return request()->auth_user_id;
+    }
+
     private function registrarAuditoria($reporte, $accion, $cambios = null, $observaciones = null)
     {
         AuditoriaReportePerforacion::create([
             'id_reporte' => $reporte->id,
             'accion' => $accion,
-            'usuario' => auth()->user()?->name ?? 'Sistema',
-            'user_id' => auth()->id(),
+            'usuario' => $this->nombreUsuarioActual(),
+            'user_id' => $this->idUsuarioActual(),
             'cambios' => $cambios,
             'observaciones' => $observaciones,
         ]);
@@ -145,7 +164,7 @@ class ReportePerforacionController extends Controller
                 'observaciones' => $request->observaciones,
                 'id_polvorin' => $request->id_polvorin,
                 'id_faena' => $idFaena,
-                'user_id' => auth()->id(),
+                'user_id' => $this->idUsuarioActual(),
             ]);
 
             $this->registrarAuditoria($reporte, 'creado', null, "Reporte {$reporte->codigo} creado");
@@ -238,7 +257,7 @@ class ReportePerforacionController extends Controller
     public function destroy($id)
     {
         $reporte = ReportePerforacion::findOrFail($id);
-        $usuario = auth()->user()?->name ?? 'Sistema';
+        $usuario = $this->nombreUsuarioActual();
         $teniaMovimientos = $reporte->estado !== ReportePerforacion::ESTADO_BORRADOR;
 
         try {
@@ -474,9 +493,13 @@ class ReportePerforacionController extends Controller
 
         $idFaena = $this->getFaenaParaFiltrar($request) ?? $request->auth_faena;
 
+        // whereHas('tipoExplosivo', activos) — mismo fix que LineaReportePerforacion::
+        // calcularExplosivos(): no calcular para tipos Inactivos en el Catálogo, aunque
+        // les haya quedado una fórmula vieja configurada.
         $formulas = FormulaExplosivo::with('tipoExplosivo:id,codigo,nombre,unidad_medida')
             ->where('id_tipo_frente', $request->id_tipo_frente)
             ->where('id_faena', $idFaena)
+            ->whereHas('tipoExplosivo', fn($q) => $q->activos())
             ->get();
 
         $resultados = $formulas->map(function ($formula) use ($request) {
@@ -609,7 +632,7 @@ class ReportePerforacionController extends Controller
     public function habilitarCorreccion($id)
     {
         $reporte = ReportePerforacion::findOrFail($id);
-        $usuario = auth()->user()?->name ?? 'Sistema';
+        $usuario = $this->nombreUsuarioActual();
 
         try {
             $estadoPrevio = $reporte->estado;
@@ -672,7 +695,7 @@ class ReportePerforacionController extends Controller
             return response()->json(['mensaje' => 'Datos inválidos', 'errores' => $validator->errors()], 422);
         }
 
-        $usuario = auth()->user()?->name ?? 'Sistema';
+        $usuario = $this->nombreUsuarioActual();
         $veniaCerrado = $reporte->correccion_estado_previo === ReportePerforacion::ESTADO_CERRADO;
 
         try {
@@ -716,7 +739,7 @@ class ReportePerforacionController extends Controller
             return response()->json(['mensaje' => 'Este reporte no está en corrección.'], 422);
         }
 
-        $usuario = auth()->user()?->name ?? 'Sistema';
+        $usuario = $this->nombreUsuarioActual();
 
         try {
             $reporte->descartarCorreccion($usuario);

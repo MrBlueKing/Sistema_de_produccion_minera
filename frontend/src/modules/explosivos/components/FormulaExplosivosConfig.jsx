@@ -60,6 +60,14 @@ export default function FormulaExplosivosConfig({ tipos, faenaActual }) {
       tiposFrente.forEach((tf) => {
         tiposActivos.forEach((te) => {
           const key = `${tf.id}_${te.id}`;
+          // Celda vacía (nunca configurada, o vacía por una carga a medias) = no
+          // se manda al servidor. Antes se mandaba como factor 0, y el backend
+          // borra la fórmula cuando el factor es 0 — guardar la grilla completa
+          // con UNA celda vacía borraba en silencio la fórmula de ESE explosivo
+          // para TODOS los tipos de labor a la vez (así se perdió el factor de
+          // GUIA en producción). Para borrar una fórmula a propósito, hay que
+          // escribir "0" explícitamente — eso sí se manda y sí se borra.
+          if (factores[key] === undefined || factores[key] === '') return;
           const factor = parseFloat(factores[key]) || 0;
           formulas.push({
             id_tipo_frente: tf.id,

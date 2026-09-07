@@ -851,7 +851,19 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
                     variant="outline"
                     icon={HiCheckCircle}
                     size="sm"
-                    onClick={() => guardarTodasLasLineas({ mostrarToast: true })}
+                    onClick={async () => {
+                      // disabled={submitting} solo protege contra doble-click si ESTA
+                      // función también prende `submitting` — antes no lo hacía, así que
+                      // un doble-click rápido disparaba dos guardarTodasLasLineas()
+                      // concurrentes, cada una viendo la misma línea _local:true y
+                      // creándola por separado (línea duplicada en el reporte).
+                      setSubmitting(true);
+                      try {
+                        await guardarTodasLasLineas({ mostrarToast: true });
+                      } finally {
+                        setSubmitting(false);
+                      }
+                    }}
                     disabled={submitting}
                   >
                     Guardar líneas
