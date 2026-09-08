@@ -337,6 +337,12 @@ class MovimientoExplosivo extends Model
 
     public function getEsPositivoAttribute()
     {
+        if ($this->tipo === self::TIPO_AJUSTE) {
+            // Un ajuste sube stock si tiene destino (igual que entrada/transferencia
+            // entrante), y lo baja si tiene origen — ver registrarAjuste() arriba.
+            return !is_null($this->id_polvorin_destino);
+        }
+
         return in_array($this->tipo, [self::TIPO_ENTRADA, self::TIPO_DEVOLUCION]);
     }
 }
