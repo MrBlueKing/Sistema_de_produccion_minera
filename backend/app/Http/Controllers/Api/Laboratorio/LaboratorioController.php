@@ -183,8 +183,8 @@ class LaboratorioController extends Controller
         // Determinar el rango automáticamente basado en la ley
         $rango = Dumpada::determinarRango($request->ley);
 
-        // Calcular el capping automáticamente
-        $leyCup = Dumpada::calcularCapping($request->ley, $dumpada->id_faena);
+        // Calcular el capping automáticamente (sobre Cu Insoluble, no Cu Total)
+        $leyCup = Dumpada::calcularCapping($cuInsoluble, $dumpada->id_faena);
 
         // Actualizar la dumpada con los datos del laboratorio
         // NOTA: El certificado queda NULL hasta que se genere el PDF
@@ -252,8 +252,8 @@ class LaboratorioController extends Controller
             // Determinar el rango automáticamente
             $rango = Dumpada::determinarRango($analisis['ley']);
 
-            // Calcular el capping automáticamente
-            $leyCup = Dumpada::calcularCapping($analisis['ley'], $dumpada->id_faena);
+            // Calcular el capping automáticamente (sobre Cu Insoluble, no Cu Total)
+            $leyCup = Dumpada::calcularCapping($cuInsoluble, $dumpada->id_faena);
 
             // NOTA: El certificado queda NULL hasta que se genere el PDF
             $dumpada->update([
@@ -307,7 +307,7 @@ class LaboratorioController extends Controller
 
         $cuInsoluble = $request->cu_insoluble ?? ($request->ley - $request->cu_soluble);
         $rango = Dumpada::determinarRango($request->ley);
-        $leyCup = Dumpada::calcularCapping($request->ley, $dumpada->id_faena);
+        $leyCup = Dumpada::calcularCapping($cuInsoluble, $dumpada->id_faena);
 
         $dumpada->update([
             'ley' => $request->ley,
