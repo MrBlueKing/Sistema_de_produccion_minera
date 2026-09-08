@@ -1901,7 +1901,7 @@ function DispatchContent() {
                         <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs" title="Fecha de registro">Fecha</th>
                         <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs whitespace-nowrap" title="Dumper/máquina que realizó la dumpada">Dumper</th>
                         <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs" title="Toneladas">Ton</th>
-                        <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs" title="Ley de laboratorio">Ley</th>
+                        <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs" title="Cu Insoluble de laboratorio (Ley Total - Cu Soluble)">Cu Insol.</th>
                         <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs whitespace-nowrap" title="Ley Cup de laboratorio">Ley Cup</th>
                         <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs" title="Número de certificado (se asigna al generar PDF)">Certificado</th>
                         <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs whitespace-nowrap" title="Ley visual en terreno">Ley Visual</th>
@@ -1975,8 +1975,8 @@ function DispatchContent() {
                               {dumpada.ton ? `${parseFloat(dumpada.ton).toFixed(2)}` : '-'}
                             </td>
                             <td className="py-3 px-3 text-gray-700 text-xs">
-                              {dumpada.ley ? (
-                                <span className="font-medium">{parseFloat(dumpada.ley).toFixed(3)}%</span>
+                              {dumpada.cu_insoluble ? (
+                                <span className="font-medium">{parseFloat(dumpada.cu_insoluble).toFixed(3)}%</span>
                               ) : '-'}
                             </td>
                             <td className="py-3 px-3 text-gray-700 text-xs">
