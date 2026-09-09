@@ -140,6 +140,11 @@ const DespachosView = () => {
   // Lotes abiertos con camionadas (para vista cards)
   const [lotesAbiertosCards, setLotesAbiertosCards] = useState([]);
 
+  // Lotes del mes actual (abiertos + cerrados) para "Resumen General" —
+  // lotesAbiertosCards solo trae abiertos, el resumen debe incluir también
+  // los ya cerrados del mes.
+  const [lotesResumenGeneral, setLotesResumenGeneral] = useState([]);
+
   // Recepción inline en cards de lotes
   const [recepcionandoId, setRecepcionandoId] = useState(null);
   const [formRecepcionInline, setFormRecepcionInline] = useState({ peso_real: '' });
@@ -171,8 +176,36 @@ const DespachosView = () => {
   useEffect(() => {
     if (vistaActiva === 'lotes') {
       cargarLotes(1); // Reset a página 1 cuando cambian filtros o tab
+      if (tabLotesActivo === 'abiertos') {
+        cargarLotesResumenGeneral();
+      }
     }
   }, [vistaActiva, tabLotesActivo, filtrosLotes]);
+
+  // Resumen General = mes actual (abiertos + cerrados). Sin acotar por fecha
+  // esto traería TODO el histórico de lotes cerrados (sin paginar) — se limita
+  // al mes en curso salvo que el usuario ya haya puesto su propio rango de
+  // fechas en los filtros, que en ese caso manda.
+  const cargarLotesResumenGeneral = async () => {
+    try {
+      const hoy = new Date();
+      const primerDiaMes = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+      const fmt = (d) => d.toISOString().split('T')[0];
+
+      const params = {
+        fecha_desde: filtrosLotes.fecha_desde || fmt(primerDiaMes),
+        fecha_hasta: filtrosLotes.fecha_hasta || fmt(hoy),
+      };
+      if (filtrosLotes.planta_id) params.planta_id = filtrosLotes.planta_id;
+      if (filtrosLotes.empresa_id) params.empresa_id = filtrosLotes.empresa_id;
+      if (filtrosLotes.search) params.search = filtrosLotes.search;
+
+      const response = await laboratorioService.getLotes(params);
+      setLotesResumenGeneral(Array.isArray(response) ? response : (response?.data || []));
+    } catch (error) {
+      console.error('Error cargando resumen general de lotes:', error);
+    }
+  };
 
   const cargarDatos = async () => {
     setLoading(true);
@@ -1847,11 +1880,11 @@ const DespachosView = () => {
             </div>
           )}
 
-          {/* Resumen General por Planta > Empresa */}
-          {tabLotesActivo === 'abiertos' && lotesAbiertosCards.length > 0 && (() => {
+          {/* Resumen General por Planta > Empresa — mes actual, abiertos + cerrados */}
+          {tabLotesActivo === 'abiertos' && lotesResumenGeneral.length > 0 && (() => {
             // Agrupar lotes por planta > empresa
             const resumen = {};
-            lotesAbiertosCards.forEach(lote => {
+            lotesResumenGeneral.forEach(lote => {
               const plantaNombre = lote.planta?.nombre || lote.planta_nombre || 'Sin Planta';
               const empresaNombre = lote.empresa?.nombre || lote.empresa_nombre || 'Sin Empresa';
               const key = `${plantaNombre}|||${empresaNombre}`;
@@ -1916,6 +1949,9 @@ const DespachosView = () => {
                 <h3 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
                   <HiChartBar className="text-indigo-500" />
                   Resumen General
+                  <span className="text-xs font-normal text-gray-400 capitalize">
+                    · {(filtrosLotes.fecha_desde || filtrosLotes.fecha_hasta) ? 'rango filtrado' : new Date().toLocaleDateString('es-CL', { month: 'long', year: 'numeric' })} · abiertos + cerrados
+                  </span>
                 </h3>
 
                 <div className="bg-white border-2 border-indigo-200 rounded-lg px-4 py-3 mb-4">
