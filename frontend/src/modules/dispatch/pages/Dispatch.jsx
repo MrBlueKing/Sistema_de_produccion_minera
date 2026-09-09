@@ -1367,7 +1367,10 @@ function DispatchContent() {
                         const abiertos  = lotesDelMes.filter(l => l.estado === 'Abierto').length;
                         const cerrados  = lotesDelMes.length - abiertos;
                         const totalCam  = lotesDelMes.reduce((s, l) => s + (l.camionadas?.length || 0), 0);
-                        const totalTon  = lotesDelMes.reduce((s, l) => s + (l.camionadas?.reduce((a, c) => a + parseFloat(c.peso || 0), 0) || 0), 0);
+                        // Despachado = Real + Teórico (converge hacia lo recepcionado a medida
+                        // que llegan los tickets), no la suma del peso declarado de todas las
+                        // camionadas — mismo criterio que "Resumen General" en Despachos.
+                        const totalTon  = lotesDelMes.reduce((s, l) => s + parseFloat(l.peso_recibido || 0) + parseFloat(l.peso_teorico_pendiente || 0), 0);
                         return (
                           <div className="bg-white rounded-xl border border-emerald-100 shadow-sm mb-3 divide-x divide-emerald-100 flex overflow-hidden">
                             <div className="flex-1 px-4 py-3 text-center">
@@ -1396,7 +1399,11 @@ function DispatchContent() {
                       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
                         {lotesDelMes.map((lote) => {
                           const estaAbierto = lote.estado === 'Abierto';
-                          const totalTon = lote.camionadas?.reduce((s, c) => s + parseFloat(c.peso || 0), 0) || 0;
+                          // Despachado = Real + Teórico, mismo criterio que "Resumen General"
+                          // en Despachos — no sumar el peso declarado de todas las camionadas.
+                          const pesoRecibido = parseFloat(lote.peso_recibido || 0);
+                          const pesoTeoricoPendiente = parseFloat(lote.peso_teorico_pendiente || 0);
+                          const totalTon = pesoRecibido + pesoTeoricoPendiente;
                           const numCamionadas = lote.camionadas?.length || 0;
                           return (
                             <div key={lote.id} className={`bg-white rounded-xl border border-l-4 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 overflow-hidden cursor-pointer ${estaAbierto ? 'border-emerald-200 border-l-emerald-400' : 'border-gray-200 border-l-gray-300'}`}
@@ -1429,6 +1436,11 @@ function DispatchContent() {
                                     <p className="text-[10px] text-gray-400 uppercase tracking-wide mt-1">toneladas</p>
                                   </div>
                                 </div>
+                                <p className="text-[10px] text-gray-400 mt-2">
+                                  <span className="text-green-600 font-semibold">{pesoRecibido.toFixed(2)} t</span> real
+                                  {' + '}
+                                  <span className="text-amber-600 font-semibold">{pesoTeoricoPendiente.toFixed(2)} t</span> teórico
+                                </p>
                               </div>
 
                               {/* Detalles */}
