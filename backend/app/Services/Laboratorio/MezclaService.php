@@ -610,7 +610,11 @@ class MezclaService
         })->where(function($q) {
             $q->whereNotNull('ley')
               ->orWhereNotNull('ley_visual');
-        });
+        })
+        // Explicito, no depender solo de que Esteril nunca tenga ley/ley_visual: una
+        // dumpada Esteril no tiene cobre que aportar a una mezcla, sin importar si en el
+        // futuro esa regla de arriba cambia por otro motivo.
+        ->where('tipo_material', '!=', Dumpada::TIPO_MATERIAL_ESTERIL);
 
         if (isset($filtros['fecha_desde'])) {
             $query->where('fecha', '>=', $filtros['fecha_desde']);

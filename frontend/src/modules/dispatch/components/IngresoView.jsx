@@ -35,7 +35,7 @@ export default function IngresoView({
   };
 
   const [formsIngresoMasivo, setFormsIngresoMasivo] = useState([{
-    id: 1, id_frente_trabajo: '', jornada: '', ley_visual: '', id_maquina: '', nombre_maquina: '', ton: '', ...fechaHoraActual(),
+    id: 1, id_frente_trabajo: '', jornada: '', ley_visual: '', tipo_material: 'mineral', id_maquina: '', nombre_maquina: '', ton: '', ...fechaHoraActual(),
   }]);
 
   const [ingresoRapido, setIngresoRapido] = useState({
@@ -49,14 +49,14 @@ export default function IngresoView({
 
   const resetFormIngreso = () => {
     setFormsIngresoMasivo([{
-      id: 1, id_frente_trabajo: '', jornada: '', ley_visual: '', id_maquina: '', nombre_maquina: '', ton: '', ...fechaHoraActual(),
+      id: 1, id_frente_trabajo: '', jornada: '', ley_visual: '', tipo_material: 'mineral', id_maquina: '', nombre_maquina: '', ton: '', ...fechaHoraActual(),
     }]);
   };
 
   const agregarFilaIngreso = () => {
     const newId = Math.max(...formsIngresoMasivo.map(f => f.id)) + 1;
     setFormsIngresoMasivo([...formsIngresoMasivo, {
-      id: newId, id_frente_trabajo: '', jornada: '', ley_visual: '', id_maquina: '', nombre_maquina: '', ton: '', ...fechaHoraActual(),
+      id: newId, id_frente_trabajo: '', jornada: '', ley_visual: '', tipo_material: 'mineral', id_maquina: '', nombre_maquina: '', ton: '', ...fechaHoraActual(),
     }]);
   };
 
@@ -81,6 +81,7 @@ export default function IngresoView({
         id_frente_trabajo: filaToDuplicate.id_frente_trabajo,
         jornada: filaToDuplicate.jornada,
         ley_visual: filaToDuplicate.ley_visual,
+        tipo_material: filaToDuplicate.tipo_material || 'mineral',
         id_maquina: filaToDuplicate.id_maquina,
         nombre_maquina: filaToDuplicate.nombre_maquina,
         ton: filaToDuplicate.ton,
@@ -123,7 +124,7 @@ export default function IngresoView({
   const handleSubmitIngresoMasivo = async (e) => {
     e.preventDefault();
     setLoading(true);
-    const filasValidas = formsIngresoMasivo.filter(f => f.id_frente_trabajo && f.jornada && f.ley_visual && f.id_maquina && f.ton);
+    const filasValidas = formsIngresoMasivo.filter(f => f.id_frente_trabajo && f.jornada && (f.tipo_material === 'esteril' || f.ley_visual) && f.id_maquina && f.ton);
     if (filasValidas.length === 0) {
       toast.warning('Atención', 'Debes completar al menos una fila para guardar');
       setLoading(false);
@@ -143,7 +144,8 @@ export default function IngresoView({
       const dumpadasData = filasValidas.map(form => ({
         id_frente_trabajo: form.id_frente_trabajo,
         jornada: form.jornada,
-        ley_visual: form.ley_visual,
+        tipo_material: form.tipo_material || 'mineral',
+        ley_visual: form.tipo_material === 'esteril' ? null : form.ley_visual,
         id_maquina: form.id_maquina ? parseInt(form.id_maquina) : null,
         nombre_maquina: form.nombre_maquina || null,
         ton: form.ton ? parseFloat(form.ton) : tonelajeDumpadaDefault,
@@ -246,7 +248,7 @@ export default function IngresoView({
     setLoading(true);
     setProgressInfo({ show: true, steps: [{ id: 1, label: 'Procesando decisiones de acopios...', status: 'loading' }] });
     try {
-      const filasValidas = formsIngresoMasivo.filter(f => f.id_frente_trabajo && f.jornada && f.ley_visual && f.id_maquina && f.ton);
+      const filasValidas = formsIngresoMasivo.filter(f => f.id_frente_trabajo && f.jornada && (f.tipo_material === 'esteril' || f.ley_visual) && f.id_maquina && f.ton);
       for (let grupoIndex = 0; grupoIndex < gruposDetectados.length; grupoIndex++) {
         const grupo = gruposDetectados[grupoIndex];
         const decision = decisiones[grupoIndex];
@@ -308,7 +310,7 @@ export default function IngresoView({
           <div>
             <h3 className="text-xl font-bold text-gray-900">Ingreso de Dumpadas</h3>
             <p className="text-sm text-gray-500 mt-0.5">
-              {formsIngresoMasivo.length} fila(s) · {formsIngresoMasivo.filter(f => f.id_frente_trabajo && f.jornada && f.ley_visual && f.id_maquina && f.ton).length} lista(s) para registrar
+              {formsIngresoMasivo.length} fila(s) · {formsIngresoMasivo.filter(f => f.id_frente_trabajo && f.jornada && (f.tipo_material === 'esteril' || f.ley_visual) && f.id_maquina && f.ton).length} lista(s) para registrar
             </p>
           </div>
           <div className="flex gap-2">
@@ -438,7 +440,7 @@ export default function IngresoView({
             <div className="space-y-2">
               <div className="bg-white border border-orange-200 rounded-lg px-3 py-2">
                 <p className="text-xs font-bold text-orange-700">Qué se registra</p>
-                <p className="text-xs text-gray-500 mt-0.5">Por cada dumpada se ingresa: <strong>Frente de trabajo</strong>, <strong>Jornada</strong>, <strong>Máquina</strong> y opcionalmente la <strong>Ley Visual</strong> tomada en terreno. Sin ley visual, la dumpada igualmente queda registrada. La dumpada queda en estado <strong className="text-yellow-600">Ingresado</strong>.</p>
+                <p className="text-xs text-gray-500 mt-0.5">Por cada dumpada se ingresa: <strong>Frente de trabajo</strong>, <strong>Jornada</strong>, <strong>Máquina</strong> y la <strong>Ley Visual</strong> tomada en terreno. Si marcás <strong>Es Estéril</strong>, la Ley Visual pasa a opcional (el material no tiene cobre que reportar) y la dumpada no pasa por Envío de Muestras ni Laboratorio. La dumpada queda en estado <strong className="text-yellow-600">Ingresado</strong>.</p>
               </div>
               <div className="bg-white border border-orange-200 rounded-lg px-3 py-2">
                 <p className="text-xs font-bold text-orange-700">Tonelaje</p>
@@ -470,7 +472,7 @@ export default function IngresoView({
                 </div>
 
                 {/* Campos */}
-                <div className="flex-1 grid grid-cols-1 md:grid-cols-3 lg:grid-cols-7 gap-3 items-end">
+                <div className="flex-1 grid grid-cols-1 md:grid-cols-4 lg:grid-cols-8 gap-3 items-end">
                   <SearchableSelect
                     label="Frente de Trabajo *"
                     options={frentes.map(frente => ({ value: frente.id, label: frente.codigo_completo }))}
@@ -498,15 +500,56 @@ export default function IngresoView({
                     </select>
                   </div>
 
-                  <Input
-                    label="Ley Visual (%)"
-                    type="number"
-                    step="0.001"
-                    value={form.ley_visual}
-                    onChange={(e) => actualizarFilaIngreso(form.id, 'ley_visual', e.target.value)}
-                    placeholder="Ej: 2.300"
-                    required
-                  />
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">Material</label>
+                    <div className="flex h-[42px] border border-gray-300 rounded-lg overflow-hidden">
+                      <button
+                        type="button"
+                        onClick={() => setFormsIngresoMasivo(prev => prev.map(f =>
+                          f.id === form.id ? { ...f, tipo_material: 'mineral' } : f
+                        ))}
+                        className={`flex-1 text-xs font-semibold transition-colors ${
+                          form.tipo_material !== 'esteril'
+                            ? 'bg-indigo-600 text-white'
+                            : 'bg-white text-gray-500 hover:bg-gray-50'
+                        }`}
+                      >
+                        Mineral
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFormsIngresoMasivo(prev => prev.map(f =>
+                          f.id === form.id ? { ...f, tipo_material: 'esteril', ley_visual: '' } : f
+                        ))}
+                        className={`flex-1 text-xs font-semibold border-l border-gray-300 transition-colors ${
+                          form.tipo_material === 'esteril'
+                            ? 'bg-stone-500 text-white'
+                            : 'bg-white text-gray-500 hover:bg-gray-50'
+                        }`}
+                      >
+                        Estéril
+                      </button>
+                    </div>
+                  </div>
+
+                  {form.tipo_material === 'esteril' ? (
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-400 mb-2">Ley Visual (%)</label>
+                      <div className="w-full px-3 py-2.5 border border-dashed border-gray-300 rounded-lg bg-gray-50 text-sm text-gray-400 h-[42px] flex items-center">
+                        No aplica
+                      </div>
+                    </div>
+                  ) : (
+                    <Input
+                      label="Ley Visual (%)"
+                      type="number"
+                      step="0.001"
+                      value={form.ley_visual}
+                      onChange={(e) => actualizarFilaIngreso(form.id, 'ley_visual', e.target.value)}
+                      placeholder="Ej: 2.300"
+                      required
+                    />
+                  )}
 
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -606,7 +649,7 @@ export default function IngresoView({
                 Limpiar
               </Button>
               <Button type="submit" variant="success" disabled={loading}>
-                {loading ? 'Guardando...' : `Registrar ${formsIngresoMasivo.filter(f => f.id_frente_trabajo && f.jornada && f.ley_visual && f.id_maquina && f.ton).length} Dumpada(s)`}
+                {loading ? 'Guardando...' : `Registrar ${formsIngresoMasivo.filter(f => f.id_frente_trabajo && f.jornada && (f.tipo_material === 'esteril' || f.ley_visual) && f.id_maquina && f.ton).length} Dumpada(s)`}
               </Button>
             </div>
           </div>

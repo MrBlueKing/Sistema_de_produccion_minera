@@ -127,6 +127,7 @@ function DispatchContent() {
     id_faena: '',
     numero_dumpada: '',
     en_mezcla: '',
+    tipo_material: '',
   });
 
   // Debounce para la búsqueda
@@ -416,6 +417,7 @@ function DispatchContent() {
             id_faena: idFaenaParam || filters.id_faena || undefined,
             numero_dumpada: filters.numero_dumpada || undefined,
             en_mezcla: filters.en_mezcla || undefined,
+            tipo_material: filters.tipo_material || undefined,
           };
 
           // Limpiar parámetros undefined
@@ -544,6 +546,7 @@ function DispatchContent() {
       id_faena: '',
       numero_dumpada: '',
       en_mezcla: '',
+      tipo_material: '',
     });
     setCurrentPage(1);
   };
@@ -850,7 +853,7 @@ function DispatchContent() {
     <div className="min-h-screen bg-gray-50">
       <Header />
 
-      <main className="max-w-7xl mx-auto px-4 py-6">
+      <main className={`mx-auto px-4 py-6 ${vistaActual === 'historial' ? 'max-w-[1600px]' : 'max-w-7xl'}`}>
         {/* Breadcrumb */}
         <div className="mb-6">
           <Breadcrumb
@@ -952,6 +955,7 @@ function DispatchContent() {
           dumpada={editModal.dumpada}
           frentes={frentes}
           jornadas={jornadas}
+          maquinas={maquinas}
           onConfirm={handleEditConfirm}
           onCancel={handleEditCancel}
         />
@@ -1832,6 +1836,15 @@ function DispatchContent() {
                     { value: 'no', label: 'No usadas en mezclas' },
                     { value: 'si', label: 'Usadas en mezclas' }
                   ]
+                },
+                {
+                  name: 'tipo_material',
+                  label: 'Material',
+                  type: 'select',
+                  options: [
+                    { value: 'mineral', label: 'Mineral' },
+                    { value: 'esteril', label: 'Estéril' }
+                  ]
                 }
               ]}
               filterValues={filters}
@@ -1896,7 +1909,7 @@ function DispatchContent() {
                         </th>
                         <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs whitespace-nowrap" title="Número de dumpada">N° Dump</th>
                         <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs" title="Código del frente de trabajo">Frente</th>
-                        <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs" title="Código del acopio de origen">Código</th>
+                        <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs min-w-[260px]" title="Código del acopio de origen">Código</th>
                         <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs" title="Jornada laboral">Jornada</th>
                         <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs" title="Fecha de registro">Fecha</th>
                         <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs whitespace-nowrap" title="Dumper/máquina que realizó la dumpada">Dumper</th>
@@ -1905,8 +1918,8 @@ function DispatchContent() {
                         <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs whitespace-nowrap" title="Ley Cup de laboratorio">Ley Cup</th>
                         <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs" title="Número de certificado (se asigna al generar PDF)">Certificado</th>
                         <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs whitespace-nowrap" title="Ley visual en terreno">Ley Visual</th>
+                        <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs" title="Clasificación de material hecha en terreno">Material</th>
                         <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs" title="Rango calculado">Rango</th>
-                        <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs" title="Estado del análisis">Estado</th>
                         <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs">Acciones</th>
                       </tr>
                     </thead>
@@ -1946,7 +1959,7 @@ function DispatchContent() {
                                 {dumpada.frente_trabajo?.codigo_completo || '-'}
                               </span>
                             </td>
-                            <td className="py-3 px-3 max-w-[180px]" title={dumpada.acopios ? `Código del acopio: ${dumpada.acopios}` : 'Sin acopio asociado'}>
+                            <td className="py-3 px-3 max-w-[320px]" title={dumpada.acopios ? `Código del acopio: ${dumpada.acopios}` : 'Sin acopio asociado'}>
                               <span className="font-mono font-bold text-gray-700 text-xs block whitespace-normal break-words leading-tight">
                                 {dumpada.acopios || '-'}
                               </span>
@@ -2003,6 +2016,17 @@ function DispatchContent() {
                               ) : '-'}
                             </td>
                             <td className="py-3 px-3">
+                              {dumpada.tipo_material === 'esteril' ? (
+                                <span className="inline-flex items-center bg-stone-500 text-white px-2.5 py-1 rounded-full text-xs font-bold shadow-sm whitespace-nowrap">
+                                  Estéril
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center bg-indigo-600 text-white px-2.5 py-1 rounded-full text-xs font-bold shadow-sm whitespace-nowrap">
+                                  Mineral
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3 px-3">
                               {dumpada.rango ? (
                                 <RangoTooltip rangoActual={dumpada.rango} rangos={rangos}>
                                   <span className={`${getRangoColor(dumpada.rango)} text-white px-2.5 py-1 rounded-full text-xs font-bold shadow-sm whitespace-nowrap cursor-help`}>
@@ -2011,21 +2035,6 @@ function DispatchContent() {
                                 </RangoTooltip>
                               ) : (
                                 <span className="text-gray-400 text-xs">-</span>
-                              )}
-                            </td>
-                            <td className="py-3 px-3">
-                              {dumpada.estado === 'Completado' ? (
-                                <div className="flex items-center justify-center">
-                                  <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center shadow-sm" title="Completado">
-                                    <HiCheckCircle className="w-5 h-5 text-white" />
-                                  </div>
-                                </div>
-                              ) : (
-                                <div className="flex items-center justify-center">
-                                  <div className="w-8 h-8 bg-yellow-500 rounded-full flex items-center justify-center shadow-sm" title="Ingresado">
-                                    <HiXCircle className="w-5 h-5 text-white" />
-                                  </div>
-                                </div>
                               )}
                             </td>
                             <td className="py-3 px-3">

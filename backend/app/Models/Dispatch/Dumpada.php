@@ -36,6 +36,7 @@ class Dumpada extends Model
         'numero_certificado_pdf',
         'fecha_certificado_pdf',
         'ley_visual',
+        'tipo_material',
         'rango',
         'estado',
         'fecha_analisis_completado',
@@ -75,6 +76,17 @@ class Dumpada extends Model
     const ESTADO_INGRESADO = 'Ingresado';      // Muestra enviada al laboratorio (sin resultados)
     const ESTADO_EN_ANALISIS = 'En Análisis';  // NO SE USA (por compatibilidad con BD)
     const ESTADO_COMPLETADO = 'Completado';    // Resultados recibidos del laboratorio
+
+    const TIPO_MATERIAL_MINERAL = 'mineral';
+    const TIPO_MATERIAL_ESTERIL = 'esteril';
+
+    /**
+     * Verificar si la dumpada es de material esteril (no va a laboratorio)
+     */
+    public function esEsteril(): bool
+    {
+        return $this->tipo_material === self::TIPO_MATERIAL_ESTERIL;
+    }
 
     // Relación: una dumpada pertenece a un frente de trabajo
     public function frenteTrabajo()

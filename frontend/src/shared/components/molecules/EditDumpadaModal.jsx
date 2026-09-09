@@ -4,7 +4,7 @@ import Button from '../atoms/Button';
 import Input from '../atoms/Input';
 import SearchableSelect from '../atoms/SearchableSelect';
 
-export default function EditDumpadaModal({ show, dumpada, frentes, jornadas, onConfirm, onCancel }) {
+export default function EditDumpadaModal({ show, dumpada, frentes, jornadas, maquinas = [], onConfirm, onCancel }) {
   const [formData, setFormData] = useState({
     id: null,
     id_frente_trabajo: '',
@@ -16,6 +16,8 @@ export default function EditDumpadaModal({ show, dumpada, frentes, jornadas, onC
     ley_cup: '',
     certificado: '',
     ley_visual: '',
+    id_maquina: '',
+    nombre_maquina: '',
   });
 
   useEffect(() => {
@@ -42,6 +44,8 @@ export default function EditDumpadaModal({ show, dumpada, frentes, jornadas, onC
         ley_cup: dumpada.ley_cup || '',
         certificado: dumpada.certificado || '',
         ley_visual: dumpada.ley_visual || '',
+        id_maquina: dumpada.id_maquina || '',
+        nombre_maquina: dumpada.nombre_maquina || '',
       });
     }
   }, [dumpada]);
@@ -146,6 +150,33 @@ export default function EditDumpadaModal({ show, dumpada, frentes, jornadas, onC
               value={formData.hora}
               onChange={(e) => handleChange('hora', e.target.value)}
             />
+
+            {/* Dumper */}
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                Máquina/Dumper
+              </label>
+              <select
+                value={formData.id_maquina}
+                onChange={(e) => {
+                  const selectedId = e.target.value;
+                  const maquina = maquinas.find(m => String(m.id_maquina) === selectedId);
+                  setFormData(prev => ({
+                    ...prev,
+                    id_maquina: selectedId,
+                    nombre_maquina: maquina?.nombre_maquina || '',
+                  }));
+                }}
+                className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white ${formData.id_maquina ? 'text-gray-900' : 'text-gray-400'}`}
+              >
+                <option value="">Sin asignar...</option>
+                {maquinas.map((m) => (
+                  <option key={m.id_maquina} value={m.id_maquina} className="text-gray-900">
+                    {m.nombre_maquina}{m.patente ? ` (${m.patente})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
 
             {/* Toneladas */}
             <Input

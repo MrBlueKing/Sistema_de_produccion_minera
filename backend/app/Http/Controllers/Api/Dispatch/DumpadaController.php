@@ -54,6 +54,7 @@ class DumpadaController extends Controller
         $idFaena = $request->get('id_faena');
         $numeroDumpada = $request->get('numero_dumpada');
         $enMezcla = $request->get('en_mezcla'); // 'si' | 'no'
+        $tipoMaterial = $request->get('tipo_material'); // 'mineral' | 'esteril'
 
         $query = Dumpada::with(['frenteTrabajo.tipoFrente'])
             ->orderByRaw('DATE(fecha) DESC, CAST(numero_dumpada AS UNSIGNED) DESC');
@@ -105,11 +106,26 @@ class DumpadaController extends Controller
         // Filtro por estado
         if ($estado) {
             $query->where('estado', $estado);
+
+            // Envio de Muestras pide especificamente estado=Ingresado para armar la cola
+            // de "pendientes de enviar a laboratorio" (ver EnvioMuestrasView.jsx). Una
+            // dumpada Esteril nunca va a laboratorio (no tiene ley que reportar) y se
+            // quedaria ahi para siempre sin poder completarse - se excluye de esa cola
+            // especifica. El resto de vistas (Historial sin filtrar por Ingresado) siguen
+            // mostrando dumpadas Esteril con normalidad.
+            if ($estado === Dumpada::ESTADO_INGRESADO) {
+                $query->where('tipo_material', '!=', Dumpada::TIPO_MATERIAL_ESTERIL);
+            }
         }
 
         // Filtro por jornada
         if ($jornada) {
             $query->where('jornada', $jornada);
+        }
+
+        // Filtro por tipo de material (Mineral/Esteril)
+        if ($tipoMaterial) {
+            $query->where('tipo_material', $tipoMaterial);
         }
 
         // Filtro por rango de fechas
@@ -246,11 +262,13 @@ class DumpadaController extends Controller
             'ley'                => 'nullable|numeric|min:0',
             'ley_cup'            => 'nullable|numeric|min:0',
             'certificado'        => 'nullable|string|max:100',
-            'ley_visual'         => 'required|numeric|min:0',
+            'tipo_material'      => 'nullable|in:mineral,esteril',
+            'ley_visual'         => 'required_if:tipo_material,mineral|nullable|numeric|min:0',
             'id_maquina'         => 'nullable|integer',
             'nombre_maquina'     => 'nullable|string|max:150',
         ], [
             'id_frente_trabajo.exists' => 'El frente de trabajo seleccionado no existe o está inactivo. Actualiza la página e intenta de nuevo.',
+            'ley_visual.required_if' => 'La Ley Visual es obligatoria salvo que la dumpada sea Estéril.',
         ]);
 
         if ($validator->fails()) {
@@ -306,6 +324,7 @@ class DumpadaController extends Controller
             'id_frente_trabajo' => $request->id_frente_trabajo,
             'jornada' => $request->jornada,
             'numero_jornada' => $numeroJornada,
+            'tipo_material' => $request->tipo_material ?? Dumpada::TIPO_MATERIAL_MINERAL,
             'ley_visual' => $request->ley_visual,
             // Tonelaje: si viene explícito del frontend (máquina o manual), usarlo directo.
             // Si no viene, usar la config de la faena con fallback al hardcoded.
@@ -354,11 +373,13 @@ class DumpadaController extends Controller
             'dumpadas.*.ley'                 => 'nullable|numeric|min:0',
             'dumpadas.*.ley_cup'             => 'nullable|numeric|min:0',
             'dumpadas.*.certificado'         => 'nullable|string|max:100',
-            'dumpadas.*.ley_visual'          => 'required|numeric|min:0',
+            'dumpadas.*.tipo_material'       => 'nullable|in:mineral,esteril',
+            'dumpadas.*.ley_visual'          => 'required_if:dumpadas.*.tipo_material,mineral|nullable|numeric|min:0',
             'dumpadas.*.id_maquina'          => 'nullable|integer',
             'dumpadas.*.nombre_maquina'      => 'nullable|string|max:150',
         ], [
             'dumpadas.*.id_frente_trabajo.exists' => 'Uno de los frentes de trabajo seleccionados no existe o está inactivo. Actualiza la página e intenta de nuevo.',
+            'dumpadas.*.ley_visual.required_if' => 'La Ley Visual es obligatoria salvo que la dumpada sea Estéril.',
         ]);
 
         if ($validator->fails()) {
@@ -428,6 +449,7 @@ class DumpadaController extends Controller
                     'id_frente_trabajo' => $dumpadaData['id_frente_trabajo'],
                     'jornada' => $dumpadaData['jornada'],
                     'numero_jornada' => $numeroJornada,
+                    'tipo_material' => $dumpadaData['tipo_material'] ?? Dumpada::TIPO_MATERIAL_MINERAL,
                     'ley_visual' => $dumpadaData['ley_visual'] ?? null,
                     // Tonelaje: si viene explícito del frontend (máquina o manual), usarlo directo.
                     // Si no viene, usar la config de la faena con fallback al hardcoded.
@@ -536,10 +558,13 @@ class DumpadaController extends Controller
             'ley'                => 'nullable|numeric|min:0',
             'ley_cup'            => 'nullable|numeric|min:0',
             'certificado'        => 'nullable|string|max:100',
-            'ley_visual'         => 'required|numeric|min:0',
+            'tipo_material'      => 'nullable|in:mineral,esteril',
+            'ley_visual'         => 'required_if:tipo_material,mineral|nullable|numeric|min:0',
             'id_maquina'         => 'nullable|integer',
             'nombre_maquina'     => 'nullable|string|max:150',
             'para_muestreo'      => 'nullable|boolean',
+        ], [
+            'ley_visual.required_if' => 'La Ley Visual es obligatoria salvo que la dumpada sea Estéril.',
         ]);
 
         if ($validator->fails()) {
@@ -596,6 +621,7 @@ class DumpadaController extends Controller
         // Recalcular ley_cup automáticamente si hay ley
         $leyCup = $ley ? Dumpada::calcularCapping($ley, $frente->id_faena) : null;
         $certificado = $request->certificado ?? $dumpada->certificado;
+        $tipoMaterial = $request->tipo_material ?? $dumpada->tipo_material;
 
         // Si el lab ya completó el análisis (Completado), preservar ese estado.
         // Dispatch no debe revertir un análisis completado aunque certificado sea NULL.
@@ -621,7 +647,13 @@ class DumpadaController extends Controller
             'ley' => $ley,
             'ley_cup' => $leyCup,
             'certificado' => $request->filled('certificado') ? $request->certificado : $dumpada->certificado,
-            'ley_visual' => $request->ley_visual ?? $dumpada->ley_visual,
+            'tipo_material' => $tipoMaterial,
+            // filled(), no ?? — mismo motivo que ley/ton/certificado arriba. Si pasa a
+            // Estéril y el campo viene vacío, se limpia a NULL (ya no aplica); si sigue
+            // Mineral y viene vacío, se preserva el valor anterior en vez de guardar 0.
+            'ley_visual' => $request->filled('ley_visual')
+                ? $request->ley_visual
+                : ($tipoMaterial === Dumpada::TIPO_MATERIAL_ESTERIL ? null : $dumpada->ley_visual),
             'acopios' => $acopios,
             'rango' => $rango,
             'estado' => $estado,
@@ -670,9 +702,13 @@ class DumpadaController extends Controller
             $this->validarAccesoFaena($request, $dumpada->id_faena);
         }
 
-        // Actualizar en batch — solo dumpadas con estado 'Ingresado'
+        // Actualizar en batch — solo dumpadas con estado 'Ingresado'. Una dumpada Esteril
+        // nunca deberia llegar aca (Envio de Muestras ya la excluye de la lista que arma
+        // estos IDs), pero se excluye tambien aca como segunda barrera: no tiene ley que
+        // reportar, no debe poder marcarse para enviar a laboratorio por ningun camino.
         $actualizadas = Dumpada::whereIn('id', $ids)
             ->where('estado', Dumpada::ESTADO_INGRESADO)
+            ->where('tipo_material', '!=', Dumpada::TIPO_MATERIAL_ESTERIL)
             ->update(['para_muestreo' => $paraMuestreo]);
 
         return response()->json([
