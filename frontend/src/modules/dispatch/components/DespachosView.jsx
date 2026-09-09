@@ -1894,6 +1894,8 @@ const DespachosView = () => {
                   planta: plantaNombre,
                   empresa: empresaNombre,
                   lotes: 0,
+                  abiertos: 0,
+                  cerrados: 0,
                   totalPeso: 0,
                   totalPesoTeorico: 0,
                   totalCamionadas: 0,
@@ -1903,6 +1905,8 @@ const DespachosView = () => {
                 };
               }
               resumen[key].lotes += 1;
+              if (lote.estado === 'Abierto') resumen[key].abiertos += 1;
+              else resumen[key].cerrados += 1;
               const pesoRecibido = parseFloat(lote.peso_recibido || 0);
               const pesoTeoricoPendiente = parseFloat(lote.peso_teorico_pendiente || 0);
               resumen[key].totalPeso += pesoRecibido;
@@ -1933,13 +1937,15 @@ const DespachosView = () => {
             // Total general: suma de todas las planta/empresa, no solo por grupo.
             const totalGeneral = grupos.reduce((acc, g) => ({
               lotes: acc.lotes + g.lotes,
+              abiertos: acc.abiertos + g.abiertos,
+              cerrados: acc.cerrados + g.cerrados,
               totalCamionadas: acc.totalCamionadas + g.totalCamionadas,
               pendientesRecepcion: acc.pendientesRecepcion + g.pendientesRecepcion,
               totalPeso: acc.totalPeso + g.totalPeso,
               totalPesoTeorico: acc.totalPesoTeorico + g.totalPesoTeorico,
               sumProductoLey: acc.sumProductoLey + g.sumProductoLey,
               sumPesoConLey: acc.sumPesoConLey + g.sumPesoConLey,
-            }), { lotes: 0, totalCamionadas: 0, pendientesRecepcion: 0, totalPeso: 0, totalPesoTeorico: 0, sumProductoLey: 0, sumPesoConLey: 0 });
+            }), { lotes: 0, abiertos: 0, cerrados: 0, totalCamionadas: 0, pendientesRecepcion: 0, totalPeso: 0, totalPesoTeorico: 0, sumProductoLey: 0, sumPesoConLey: 0 });
             const leyPromGeneral = totalGeneral.sumPesoConLey > 0
               ? (totalGeneral.sumProductoLey / totalGeneral.sumPesoConLey).toFixed(2)
               : null;
@@ -1962,7 +1968,12 @@ const DespachosView = () => {
                     )}
                   </div>
                   <p className="text-sm text-gray-500 mt-0.5">
-                    {totalGeneral.lotes} lote{totalGeneral.lotes !== 1 ? 's' : ''} | {totalGeneral.totalCamionadas} cam.
+                    {totalGeneral.lotes} lote{totalGeneral.lotes !== 1 ? 's' : ''}
+                    {' '}
+                    <span className="text-emerald-600">({totalGeneral.abiertos} abierto{totalGeneral.abiertos !== 1 ? 's' : ''})</span>
+                    {' '}
+                    <span className="text-gray-400">({totalGeneral.cerrados} cerrado{totalGeneral.cerrados !== 1 ? 's' : ''})</span>
+                    {' | '}{totalGeneral.totalCamionadas} cam.
                     {totalGeneral.pendientesRecepcion > 0 && (
                       <span className="text-yellow-600 font-semibold"> | {totalGeneral.pendientesRecepcion} pend.</span>
                     )}
@@ -2003,7 +2014,12 @@ const DespachosView = () => {
                                 )}
                               </div>
                               <p className="text-sm text-gray-500 mt-0.5">
-                                {emp.lotes} lote{emp.lotes !== 1 ? 's' : ''} | {emp.totalCamionadas} cam.
+                                {emp.lotes} lote{emp.lotes !== 1 ? 's' : ''}
+                                {' '}
+                                <span className="text-emerald-600">({emp.abiertos} abierto{emp.abiertos !== 1 ? 's' : ''})</span>
+                                {' '}
+                                <span className="text-gray-400">({emp.cerrados} cerrado{emp.cerrados !== 1 ? 's' : ''})</span>
+                                {' | '}{emp.totalCamionadas} cam.
                                 {emp.pendientesRecepcion > 0 && (
                                   <span className="text-yellow-600 font-semibold"> | {emp.pendientesRecepcion} pend.</span>
                                 )}
