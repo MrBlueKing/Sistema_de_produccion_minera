@@ -2047,29 +2047,27 @@ const DespachosView = () => {
                                 </p>
                               </div>
                               {/* Desglose por lote individual */}
-                              <div className="mt-2 pt-2 border-t border-gray-200 space-y-1">
+                              <div className="mt-2 pt-2 border-t border-gray-200 space-y-2">
                                 {emp.detalleLotes.map((l) => (
-                                  <div key={l.id} className="flex items-center justify-between gap-2 text-xs">
-                                    <div className="flex items-center gap-1.5 min-w-0">
+                                  <div key={l.id} className="text-xs">
+                                    <div className="flex items-center gap-1.5 flex-wrap">
                                       <span className={`px-1.5 py-0.5 rounded-full font-bold shrink-0 ${l.estado === 'Abierto' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-500'}`}>
                                         {l.estado === 'Abierto' ? 'Abierto' : 'Cerrado'}
                                       </span>
-                                      <span className="font-mono font-semibold text-gray-700 truncate">
+                                      <span className="font-mono font-semibold text-gray-700">
                                         {l.numero_lote || `#${l.id}`}
                                       </span>
-                                      <span className="text-gray-400 shrink-0">{l.camionadas} cam.{l.pendientes > 0 ? ` (${l.pendientes} pend.)` : ''}</span>
+                                      <span className="text-gray-400">{l.camionadas} cam.{l.pendientes > 0 ? ` (${l.pendientes} pend.)` : ''}</span>
+                                      {l.ley != null && <span className="text-orange-600 font-semibold ml-auto">{l.ley.toFixed(2)}%</span>}
                                     </div>
-                                    <div className="flex items-center gap-2 shrink-0 tabular-nums">
-                                      {l.ley != null && <span className="text-orange-600 font-semibold">{l.ley.toFixed(2)}%</span>}
-                                      <span className="text-gray-700 font-semibold">
-                                        {(l.pesoRecibido + l.pesoTeoricoPendiente).toFixed(2)} t
-                                      </span>
-                                      <span className="text-gray-400">
-                                        (<span className="text-green-600">{l.pesoRecibido.toFixed(2)}</span>
-                                        {'+'}
-                                        <span className="text-amber-600">{l.pesoTeoricoPendiente.toFixed(2)}</span>)
-                                      </span>
-                                    </div>
+                                    <p className="text-gray-500 mt-0.5 tabular-nums">
+                                      Despachado{' '}
+                                      <span className="font-bold text-gray-700">{(l.pesoRecibido + l.pesoTeoricoPendiente).toFixed(2)} t</span>
+                                      {' = '}
+                                      <span className="text-green-600 font-semibold">{l.pesoRecibido.toFixed(2)} t</span> real
+                                      {' + '}
+                                      <span className="text-amber-600 font-semibold">{l.pesoTeoricoPendiente.toFixed(2)} t</span> teórico
+                                    </p>
                                   </div>
                                 ))}
                               </div>
