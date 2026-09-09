@@ -1902,6 +1902,7 @@ const DespachosView = () => {
                   pendientesRecepcion: 0,
                   sumProductoLey: 0,
                   sumPesoConLey: 0,
+                  detalleLotes: [],
                 };
               }
               resumen[key].lotes += 1;
@@ -1911,10 +1912,21 @@ const DespachosView = () => {
               const pesoTeoricoPendiente = parseFloat(lote.peso_teorico_pendiente || 0);
               resumen[key].totalPeso += pesoRecibido;
               resumen[key].totalPesoTeorico += pesoTeoricoPendiente;
-              resumen[key].totalCamionadas += (lote.numero_camionadas || lote.camionadas?.length || 0);
+              const totalCamionadasLote = lote.numero_camionadas || lote.camionadas?.length || 0;
+              resumen[key].totalCamionadas += totalCamionadasLote;
               const recep = lote.camionadas_recepcionadas || 0;
-              const total = lote.numero_camionadas || lote.camionadas?.length || 0;
-              resumen[key].pendientesRecepcion += (total - recep);
+              resumen[key].pendientesRecepcion += (totalCamionadasLote - recep);
+
+              resumen[key].detalleLotes.push({
+                id: lote.id,
+                numero_lote: lote.numero_lote,
+                estado: lote.estado,
+                camionadas: totalCamionadasLote,
+                pendientes: totalCamionadasLote - recep,
+                pesoRecibido,
+                pesoTeoricoPendiente,
+                ley: lote.ley_lote_promedio != null ? parseFloat(lote.ley_lote_promedio) : null,
+              });
 
               // "Ley Mezcla" acá debe ser el mismo campo que muestra la tarjeta de
               // cada lote (ley_lote_promedio) — antes usaba ley_lab_promedio (ley de
@@ -2033,6 +2045,31 @@ const DespachosView = () => {
                                   {' + '}
                                   <span className="text-amber-600 font-bold">{emp.totalPesoTeorico.toFixed(2)} t</span> teórico
                                 </p>
+                              </div>
+                              {/* Desglose por lote individual */}
+                              <div className="mt-2 pt-2 border-t border-gray-200 space-y-1">
+                                {emp.detalleLotes.map((l) => (
+                                  <div key={l.id} className="flex items-center justify-between gap-2 text-xs">
+                                    <div className="flex items-center gap-1.5 min-w-0">
+                                      <span className={`px-1.5 py-0.5 rounded-full font-bold shrink-0 ${l.estado === 'Abierto' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-500'}`}>
+                                        {l.estado === 'Abierto' ? 'Abierto' : 'Cerrado'}
+                                      </span>
+                                      <span className="font-mono font-semibold text-gray-700 truncate">
+                                        {l.numero_lote || `#${l.id}`}
+                                      </span>
+                                      <span className="text-gray-400 shrink-0">{l.camionadas} cam.{l.pendientes > 0 ? ` (${l.pendientes} pend.)` : ''}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2 shrink-0 tabular-nums">
+                                      {l.ley != null && <span className="text-orange-600 font-semibold">{l.ley.toFixed(2)}%</span>}
+                                      <span className="text-gray-600 font-semibold">
+                                        {(l.pesoRecibido + l.pesoTeoricoPendiente).toFixed(2)} t
+                                        {l.pesoTeoricoPendiente > 0 && (
+                                          <span className="text-amber-600 font-normal"> ({l.pesoRecibido.toFixed(2)}+{l.pesoTeoricoPendiente.toFixed(2)})</span>
+                                        )}
+                                      </span>
+                                    </div>
+                                  </div>
+                                ))}
                               </div>
                             </div>
                           );
