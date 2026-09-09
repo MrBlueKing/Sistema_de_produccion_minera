@@ -1370,29 +1370,38 @@ function DispatchContent() {
                         // Despachado = Real + Teórico (converge hacia lo recepcionado a medida
                         // que llegan los tickets), no la suma del peso declarado de todas las
                         // camionadas — mismo criterio que "Resumen General" en Despachos.
-                        const totalTon  = lotesDelMes.reduce((s, l) => s + parseFloat(l.peso_recibido || 0) + parseFloat(l.peso_teorico_pendiente || 0), 0);
+                        const totalPesoReal    = lotesDelMes.reduce((s, l) => s + parseFloat(l.peso_recibido || 0), 0);
+                        const totalPesoTeorico = lotesDelMes.reduce((s, l) => s + parseFloat(l.peso_teorico_pendiente || 0), 0);
+                        const totalTon  = totalPesoReal + totalPesoTeorico;
                         return (
-                          <div className="bg-white rounded-xl border border-emerald-100 shadow-sm mb-3 divide-x divide-emerald-100 flex overflow-hidden">
-                            <div className="flex-1 px-4 py-3 text-center">
-                              <p className="text-xl font-bold text-gray-900 tabular-nums">{lotesDelMes.length}</p>
-                              <p className="text-[10px] text-gray-400 uppercase tracking-wide mt-0.5">total lotes</p>
+                          <div className="bg-white rounded-xl border border-emerald-100 shadow-sm mb-3 overflow-hidden">
+                            <div className="divide-x divide-emerald-100 flex">
+                              <div className="flex-1 px-4 py-3 text-center">
+                                <p className="text-xl font-bold text-gray-900 tabular-nums">{lotesDelMes.length}</p>
+                                <p className="text-[10px] text-gray-400 uppercase tracking-wide mt-0.5">total lotes</p>
+                              </div>
+                              <div className="flex-1 px-4 py-3 text-center">
+                                <p className="text-xl font-bold text-emerald-500 tabular-nums">{abiertos}</p>
+                                <p className="text-[10px] text-gray-400 uppercase tracking-wide mt-0.5">abiertos</p>
+                              </div>
+                              <div className="flex-1 px-4 py-3 text-center">
+                                <p className="text-xl font-bold text-gray-400 tabular-nums">{cerrados}</p>
+                                <p className="text-[10px] text-gray-400 uppercase tracking-wide mt-0.5">cerrados</p>
+                              </div>
+                              <div className="flex-1 px-4 py-3 text-center">
+                                <p className="text-xl font-bold text-indigo-500 tabular-nums">{totalCam}</p>
+                                <p className="text-[10px] text-gray-400 uppercase tracking-wide mt-0.5">camionadas</p>
+                              </div>
+                              <div className="flex-1 px-4 py-3 text-center">
+                                <p className="text-xl font-bold text-orange-500 tabular-nums">{totalTon.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</p>
+                                <p className="text-[10px] text-gray-400 uppercase tracking-wide mt-0.5">toneladas</p>
+                              </div>
                             </div>
-                            <div className="flex-1 px-4 py-3 text-center">
-                              <p className="text-xl font-bold text-emerald-500 tabular-nums">{abiertos}</p>
-                              <p className="text-[10px] text-gray-400 uppercase tracking-wide mt-0.5">abiertos</p>
-                            </div>
-                            <div className="flex-1 px-4 py-3 text-center">
-                              <p className="text-xl font-bold text-gray-400 tabular-nums">{cerrados}</p>
-                              <p className="text-[10px] text-gray-400 uppercase tracking-wide mt-0.5">cerrados</p>
-                            </div>
-                            <div className="flex-1 px-4 py-3 text-center">
-                              <p className="text-xl font-bold text-indigo-500 tabular-nums">{totalCam}</p>
-                              <p className="text-[10px] text-gray-400 uppercase tracking-wide mt-0.5">camionadas</p>
-                            </div>
-                            <div className="flex-1 px-4 py-3 text-center">
-                              <p className="text-xl font-bold text-orange-500 tabular-nums">{totalTon.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}</p>
-                              <p className="text-[10px] text-gray-400 uppercase tracking-wide mt-0.5">toneladas</p>
-                            </div>
+                            <p className="text-[11px] text-gray-400 text-center py-1.5 border-t border-emerald-100 tabular-nums">
+                              <span className="text-green-600 font-semibold">{totalPesoReal.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} t</span> real
+                              {' + '}
+                              <span className="text-amber-600 font-semibold">{totalPesoTeorico.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} t</span> teórico
+                            </p>
                           </div>
                         );
                       })()}
