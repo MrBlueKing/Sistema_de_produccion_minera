@@ -2061,11 +2061,13 @@ const DespachosView = () => {
                                     </div>
                                     <div className="flex items-center gap-2 shrink-0 tabular-nums">
                                       {l.ley != null && <span className="text-orange-600 font-semibold">{l.ley.toFixed(2)}%</span>}
-                                      <span className="text-gray-600 font-semibold">
+                                      <span className="text-gray-700 font-semibold">
                                         {(l.pesoRecibido + l.pesoTeoricoPendiente).toFixed(2)} t
-                                        {l.pesoTeoricoPendiente > 0 && (
-                                          <span className="text-amber-600 font-normal"> ({l.pesoRecibido.toFixed(2)}+{l.pesoTeoricoPendiente.toFixed(2)})</span>
-                                        )}
+                                      </span>
+                                      <span className="text-gray-400">
+                                        (<span className="text-green-600">{l.pesoRecibido.toFixed(2)}</span>
+                                        {'+'}
+                                        <span className="text-amber-600">{l.pesoTeoricoPendiente.toFixed(2)}</span>)
                                       </span>
                                     </div>
                                   </div>
