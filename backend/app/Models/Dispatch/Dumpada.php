@@ -278,6 +278,47 @@ class Dumpada extends Model
     }
 
     /**
+     * Renumera numero_jornada (1, 2, 3...) de todas las dumpadas de una
+     * combinación frente + jornada + fecha, cerrando el hueco que deja un
+     * borrado o un movimiento de dumpada. Actualiza también el sufijo cacheado
+     * en `acopios` (siempre termina en "{jornada}-{numero_jornada}").
+     *
+     * Mismo patrón que CamionadaService::renumerarSecuencial. No hay índice
+     * único sobre numero_jornada, así que renumerar en orden ascendente es
+     * seguro ante colisiones.
+     *
+     * @param int    $idFrenteTrabajo
+     * @param string $jornada
+     * @param string $fecha (Y-m-d o Carbon)
+     * @return void
+     */
+    public static function renumerarNumeroJornada($idFrenteTrabajo, $jornada, $fecha): void
+    {
+        if (!$idFrenteTrabajo || !$jornada || !$fecha) {
+            return;
+        }
+
+        $dumpadas = self::where('id_frente_trabajo', $idFrenteTrabajo)
+            ->where('jornada', $jornada)
+            ->whereDate('fecha', $fecha)
+            ->orderBy('numero_jornada')
+            ->orderBy('id')
+            ->get();
+
+        $siguiente = 1;
+        foreach ($dumpadas as $dumpada) {
+            if ((int) $dumpada->numero_jornada !== $siguiente) {
+                $dumpada->numero_jornada = $siguiente;
+                if (!empty($dumpada->acopios)) {
+                    $dumpada->acopios = preg_replace('/-\d+$/', '-' . $siguiente, $dumpada->acopios);
+                }
+                $dumpada->save();
+            }
+            $siguiente++;
+        }
+    }
+
+    /**
      * DEPRECATED: Ya no se genera el código completo de acopios en el modelo Dumpada
      * Ahora el campo 'acopios' almacena solo el código del acopio (ej: "A-001")
      * El código completo se maneja en el modelo Acopio

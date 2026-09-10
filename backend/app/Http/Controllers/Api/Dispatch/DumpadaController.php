@@ -593,10 +593,17 @@ class DumpadaController extends Controller
         $fecha = $this->convertirFecha($request->fecha) ?? $dumpada->fecha;
         $numeroJornada = $dumpada->numero_jornada;
 
-        if ($request->id_frente_trabajo != $dumpada->id_frente_trabajo ||
-            $request->jornada != $dumpada->jornada ||
-            $this->convertirFecha($request->fecha) != $dumpada->getRawOriginal('fecha')) {
+        $grupoAnterior = [
+            'id_frente_trabajo' => $dumpada->id_frente_trabajo,
+            'jornada'           => $dumpada->jornada,
+            'fecha'             => $dumpada->getRawOriginal('fecha'),
+        ];
 
+        $seMovio = $request->id_frente_trabajo != $dumpada->id_frente_trabajo ||
+            $request->jornada != $dumpada->jornada ||
+            $this->convertirFecha($request->fecha) != $dumpada->getRawOriginal('fecha');
+
+        if ($seMovio) {
             // Regenerar el número de jornada para la nueva combinación
             $numeroJornada = Dumpada::generarNumeroJornada(
                 $request->id_frente_trabajo,
@@ -663,6 +670,17 @@ class DumpadaController extends Controller
         ];
 
         $dumpada->update($data);
+
+        // Si se movió a otro frente/jornada/fecha, cerrar el hueco de numero_jornada
+        // que quedó en el grupo de origen (mismo criterio que al borrar).
+        if ($seMovio) {
+            Dumpada::renumerarNumeroJornada(
+                $grupoAnterior['id_frente_trabajo'],
+                $grupoAnterior['jornada'],
+                $grupoAnterior['fecha']
+            );
+        }
+
         $dumpada->load('frenteTrabajo.tipoFrente');
 
         return response()->json([
@@ -732,7 +750,16 @@ class DumpadaController extends Controller
             ], 404);
         }
 
-        $dumpada->delete();
+        // Grupo al que pertenecía, para renumerar sus hermanas después de borrar
+        $idFrente = $dumpada->id_frente_trabajo;
+        $jornada  = $dumpada->jornada;
+        $fecha    = $dumpada->getRawOriginal('fecha');
+
+        DB::transaction(function () use ($dumpada, $idFrente, $jornada, $fecha) {
+            $dumpada->delete();
+            // Cierra el hueco de numero_jornada (AM-1, AM-3 -> AM-1, AM-2)
+            Dumpada::renumerarNumeroJornada($idFrente, $jornada, $fecha);
+        });
 
         return response()->json([
             'success' => true,
