@@ -637,6 +637,26 @@ class MezclaService
             }
         }
 
+        // Piso de fecha por faena: excluye dumpadas legacy/pre-produccion que quedaron
+        // "disponibles" pero nunca van a usarse en una mezcla (ej. Cabildo arrastra ~2000
+        // dumpadas de 2025 huerfanas). Se configura por faena en `configuraciones_sistema`
+        // con la clave `fecha_minima_dumpadas_mezclas`; las faenas sin este registro
+        // no se filtran por fecha.
+        $pisosPorFaena = \App\Models\ConfiguracionSistema::where('clave', 'fecha_minima_dumpadas_mezclas')
+            ->whereNotNull('id_faena')
+            ->pluck('valor', 'id_faena');
+
+        if ($pisosPorFaena->isNotEmpty()) {
+            $query->where(function ($q) use ($pisosPorFaena) {
+                foreach ($pisosPorFaena as $faenaId => $fechaMinima) {
+                    $q->where(function ($sub) use ($faenaId, $fechaMinima) {
+                        $sub->where('id_faena', '!=', $faenaId)
+                            ->orWhere('fecha', '>=', $fechaMinima);
+                    });
+                }
+            });
+        }
+
         $dumpadas = $query->with(['frenteTrabajo:id,codigo_completo'])
             ->select(['id', 'numero_dumpada', 'acopios', 'fecha', 'ton', 'ley', 'ley_visual', 'cu_soluble', 'cu_insoluble', 'jornada', 'id_frente_trabajo', 'estado', 'id_faena'])
             ->orderByRaw('DATE(fecha) DESC, CAST(numero_dumpada AS UNSIGNED) DESC')
