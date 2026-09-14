@@ -29,6 +29,7 @@ import useToast from '../../../hooks/useToast';
 import { useFaena } from '../../../contexts/FaenaContext';
 import { useAuth } from '../../../core/context/AuthContext';
 import explosivosService from '../services/explosivos';
+import faenaService from '../../../services/faenaService';
 
 // Componentes de vistas
 import StockView from '../components/StockView';
@@ -40,6 +41,13 @@ import KardexView from '../components/KardexView';
 
 // Roles admin que ven TODAS las tabs
 const ROLES_ADMIN = ['admin_explosivos'];
+
+// Roles que atienden más de una faena: eligen la faena al entrar (selector previo,
+// se puede cambiar en cualquier momento con "Cambiar faena") y luego operan con los
+// MISMOS permisos que un Polvorinero normal — a diferencia de admin_explosivos, no ven
+// varias faenas a la vez ni tienen funciones de administración. Mismo patrón que
+// ROLES_MULTI_FAENA en ReportesPerforacion.jsx (Ingeniería).
+const ROLES_MULTI_FAENA = ['polvorinero_multifaena'];
 
 // Descripción corta de cada pestaña — en lenguaje simple, no términos técnicos
 // (ej. "Kardex" se explica como "libro", no se asume que el usuario conoce la jerga contable).
@@ -59,9 +67,27 @@ export default function Explosivos() {
 
   const rolActivo = getRolActivo();
   const esAdmin = ROLES_ADMIN.includes(rolActivo);
+  const esMultiFaena = ROLES_MULTI_FAENA.includes(rolActivo);
+
+  // Polvorinero Multi-Faena: la faena no viene fija de la cuenta SAC (faenaSeleccionada
+  // del contexto), se elige en esta pantalla — igual que jefe_mina/ingeniero en
+  // ReportesPerforacion.jsx. `faenasSelector` se carga aparte porque FaenaContext solo
+  // trae el listado de faenas para usuarios globales (esUsuarioGlobal).
+  const [faenaElegida, setFaenaElegida] = useState(null);
+  const [faenasSelector, setFaenasSelector] = useState([]);
+  const faenaId = esMultiFaena ? faenaElegida : faenaSeleccionada;
+
+  useEffect(() => {
+    if (esMultiFaena) {
+      faenaService.getFaenas()
+        .then(res => setFaenasSelector(res.data || res || []))
+        .catch(() => setFaenasSelector([]));
+    }
+  }, [esMultiFaena]);
 
   // Obtener objeto faena actual
-  const faenaActual = faenas.find(f => f.id === faenaSeleccionada) || { id: faenaSeleccionada };
+  const listaFaenas = esMultiFaena ? faenasSelector : faenas;
+  const faenaActual = listaFaenas.find(f => f.id === faenaId) || (faenaId ? { id: faenaId } : null);
 
   // Vista actual
   const [vistaActual, setVistaActual] = useState('stock');
@@ -84,16 +110,16 @@ export default function Explosivos() {
 
   // Cargar datos iniciales
   useEffect(() => {
-    if (faenaSeleccionada || esAdmin) {
+    if (faenaId || esAdmin) {
       loadDatosIniciales();
     } else {
       // Si no hay faena seleccionada, quitar el estado de carga
       setLoading(false);
     }
-  }, [faenaSeleccionada]);
+  }, [faenaId, esAdmin]);
 
   const loadDatosIniciales = async () => {
-    if (!faenaSeleccionada && !esAdmin) return;
+    if (!faenaId && !esAdmin) return;
 
     setLoading(true);
     try {
@@ -110,8 +136,8 @@ export default function Explosivos() {
 
       // Cargar polvorín de la faena (si hay faena seleccionada)
       let polvorinData = null;
-      if (faenaSeleccionada) {
-        const polvorinRes = await explosivosService.getPolvorinPorFaena(faenaSeleccionada);
+      if (faenaId) {
+        const polvorinRes = await explosivosService.getPolvorinPorFaena(faenaId);
         polvorinData = polvorinRes?.id ? polvorinRes : null;
       }
       setPolvorin(polvorinData);
@@ -273,8 +299,9 @@ export default function Explosivos() {
     );
   }
 
-  // Mostrar selector si es usuario global sin faena, o mensaje si es usuario de faena sin asignación
-  if (!faenaSeleccionada && !esAdmin) {
+  // Mostrar selector si es usuario global o multi-faena sin faena, o mensaje si es
+  // usuario de faena fija sin asignación
+  if (!faenaId && !esAdmin) {
     return (
       <div className={bgGradient}>
         <Header />
@@ -287,15 +314,22 @@ export default function Explosivos() {
             <p className="text-gray-500 mb-6">
               Debe seleccionar una faena para acceder al inventario de explosivos.
             </p>
-            {esUsuarioGlobal && (
+            {(esUsuarioGlobal || esMultiFaena) && (
               <div className="flex flex-col items-center gap-3">
                 <select
                   defaultValue=""
-                  onChange={(e) => { if (e.target.value) cambiarFaena(e.target.value); }}
+                  onChange={(e) => {
+                    if (!e.target.value) return;
+                    if (esMultiFaena) {
+                      setFaenaElegida(parseInt(e.target.value, 10));
+                    } else {
+                      cambiarFaena(e.target.value);
+                    }
+                  }}
                   className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:outline-none min-w-[240px] bg-white text-gray-700"
                 >
                   <option value="" disabled>-- Seleccione una faena --</option>
-                  {faenas.map(f => (
+                  {listaFaenas.map(f => (
                     <option key={f.id} value={f.id}>{f.ubicacion || f.nombre || `Faena ${f.id}`}</option>
                   ))}
                 </select>
@@ -334,8 +368,19 @@ export default function Explosivos() {
                   <>Vista completa — <span className="font-semibold">{faenaActual?.nombre || 'Todas las faenas'}</span></>
                 ) : polvorin ? (
                   <>Polvorín: <span className="font-semibold">{polvorin.nombre}</span> ({polvorin.codigo})</>
+                ) : esMultiFaena ? (
+                  <>Faena: <span className="font-semibold">{faenaActual?.nombre || faenaActual?.ubicacion || 'Faena actual'}</span> — Sin polvorín configurado</>
                 ) : (
                   'Sin polvorín configurado'
+                )}
+                {esMultiFaena && (
+                  <button
+                    type="button"
+                    onClick={() => setFaenaElegida(null)}
+                    className="ml-3 text-sm text-red-600 underline hover:text-red-700"
+                  >
+                    Cambiar faena
+                  </button>
                 )}
               </p>
             </div>
