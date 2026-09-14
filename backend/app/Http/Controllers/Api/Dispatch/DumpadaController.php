@@ -55,9 +55,24 @@ class DumpadaController extends Controller
         $numeroDumpada = $request->get('numero_dumpada');
         $enMezcla = $request->get('en_mezcla'); // 'si' | 'no'
         $tipoMaterial = $request->get('tipo_material'); // 'mineral' | 'esteril'
+        $orden = $request->get('orden', 'fecha'); // 'fecha' (default) | 'frente'
 
-        $query = Dumpada::with(['frenteTrabajo.tipoFrente'])
-            ->orderByRaw('DATE(fecha) DESC, CAST(numero_dumpada AS UNSIGNED) DESC');
+        $query = Dumpada::with(['frenteTrabajo.tipoFrente']);
+
+        if ($orden === 'frente') {
+            // Historial: agrupa por frente y, dentro de un mismo frente, por jornada
+            // (orden cronológico del día, no alfabético) y numero_jornada — así las
+            // filas de "Frente A AM-1, AM-2..." quedan juntas en vez de intercaladas
+            // con otros frentes por fecha/hora de carga.
+            $query->select('dumpadas.*')
+                ->join('frentes_trabajo', 'frentes_trabajo.id', '=', 'dumpadas.id_frente_trabajo')
+                ->orderBy('frentes_trabajo.codigo_completo')
+                ->orderBy('dumpadas.fecha', 'desc')
+                ->orderByRaw("FIELD(dumpadas.jornada, 'Madrugada', 'AM', 'PM', 'Noche')")
+                ->orderBy('dumpadas.numero_jornada');
+        } else {
+            $query->orderByRaw('DATE(fecha) DESC, CAST(numero_dumpada AS UNSIGNED) DESC');
+        }
 
         // ✅ MULTI-FAENA: Respeta roles de usuario
         Log::info('🔍 [DUMPADAS] Filtro de faena', [
@@ -69,7 +84,9 @@ class DumpadaController extends Controller
 
         if (!$this->esUsuarioGlobal($request)) {
             // OPERADOR / ENCARGADO DISPATCH: Solo su faena
-            $query->where('id_faena', $request->auth_faena);
+            // dumpadas.* qualificado: frentes_trabajo tambien tiene id_faena, y con
+            // orden=frente el query queda joineado con esa tabla (columna ambigua si no).
+            $query->where('dumpadas.id_faena', $request->auth_faena);
             Log::info('🔒 [DUMPADAS] Filtrando por faena de operador', ['id_faena' => $request->auth_faena]);
         } else {
             // ADMIN GLOBAL: Permite filtrar por múltiples faenas
@@ -77,11 +94,11 @@ class DumpadaController extends Controller
                 // Si contiene comas, es una lista de faenas
                 if (strpos($idFaena, ',') !== false) {
                     $faenasArray = array_map('trim', explode(',', $idFaena));
-                    $query->whereIn('id_faena', $faenasArray);
+                    $query->whereIn('dumpadas.id_faena', $faenasArray);
                     Log::info('🌐 [DUMPADAS] Filtrando por múltiples faenas', ['faenas' => $faenasArray]);
                 } else {
                     // Una sola faena
-                    $query->where('id_faena', $idFaena);
+                    $query->where('dumpadas.id_faena', $idFaena);
                     Log::info('🌐 [DUMPADAS] Filtrando por faena única', ['id_faena' => $idFaena]);
                 }
             } else {
@@ -104,8 +121,10 @@ class DumpadaController extends Controller
         }
 
         // Filtro por estado
+        // dumpadas.* qualificado: frentes_trabajo tambien tiene columna 'estado'
+        // (activo/inactivo del frente), ambigua cuando orden=frente hace el join.
         if ($estado) {
-            $query->where('estado', $estado);
+            $query->where('dumpadas.estado', $estado);
 
             // Envio de Muestras pide especificamente estado=Ingresado para armar la cola
             // de "pendientes de enviar a laboratorio" (ver EnvioMuestrasView.jsx). Una
