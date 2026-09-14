@@ -55,24 +55,19 @@ class DumpadaController extends Controller
         $numeroDumpada = $request->get('numero_dumpada');
         $enMezcla = $request->get('en_mezcla'); // 'si' | 'no'
         $tipoMaterial = $request->get('tipo_material'); // 'mineral' | 'esteril'
-        $orden = $request->get('orden', 'fecha'); // 'fecha' (default) | 'frente'
 
-        $query = Dumpada::with(['frenteTrabajo.tipoFrente']);
-
-        if ($orden === 'frente') {
-            // Historial: agrupa por frente y, dentro de un mismo frente, por jornada
-            // (orden cronológico del día, no alfabético) y numero_jornada — así las
-            // filas de "Frente A AM-1, AM-2..." quedan juntas en vez de intercaladas
-            // con otros frentes por fecha/hora de carga.
-            $query->select('dumpadas.*')
-                ->join('frentes_trabajo', 'frentes_trabajo.id', '=', 'dumpadas.id_frente_trabajo')
-                ->orderBy('frentes_trabajo.codigo_completo')
-                ->orderBy('dumpadas.fecha', 'desc')
-                ->orderByRaw("FIELD(dumpadas.jornada, 'Madrugada', 'AM', 'PM', 'Noche')")
-                ->orderBy('dumpadas.numero_jornada');
-        } else {
-            $query->orderByRaw('DATE(fecha) DESC, CAST(numero_dumpada AS UNSIGNED) DESC');
-        }
+        // Orden: fecha mas reciente primero (asi los imports historicos viejos no
+        // tapan lo actual cuando no hay frente filtrado) y, dentro de un mismo dia,
+        // agrupado por frente y luego por jornada/numero_jornada (AM-1, AM-2...) en
+        // vez de intercalado por numero_dumpada global. Si se filtra un solo frente,
+        // la cláusula de frente no hace nada y queda fecha -> jornada -> numero_jornada.
+        $query = Dumpada::with(['frenteTrabajo.tipoFrente'])
+            ->select('dumpadas.*')
+            ->join('frentes_trabajo', 'frentes_trabajo.id', '=', 'dumpadas.id_frente_trabajo')
+            ->orderBy('dumpadas.fecha', 'desc')
+            ->orderBy('frentes_trabajo.codigo_completo')
+            ->orderByRaw("FIELD(dumpadas.jornada, 'Madrugada', 'AM', 'PM', 'Noche')")
+            ->orderBy('dumpadas.numero_jornada');
 
         // ✅ MULTI-FAENA: Respeta roles de usuario
         Log::info('🔍 [DUMPADAS] Filtro de faena', [
