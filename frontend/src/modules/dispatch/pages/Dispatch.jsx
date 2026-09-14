@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { HiHome, HiPencil, HiTrash, HiCheckCircle, HiXCircle, HiEye, HiChevronLeft, HiChevronRight, HiBeaker, HiCube, HiMap, HiTruck, HiClipboardDocumentList, HiCog6Tooth, HiDocumentPlus, HiInformationCircle, HiDocumentMagnifyingGlass, HiArrowUpTray, HiSparkles } from 'react-icons/hi2';
+import { HiHome, HiPencil, HiTrash, HiCheckCircle, HiXCircle, HiEye, HiChevronLeft, HiChevronRight, HiBeaker, HiCube, HiMap, HiTruck, HiClipboardDocumentList, HiCog6Tooth, HiDocumentPlus, HiInformationCircle, HiDocumentMagnifyingGlass, HiArrowUpTray, HiSparkles, HiBarsArrowUp, HiBarsArrowDown, HiXMark } from 'react-icons/hi2';
 import { HiClipboardCheck, HiFilter } from "react-icons/hi";
 import { useNavigate } from 'react-router-dom';
 import Header from '../../../shared/components/organisms/Header';
@@ -161,6 +161,47 @@ function DispatchContent() {
   // Sub-tab dentro del historial
   const [historialTab, setHistorialTab] = useState('dumpadas'); // 'dumpadas' | 'muestras'
 
+  // Orden del Historial de dumpadas, controlado por encabezados clicables (Fecha, N°
+  // Dump, Frente). Es preferencia de visualizacion momentanea, no un filtro, por eso
+  // vive aparte de `filters` y "Limpiar filtros" no lo toca.
+  // null = orden por default (como estaba antes de agrupar por frente): fecha DESC,
+  // numero_dumpada DESC. Ningún encabezado queda marcado como activo hasta que el
+  // usuario haga click en uno.
+  const [campoOrden, setCampoOrden] = useState(null);
+  const [direccionOrden, setDireccionOrden] = useState('desc');
+
+  // Independiente de campoOrden: dentro de un mismo día/frente/jornada, las dumpadas
+  // van numeradas AM-1, AM-2, AM-3... — 'asc' (default) = 1,2,3,4,5, 'desc' = 5,4,3,2,1.
+  const [direccionJornada, setDireccionJornada] = useState('asc');
+
+  // Direccion por defecto al cambiar a un campo distinto: fecha/N° dumpada arrancan
+  // descendente (lo mas reciente/alto primero), frente arranca ascendente (A→Z).
+  const handleOrdenarPor = (campo) => {
+    if (campo === campoOrden) {
+      setDireccionOrden(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setCampoOrden(campo);
+      setDireccionOrden(campo === 'frente' ? 'asc' : 'desc');
+    }
+    setCurrentPage(1);
+  };
+
+  const handleOrdenarJornada = () => {
+    // El orden AM-1, AM-2... solo existe cuando hay agrupación por Fecha o Frente
+    // activa (ver backend). Si no hay ninguna, activa "Fecha" para que el click
+    // tenga efecto visible en vez de no hacer nada.
+    setCampoOrden(campo => (campo === 'fecha' || campo === 'frente') ? campo : 'fecha');
+    setDireccionJornada(d => d === 'asc' ? 'desc' : 'asc');
+    setCurrentPage(1);
+  };
+
+  const handleRestablecerOrden = () => {
+    setCampoOrden(null);
+    setDireccionOrden('desc');
+    setDireccionJornada('asc');
+    setCurrentPage(1);
+  };
+
   // Estado para historial de muestras libres
   const [muestrasLibres, setMuestrasLibres] = useState([]);
   const [muestrasPage, setMuestrasPage] = useState(1);
@@ -226,7 +267,7 @@ function DispatchContent() {
       if (historialTab === 'dumpadas') loadData();
       else loadMuestrasLibresHistorial();
     }
-  }, [currentPage, debouncedSearchTerm, filters, historialTab, muestrasPage, muestrasFilters]);
+  }, [currentPage, debouncedSearchTerm, filters, historialTab, muestrasPage, muestrasFilters, campoOrden, direccionOrden, direccionJornada]);
 
   // Cargar data cuando cambian las faenas seleccionadas (después de inicialización)
   useEffect(() => {
@@ -418,6 +459,12 @@ function DispatchContent() {
             numero_dumpada: filters.numero_dumpada || undefined,
             en_mezcla: filters.en_mezcla || undefined,
             tipo_material: filters.tipo_material || undefined,
+            // Agrupa por frente y, dentro de un mismo frente, por jornada/numero_jornada
+            // en vez del orden por fecha/N° dumpada que usan Envío de Muestras y el Mapa.
+            orden: 'frente',
+            campo_orden: campoOrden || undefined,
+            direccion_orden: direccionOrden,
+            direccion_jornada: direccionJornada,
           };
 
           // Limpiar parámetros undefined
@@ -813,6 +860,34 @@ function DispatchContent() {
   };
 
   // Función para obtener el color de fondo por grupo (frente + jornada + fecha)
+  // Encabezado clicable del Historial: click ordena por esa columna, click de nuevo
+  // en la misma columna invierte la dirección. `handleOrdenarPor` está definida junto
+  // a `campoOrden`/`direccionOrden`.
+  const ThOrdenable = ({ campo, title, className = '', children }) => {
+    const activo = campoOrden === campo;
+    return (
+      <th
+        onClick={() => handleOrdenarPor(campo)}
+        title={title}
+        className={`text-left py-3 px-3 font-bold text-xs cursor-pointer select-none hover:bg-blue-100 transition-colors ${activo ? 'text-blue-700' : 'text-blue-900'} ${className}`}
+      >
+        <span className="inline-flex items-center gap-1">
+          {children}
+          {activo && (direccionOrden === 'desc' ? <HiBarsArrowDown className="w-3.5 h-3.5" /> : <HiBarsArrowUp className="w-3.5 h-3.5" />)}
+          {activo && (
+            <span
+              onClick={(e) => { e.stopPropagation(); handleRestablecerOrden(); }}
+              title="Quitar este orden y volver al orden normal"
+              className="ml-0.5 p-0.5 rounded hover:bg-blue-200"
+            >
+              <HiXMark className="w-3.5 h-3.5" />
+            </span>
+          )}
+        </span>
+      </th>
+    );
+  };
+
   const getBackgroundColorByGroup = (dumpadas, currentIndex) => {
     const colors = ['#fed7aa', '#bfdbfe']; // Naranja durazno y azul cielo
 
@@ -1928,11 +2003,20 @@ function DispatchContent() {
                             className="w-4 h-4 rounded border-blue-300 text-blue-600 focus:ring-blue-500"
                           />
                         </th>
-                        <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs whitespace-nowrap" title="Número de dumpada">N° Dump</th>
-                        <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs" title="Código del frente de trabajo">Frente</th>
+                        <ThOrdenable campo="numero_dumpada" title="Número de dumpada — click para ordenar" className="whitespace-nowrap">N° Dump</ThOrdenable>
+                        <ThOrdenable campo="frente" title="Código del frente de trabajo — click para ordenar">Frente</ThOrdenable>
                         <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs min-w-[260px]" title="Código del acopio de origen">Código</th>
-                        <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs" title="Jornada laboral">Jornada</th>
-                        <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs" title="Fecha de registro">Fecha</th>
+                        <th
+                          onClick={handleOrdenarJornada}
+                          title="Orden AM-1, AM-2, AM-3... — click para invertir"
+                          className="text-left py-3 px-3 font-bold text-blue-900 text-xs cursor-pointer select-none hover:bg-blue-100 transition-colors"
+                        >
+                          <span className="inline-flex items-center gap-1">
+                            Jornada
+                            {direccionJornada === 'desc' ? <HiBarsArrowDown className="w-3.5 h-3.5" /> : <HiBarsArrowUp className="w-3.5 h-3.5" />}
+                          </span>
+                        </th>
+                        <ThOrdenable campo="fecha" title="Fecha de registro — click para ordenar">Fecha</ThOrdenable>
                         <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs whitespace-nowrap" title="Dumper/máquina que realizó la dumpada">Dumper</th>
                         <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs" title="Toneladas">Ton</th>
                         <th className="text-left py-3 px-3 font-bold text-blue-900 text-xs" title="Cu Insoluble de laboratorio (Ley Total - Cu Soluble)">Cu Insol.</th>
@@ -1945,14 +2029,7 @@ function DispatchContent() {
                       </tr>
                     </thead>
                     <tbody>
-                      {[...dumpadas].sort((a, b) => {
-                        // Ordenar por fecha descendente (igual que el backend), no por id de creación:
-                        // el id no refleja la fecha real si la dumpada se editó después de crearse.
-                        const fechaA = new Date(a.fecha).getTime();
-                        const fechaB = new Date(b.fecha).getTime();
-                        if (fechaB !== fechaA) return fechaB - fechaA;
-                        return Number(b.numero_dumpada) - Number(a.numero_dumpada);
-                      }).map((dumpada, index, sortedArray) => {
+                      {dumpadas.map((dumpada, index, sortedArray) => {
                         // Obtener el color según grupo (frente + jornada + fecha)
                         const backgroundColor = getBackgroundColorByGroup(sortedArray, index);
 

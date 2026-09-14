@@ -56,18 +56,55 @@ class DumpadaController extends Controller
         $enMezcla = $request->get('en_mezcla'); // 'si' | 'no'
         $tipoMaterial = $request->get('tipo_material'); // 'mineral' | 'esteril'
 
-        // Orden: fecha mas reciente primero (asi los imports historicos viejos no
-        // tapan lo actual cuando no hay frente filtrado) y, dentro de un mismo dia,
-        // agrupado por frente y luego por jornada/numero_jornada (AM-1, AM-2...) en
-        // vez de intercalado por numero_dumpada global. Si se filtra un solo frente,
-        // la cláusula de frente no hace nada y queda fecha -> jornada -> numero_jornada.
+        // Encabezados clicables del Historial: por default (sin ninguno activo) usa el
+        // orden de siempre — fecha DESC, numero_dumpada DESC, sin agrupar por frente —
+        // porque Cabildo lo necesita así (lo último ingresado arriba, plano). Agrupar
+        // por Fecha/Frente con tiers de jornada es algo que cada usuario activa a
+        // demanda haciendo click, no un default nuevo para todos.
+        $campoOrden = $request->get('campo_orden');
+        $direccionOrden = $request->get('direccion_orden', 'desc') === 'asc' ? 'asc' : 'desc';
+
+        if (!in_array($campoOrden, ['fecha', 'numero_dumpada', 'frente'], true)) {
+            $campoOrden = null;
+        }
+
+        // Independiente de campo_orden: dentro de un mismo dia/frente/jornada, las
+        // dumpadas van numeradas AM-1, AM-2, AM-3... — esto controla si esa secuencia
+        // se lee 1,2,3,4,5 (asc, default) o 5,4,3,2,1 (desc). Solo aplica cuando hay
+        // agrupación por frente/jornada activa (campo_orden 'fecha' o 'frente').
+        $direccionJornada = $request->get('direccion_jornada', 'asc') === 'desc' ? 'desc' : 'asc';
+
         $query = Dumpada::with(['frenteTrabajo.tipoFrente'])
             ->select('dumpadas.*')
-            ->join('frentes_trabajo', 'frentes_trabajo.id', '=', 'dumpadas.id_frente_trabajo')
-            ->orderBy('dumpadas.fecha', 'desc')
-            ->orderBy('frentes_trabajo.codigo_completo')
-            ->orderByRaw("FIELD(dumpadas.jornada, 'Madrugada', 'AM', 'PM', 'Noche')")
-            ->orderBy('dumpadas.numero_jornada');
+            ->join('frentes_trabajo', 'frentes_trabajo.id', '=', 'dumpadas.id_frente_trabajo');
+
+        if ($campoOrden === 'numero_dumpada') {
+            // N° dumpada es un correlativo global: alcanza como único criterio. Es
+            // varchar(50) en la BD, así que hay que castear a numérico o "10000"
+            // ordena antes que "9999" (compara como texto: "1" < "9").
+            $direccionOrdenSql = $direccionOrden === 'asc' ? 'ASC' : 'DESC';
+            $query->orderByRaw("CAST(dumpadas.numero_dumpada AS UNSIGNED) {$direccionOrdenSql}");
+        } elseif ($campoOrden === 'frente') {
+            // Agrupado por frente y, dentro del mismo frente, lo más reciente primero.
+            $query->orderBy('frentes_trabajo.codigo_completo', $direccionOrden)
+                ->orderBy('dumpadas.fecha', 'desc')
+                ->orderByRaw("FIELD(dumpadas.jornada, 'Madrugada', 'AM', 'PM', 'Noche')")
+                ->orderBy('dumpadas.numero_jornada', $direccionJornada);
+        } elseif ($campoOrden === 'fecha') {
+            // Agrupado por fecha y, dentro de un mismo dia, por frente y luego por
+            // jornada/numero_jornada (AM-1, AM-2...) en vez de intercalado por numero
+            // de dumpada global.
+            $query->orderBy('dumpadas.fecha', $direccionOrden)
+                ->orderBy('frentes_trabajo.codigo_completo')
+                ->orderByRaw("FIELD(dumpadas.jornada, 'Madrugada', 'AM', 'PM', 'Noche')")
+                ->orderBy('dumpadas.numero_jornada', $direccionJornada);
+        } else {
+            // Default (como estaba antes de agrupar por frente): fecha mas reciente
+            // primero y, dentro del mismo dia, lo ultimo ingresado primero. Cast a
+            // numérico por la misma razón que arriba (numero_dumpada es varchar).
+            $query->orderByRaw('DATE(dumpadas.fecha) DESC')
+                ->orderByRaw('CAST(dumpadas.numero_dumpada AS UNSIGNED) DESC');
+        }
 
         // ✅ MULTI-FAENA: Respeta roles de usuario
         Log::info('🔍 [DUMPADAS] Filtro de faena', [
