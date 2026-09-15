@@ -15,6 +15,7 @@ import {
 } from 'react-icons/fi';
 import { FaIndustry, FaMountain } from 'react-icons/fa';
 import ReconstruccionLote from './ReconstruccionLote';
+import ResumenTiros from './ResumenTiros';
 import InfoPopover from '../../../../shared/components/molecules/InfoPopover';
 import { CATEGORICAL, crearAsignadorDeFrentes } from '../../utils/chartColors';
 import useDebounce from '../../../../hooks/useDebounce';
@@ -424,7 +425,7 @@ export const ProduccionCompleta = () => {
   const [dumpLoading, setDumpLoading]       = useState(false);
   const [dumpMetrica, setDumpMetrica]       = useState('toneladas'); // 'toneladas' | 'cantidad'
   const [dumpJornada, setDumpJornada]       = useState('Todos'); // 'Todos' | 'AM' | 'PM' | 'Madrugada' | 'Noche' — filtro instantáneo, sin recargar
-  const [dumpAgrupacion, setDumpAgrupacion] = useState('grupo'); // 'grupo' (túnel/manto) | 'jornada' | 'faena' — qué apila/colorea la barra
+  const [dumpAgrupacion, setDumpAgrupacion] = useState('frente'); // 'frente' (nombre completo, default) | 'grupo' (túnel/manto) | 'jornada' — qué apila/colorea la barra
   // Detalle completo al hacer clic en un segmento de "Avance Diario por Frente"
   // (no en el tooltip de hover — con muchos frentes esa lista no entra ni se
   // puede scrollear sin que el mouse se salga y el tooltip desaparezca).
@@ -434,6 +435,9 @@ export const ProduccionCompleta = () => {
   const [eficienciaLoading, setEficienciaLoading] = useState(false);
   const [resumenDumpadas, setResumenDumpadas] = useState([]);
   const [resumenDumpadasLoading, setResumenDumpadasLoading] = useState(false);
+  const [resumenTiros, setResumenTiros] = useState([]);
+  const [diasTiros, setDiasTiros] = useState([]);
+  const [resumenTirosLoading, setResumenTirosLoading] = useState(false);
   // Detalle desplegable de "Por Empresa y Planta": qué filas (empresa|||planta)
   // están expandidas ahora mismo (pueden ser varias a la vez, cada una con su
   // propio fetch independiente) y los lotes que le corresponden a cada una
@@ -461,6 +465,11 @@ export const ProduccionCompleta = () => {
   const obtenerColorFrente = useRef(crearAsignadorDeFrentes()).current;
   const obtenerColorEmpresa = useRef(crearAsignadorDeFrentes()).current; // asignador genérico, reutilizado por empresa
   const obtenerColorPlanta = useRef(crearAsignadorDeFrentes()).current; // idem, para el divisor de planta en "Por Empresa y Planta"
+  // Instancia APARTE para Túnel/Manto: son solo 3-5 categorías reales, pero si
+  // compartieran cupo con obtenerColorFrente (usado por Pareto/Top/modo "Frente"
+  // con ~10 nombres de frente), los nombres de frente agotaban los 7 colores
+  // antes de que "M3"/"M4"/"NIVEL974" alcanzaran a pedir el suyo.
+  const obtenerColorGrupo = useRef(crearAsignadorDeFrentes()).current;
 
   // Debounce de las fechas: el input dispara onChange en cada click/tecleo del
   // date picker — sin esto, cada uno de esos cambios intermedios lanzaba las 5
@@ -513,6 +522,7 @@ export const ProduccionCompleta = () => {
   const genEficienciaRef = useRef(0);
   const genLotesRef = useRef(0);
   const genResumenDumpadasRef = useRef(0);
+  const genResumenTirosRef = useRef(0);
 
   // Un AbortController por sección: al arrancar una carga nueva, se cancela
   // la anterior en vez de dejarla terminar sola — así el servidor local (de
@@ -523,6 +533,7 @@ export const ProduccionCompleta = () => {
   const abortEficienciaRef = useRef(null);
   const abortLotesRef = useRef(null);
   const abortResumenDumpadasRef = useRef(null);
+  const abortResumenTirosRef = useRef(null);
   // Un AbortController y un contador de generación por fila (Map keyed por
   // "empresa_id|||planta_id") — así varias filas pueden estar cargando/abiertas
   // a la vez sin cancelarse entre sí.
@@ -634,6 +645,27 @@ export const ProduccionCompleta = () => {
     } catch (e) { if (!esCancelacion(e) && miGen === genResumenDumpadasRef.current) console.error('Error resumen de dumpadas:', e); }
     finally {
       if (miGen === genResumenDumpadasRef.current) setResumenDumpadasLoading(false);
+    }
+  };
+
+  const cargarResumenTiros = async (faenaId, fi, ff) => {
+    abortResumenTirosRef.current?.abort();
+    const controller = new AbortController();
+    abortResumenTirosRef.current = controller;
+    const miGen = ++genResumenTirosRef.current;
+    setResumenTirosLoading(true);
+    try {
+      const params = { fecha_desde: fi, fecha_hasta: ff };
+      if (faenaId) params.id_faena = faenaId;
+      const res = await gerencialService.getResumenTiros(params, controller.signal);
+      if (miGen !== genResumenTirosRef.current) return;
+      if (res.success) {
+        setResumenTiros(res.data ?? []);
+        setDiasTiros(res.dias ?? []);
+      }
+    } catch (e) { if (!esCancelacion(e) && miGen === genResumenTirosRef.current) console.error('Error resumen de tiros:', e); }
+    finally {
+      if (miGen === genResumenTirosRef.current) setResumenTirosLoading(false);
     }
   };
 
@@ -786,12 +818,26 @@ export const ProduccionCompleta = () => {
     cargarResumenDumpadas(idFaenaParam, debouncedFechaInicio, debouncedFechaFin);
   }, [vista, faenaIdActiva, selectedFaenas, faenasConDatos, debouncedFechaInicio, debouncedFechaFin, ningunaSeleccionada]);
 
+  // "Resumen de Tiros" — mismo patrón de carga perezosa que "Resumen de
+  // Dumpadas" arriba (ver comentario ahí): solo se pide al backend cuando el
+  // usuario abre esta pestaña, no en el Promise.all inicial.
+  useEffect(() => {
+    if (vista !== 'tiros') return;
+    if (ningunaSeleccionada) return;
+    const idFaenaParam = faenaIdActiva
+      || (selectedFaenas.length > 1
+        ? faenasConDatos.filter(f => selectedFaenas.includes(f.name)).map(f => f.id).join(',')
+        : null);
+    cargarResumenTiros(idFaenaParam, debouncedFechaInicio, debouncedFechaFin);
+  }, [vista, faenaIdActiva, selectedFaenas, faenasConDatos, debouncedFechaInicio, debouncedFechaFin, ningunaSeleccionada]);
+
   return (
     <div className="mt-6 space-y-6">
       {/* Sub-navegación */}
       <div className="flex gap-2 border-b border-gray-200 pb-0">
         {[
           { id: 'resumen', label: 'Resumen de Producción' },
+          { id: 'tiros', label: 'Resumen de Tiros' },
           { id: 'dumpadas', label: 'Resumen de Dumpadas' },
           { id: 'lotes', label: 'Resumen de Lotes' },
           { id: 'trazabilidad', label: 'Trazabilidad de Lote' },
@@ -811,6 +857,35 @@ export const ProduccionCompleta = () => {
       </div>
 
       {vista === 'trazabilidad' && <ReconstruccionLote />}
+
+      {vista === 'tiros' && (
+        <>
+          {faenasConDatos.length > 0 && (
+            <SelectorFaenasGrid
+              faenas={faenasConDatos}
+              mode="multi"
+              selectedFaenas={selectedFaenas}
+              onToggle={handleFaenaToggle}
+              loading={loading}
+            />
+          )}
+
+          <FiltrosProduccion
+            fechaInicio={fechaInicio} setFechaInicio={setFechaInicio}
+            fechaFin={fechaFin} setFechaFin={setFechaFin}
+            loading={loading || cargandoFiltro}
+          />
+
+          {!ningunaSeleccionada && (
+            <ResumenTiros
+              data={resumenTiros}
+              dias={diasTiros}
+              loading={resumenTirosLoading}
+              multiFaena={new Set(resumenTiros.map(f => f.id_faena).filter(id => id != null)).size > 1}
+            />
+          )}
+        </>
+      )}
 
       {vista === 'dumpadas' && (
         <>
@@ -1594,10 +1669,15 @@ export const ProduccionCompleta = () => {
               {/* Avance diario por frente */}
               {(dumpDiarias.length > 0 || dumpLoading) && (() => {
                 // Pivotear: [{ fecha, frente, grupo, toneladas, cantidad, ley_promedio }] → [{ fecha, Grupo1: val, ..., _detalle, _leyDia }]
-                // Se apila/colorea por GRUPO (túnel/manto, calculado en el backend) y no por frente
-                // individual: con más de 7 frentes distintos, todos los que exceden ese número caían
-                // en el mismo gris "Otros" de la paleta y el gráfico quedaba ilegible. El detalle por
-                // frente se conserva completo dentro de _detalle, para desglosarlo en el tooltip.
+                // Por defecto se apila/colorea por GRUPO (túnel/manto, calculado en el backend) y no
+                // por frente individual: con más de 7 frentes distintos, todos los que exceden ese
+                // número caían en el mismo gris "Otros" de la paleta. El botón "Frente" (dumpAgrupacion
+                // === 'frente') cambia la clave a d.frente para ver el nombre completo de cada uno —
+                // mismo asignador de colores que el Pareto/Top Frentes, así que por encima de 7
+                // frentes activos en el período algunos comparten el gris "Otros" (el nombre en la
+                // leyenda/tooltip siempre se ve completo, solo el color puede repetirse).
+                // El detalle por frente se conserva completo dentro de _detalle en ambos modos, para
+                // desglosarlo en el tooltip/panel de clic.
                 // _leyDia es la ley ponderada por tonelaje de TODOS los frentes ese día (etiqueta sobre la barra).
                 // Jornadas presentes en el período (para no mostrar botones de jornadas sin datos)
                 const jornadasDisponibles = [...new Set(dumpDiarias.map(d => d.jornada))].sort();
@@ -1622,6 +1702,8 @@ export const ProduccionCompleta = () => {
                 // por eso NO hay un tercer modo aparte: sería redundante con este.
                 const obtenerClave = dumpAgrupacion === 'jornada'
                   ? (d) => `${nombrePorFaena[d.id_faena]}__${d.jornada}`
+                  : dumpAgrupacion === 'frente'
+                  ? (d) => d.frente
                   : (d) => d.grupo;
                 // Solo se listan las combinaciones faena+jornada que realmente existen en
                 // los datos — ordenadas por faena (id) y, adentro de cada una,
@@ -1635,11 +1717,27 @@ export const ProduccionCompleta = () => {
                         .map((j) => `${nombre}__${j}`);
                     })
                   : null;
+                // Total del período por clave, para decidir a quién le toca color real:
+                // los 7 colores de la paleta (validada contra daltonismo, no se puede
+                // extender — ver skill dataviz) se reparten por TONELAJE, no alfabético.
+                // Antes, alfabético dejaba los 7 colores reales todos dentro de la familia
+                // "M3-*" y mandaba M4/NIVEL974 enteros al gris "Otros" aunque tuvieran más
+                // tonelaje que varios M3 — con esto, los frentes más grandes de CUALQUIER
+                // grupo son los que se distinguen por color; solo la cola realmente menor
+                // cae en gris (comportamiento esperado, no un bug de la paleta).
+                const totalPorClave = {};
+                dumpDiariasFiltradas.forEach((d) => {
+                  const clave = obtenerClave(d);
+                  totalPorClave[clave] = (totalPorClave[clave] ?? 0) + (dumpMetrica === 'toneladas' ? d.toneladas : d.cantidad);
+                });
                 const grupos = dumpAgrupacion === 'jornada'
                   ? combosFaenaJornada
-                  : [...new Set(dumpDiariasFiltradas.map(obtenerClave))].sort();
+                  : [...new Set(dumpDiariasFiltradas.map(obtenerClave))]
+                      .sort((a, b) => (totalPorClave[b] ?? 0) - (totalPorClave[a] ?? 0));
                 const obtenerColorSerie = dumpAgrupacion === 'jornada'
                   ? (g) => JORNADA_COLOR_HEX[g.split('__')[1]] ?? '#9ca3af'
+                  : dumpAgrupacion === 'grupo'
+                  ? obtenerColorGrupo
                   : obtenerColorFrente;
                 // stackId por barra: en modo jornada, cada faena tiene su propio stackId
                 // (sus jornadas se apilan JUNTAS pero quedan como grupo separado de otra
@@ -1750,15 +1848,17 @@ export const ProduccionCompleta = () => {
 
                         {/* "Jornada" ya incluye la separación por faena cuando hay más de una
                             (ver comentario junto a obtenerClave) — no hace falta un tercer
-                            botón aparte para eso, sería mostrar lo mismo dos veces. */}
-                        {jornadasDisponibles.length > 1 && (
-                          <div className="flex items-center gap-1">
-                            <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 mr-0.5">Agrupar</span>
-                            <button onClick={() => setDumpAgrupacion('grupo')} className={claseBoton(dumpAgrupacion === 'grupo', false)}>Frente</button>
+                            botón aparte para eso, sería mostrar lo mismo dos veces. El toggle
+                            Túnel/Manto vs Frente siempre se ofrece (no depende de cuántas
+                            jornadas haya); "Jornada" solo se agrega si hay más de una. */}
+                        <div className="flex items-center gap-1">
+                          <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 mr-0.5">Agrupar</span>
+                          <button onClick={() => setDumpAgrupacion('grupo')} className={claseBoton(dumpAgrupacion === 'grupo', false)}>Túnel/Manto</button>
+                          <button onClick={() => setDumpAgrupacion('frente')} className={claseBoton(dumpAgrupacion === 'frente', false)}>Frente</button>
+                          {jornadasDisponibles.length > 1 && (
                             <button onClick={() => setDumpAgrupacion('jornada')} className={claseBoton(dumpAgrupacion === 'jornada', false)}>Jornada</button>
-                          </div>
-                        )}
-
+                          )}
+                        </div>
                         {jornadasDisponibles.length > 1 && (
                           <div className="flex items-center gap-1" title={filtroJornadaDeshabilitado ? 'No aplica agrupando por jornada — ya se ven las 4 por separado' : undefined}>
                             <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 mr-0.5">Jornada</span>
@@ -1799,13 +1899,24 @@ export const ProduccionCompleta = () => {
                                     {barras.map((p) => {
                                       const leySerie = row?.[`_ley_${p.dataKey}`];
                                       const etiquetaSerie = dumpAgrupacion === 'jornada' ? p.dataKey.split('__').join(' · ') : p.dataKey;
+                                      // Jornadas que componen este segmento — solo tiene sentido
+                                      // mostrarlo cuando la barra NO está apilada ya por jornada.
+                                      const jornadasSerie = dumpAgrupacion !== 'jornada'
+                                        ? [...new Set((row?._detalle?.[p.dataKey] ?? []).map((d) => d.jornada))]
+                                            .sort((a, b) => (JORNADA_ORDEN[a] ?? 99) - (JORNADA_ORDEN[b] ?? 99))
+                                        : [];
                                       return (
-                                        <div key={p.dataKey} className="flex justify-between gap-3">
-                                          <span style={{ color: p.fill }} className="font-medium">{etiquetaSerie}</span>
-                                          <span className="font-mono font-semibold">
-                                            {formatNumber(p.value)} {dumpMetrica === 'toneladas' ? 't' : 'dumpadas'}
-                                            {leySerie != null && ` · ${formatNumber(leySerie)}%`}
-                                          </span>
+                                        <div key={p.dataKey} className="mb-1 last:mb-0">
+                                          <div className="flex justify-between gap-3">
+                                            <span style={{ color: p.fill }} className="font-medium">{etiquetaSerie}</span>
+                                            <span className="font-mono font-semibold">
+                                              {formatNumber(p.value)} {dumpMetrica === 'toneladas' ? 't' : 'dumpadas'}
+                                              {leySerie != null && ` · ${formatNumber(leySerie)}%`}
+                                            </span>
+                                          </div>
+                                          {jornadasSerie.length > 0 && (
+                                            <p className="text-[10px] text-gray-400 text-right">{jornadasSerie.join(' · ')}</p>
+                                          )}
                                         </div>
                                       );
                                     })}
@@ -1854,6 +1965,7 @@ export const ProduccionCompleta = () => {
                               const dataKeyLey = dumpAgrupacion === 'jornada' ? `_ley_${obtenerStackId(g)}` : '_leyDia';
                               return (
                                 <Bar key={g} dataKey={g} stackId={obtenerStackId(g)} fill={obtenerColorSerie(g)}
+                                  stroke="#fff" strokeWidth={2}
                                   radius={esUltimoDeSuStack ? [3, 3, 0, 0] : [0, 0, 0, 0]}
                                   className="cursor-pointer"
                                   onClick={(data) => {

@@ -672,7 +672,10 @@ class GerencialController extends Controller
             'empresa'           => $lote->empresa ? ['nombre' => $lote->empresa->nombre] : null,
             'estado'            => $lote->estado,
             'fecha_creacion'    => $lote->fecha_creacion,
-            'peso_total'        => $lote->getPesoTotal(),
+            // Despachado = Real + Teórico (converge hacia Recepcionado), no el
+            // teórico total de todas las camionadas — mismo criterio que
+            // reporteProduccion()/buscarLotes(), ver Lote::getPesoDespachado().
+            'peso_despachado'   => $lote->getPesoDespachado(),
             'peso_recibido'     => $lote->getPesoRecibido(),
             'ley_lote_promedio' => $lote->getLeyLotePromedio(),
             'ley_lab_promedio'  => $lote->getLeyLabPromedio(),
@@ -836,10 +839,9 @@ class GerencialController extends Controller
                 'd.id_faena',
                 DB::raw('COALESCE(f.codigo_completo, CONCAT(f.manto, "-", COALESCE(f.calle, ""), COALESCE(f.hebra, ""))) as frente'),
                 // Grupo = túnel (o manto cuando el frente no tiene túnel cargado, ej.
-                // los "M3-"/"M5-"). Con 20-30+ frentes distintos, colorear/apilar por
-                // frente individual vuelve el gráfico ilegible (más de 7 caen todos en
-                // el mismo gris "Otros"); agrupando por túnel/manto quedan 5-6
-                // categorías reales — el detalle por frente se mantiene en el tooltip.
+                // los "M3-"/"M5-"). Se manda igual que 'frente' (nombre completo) para que
+                // el frontend pueda ofrecer ambos modos de agrupación ("Túnel/Manto" o
+                // "Frente") sin recargar del servidor — ver ProduccionDashboard.jsx.
                 DB::raw('COALESCE(NULLIF(f.tunel, ""), f.manto) as grupo'),
                 // jornada (AM/PM/Madrugada/Noche) va SIEMPRE en el resultado (no como filtro
                 // aparte) para que el toggle en el frontend sea instantáneo sin recargar del
@@ -955,6 +957,143 @@ class GerencialController extends Controller
         return response()->json([
             'success' => true,
             'data'    => $resultado,
+            'periodo' => ['desde' => $fechaDesde, 'hasta' => $fechaHasta],
+        ]);
+    }
+
+    /**
+     * Tiros quemados por frente y día (Perforación y Tronadura), cruzados con
+     * las toneladas extraídas (dumpadas) del mismo frente y día — para poder
+     * ver de un vistazo si los tiros de un frente se están convirtiendo en
+     * tonelaje real o si quedan "sin cruce" (pedido explícito de gerencia,
+     * a raíz de una consulta de Carlos Orlandini sobre tiros por frente y día).
+     *
+     * GET /api/gerencial/resumen-tiros
+     */
+    public function resumenTiros(Request $request)
+    {
+        $fechaDesde = $request->get('fecha_desde', Carbon::now()->subDays(13)->format('Y-m-d'));
+        $fechaHasta = $request->get('fecha_hasta', Carbon::now()->format('Y-m-d'));
+
+        $idsFaena = null;
+        if ($request->filled('id_faena')) {
+            $idFaena = $request->id_faena;
+            $idsFaena = strpos($idFaena, ',') !== false ? array_map('trim', explode(',', $idFaena)) : [$idFaena];
+        }
+
+        // Lista de días del rango (columnas del mapa de calor), en orden.
+        $dias = [];
+        $cursor = Carbon::parse($fechaDesde);
+        $fin = Carbon::parse($fechaHasta);
+        while ($cursor->lte($fin)) {
+            $dias[] = $cursor->toDateString();
+            $cursor->addDay();
+        }
+        $indiceDia = array_flip($dias);
+
+        // Tiros por frente y día — mismo join que consumoPorFrente en
+        // ReportePerforacionController::estadisticas(), agrupado por día además
+        // de por frente. Se excluyen los reportes en borrador (no confirmados).
+        $tiros = DB::table('reportes_perforacion as r')
+            ->join('lineas_reporte_perforacion as l', 'l.id_reporte', '=', 'r.id')
+            ->join('frentes_trabajo as ft', 'ft.id', '=', 'l.id_frente_trabajo')
+            ->when($idsFaena, fn ($q) => $q->whereIn('r.id_faena', $idsFaena))
+            ->where('r.estado', '!=', 'borrador')
+            ->whereBetween('r.fecha', [$fechaDesde, $fechaHasta])
+            ->selectRaw('r.fecha, r.id_faena, l.id_frente_trabajo, ft.codigo_completo as frente, SUM(l.numero_tiros) as total_tiros')
+            ->groupBy('r.fecha', 'r.id_faena', 'l.id_frente_trabajo', 'ft.codigo_completo')
+            ->get();
+
+        // Toneladas por frente y día (dumpadas) — mismo criterio de "cruce" que
+        // usa Dispatch/Laboratorio para saber si un tiro ya se tradujo en carga.
+        $tons = DB::table('dumpadas as d')
+            ->when($idsFaena, fn ($q) => $q->whereIn('d.id_faena', $idsFaena))
+            ->whereNotNull('d.id_frente_trabajo')
+            ->whereBetween('d.fecha', [$fechaDesde, $fechaHasta])
+            ->selectRaw('d.fecha, d.id_frente_trabajo, SUM(d.ton) as total_ton')
+            ->groupBy('d.fecha', 'd.id_frente_trabajo')
+            ->get();
+
+        // Ley promedio (Cu Insoluble) por frente en el mismo período — ponderada
+        // por tonelaje, mismo criterio que resumenDumpadas().
+        $leyPorFrente = DB::table('dumpadas as d')
+            ->when($idsFaena, fn ($q) => $q->whereIn('d.id_faena', $idsFaena))
+            ->whereNotNull('d.id_frente_trabajo')
+            ->whereNotNull('d.cu_insoluble')
+            ->whereBetween('d.fecha', [$fechaDesde, $fechaHasta])
+            ->selectRaw('d.id_frente_trabajo, SUM(d.ton) as ton_con_ley, SUM(d.ton * d.cu_insoluble) as ton_x_ley')
+            ->groupBy('d.id_frente_trabajo')
+            ->get()
+            ->keyBy('id_frente_trabajo');
+
+        // Explosivos consumidos por frente en el período — mismo join que
+        // consumoPorFrente en ReportePerforacionController::estadisticas().
+        $expPorFrente = DB::table('lineas_reporte_perforacion as l')
+            ->join('reportes_perforacion as r', 'r.id', '=', 'l.id_reporte')
+            ->join('explosivos_linea_reporte as e', 'e.id_linea_reporte', '=', 'l.id')
+            ->join('tipos_explosivos as te', 'te.id', '=', 'e.id_tipo_explosivo')
+            ->when($idsFaena, fn ($q) => $q->whereIn('r.id_faena', $idsFaena))
+            ->where('r.estado', '!=', 'borrador')
+            ->whereBetween('r.fecha', [$fechaDesde, $fechaHasta])
+            ->selectRaw('l.id_frente_trabajo, te.codigo as tipo, SUM(e.cantidad_final) as total')
+            ->groupBy('l.id_frente_trabajo', 'te.codigo')
+            ->get()
+            ->groupBy('id_frente_trabajo');
+
+        $porFrente = [];
+        foreach ($tiros as $row) {
+            $key = $row->id_frente_trabajo;
+            if (!isset($porFrente[$key])) {
+                $porFrente[$key] = [
+                    'id_frente_trabajo' => $row->id_frente_trabajo,
+                    'id_faena'          => $row->id_faena,
+                    'frente'            => $row->frente ?? 'Sin frente',
+                    'tiros'             => array_fill(0, count($dias), 0),
+                    'ton'               => array_fill(0, count($dias), 0.0),
+                ];
+            }
+            if (isset($indiceDia[$row->fecha])) {
+                $porFrente[$key]['tiros'][$indiceDia[$row->fecha]] += (int) $row->total_tiros;
+            }
+        }
+        foreach ($tons as $row) {
+            $key = $row->id_frente_trabajo;
+            if (!isset($porFrente[$key])) {
+                // Frente con dumpadas pero sin línea de reporte de tiros en el
+                // período — se incluye igual para poder verlo en el mapa (tiros
+                // en 0, tonelaje real), es la anomalía inversa a "sin cruce".
+                $porFrente[$key] = [
+                    'id_frente_trabajo' => $row->id_frente_trabajo,
+                    'id_faena'          => null,
+                    'frente'            => 'Sin frente',
+                    'tiros'             => array_fill(0, count($dias), 0),
+                    'ton'               => array_fill(0, count($dias), 0.0),
+                ];
+            }
+            if (isset($indiceDia[$row->fecha])) {
+                $porFrente[$key]['ton'][$indiceDia[$row->fecha]] += (float) $row->total_ton;
+            }
+        }
+
+        foreach ($porFrente as $key => &$frente) {
+            $ley = $leyPorFrente->get($key);
+            $frente['ley_promedio'] = ($ley && $ley->ton_con_ley > 0)
+                ? round($ley->ton_x_ley / $ley->ton_con_ley, 3)
+                : null;
+            $exps = $expPorFrente->get($key, collect());
+            $frente['explosivos'] = $exps->mapWithKeys(fn ($e) => [$e->tipo => (float) $e->total])->toArray();
+            $frente['total_tiros'] = array_sum($frente['tiros']);
+            $frente['total_ton'] = round(array_sum($frente['ton']), 2);
+        }
+        unset($frente);
+
+        $resultado = array_values($porFrente);
+        usort($resultado, fn ($a, $b) => $b['total_tiros'] - $a['total_tiros']);
+
+        return response()->json([
+            'success' => true,
+            'data'    => $resultado,
+            'dias'    => $dias,
             'periodo' => ['desde' => $fechaDesde, 'hasta' => $fechaHasta],
         ]);
     }
