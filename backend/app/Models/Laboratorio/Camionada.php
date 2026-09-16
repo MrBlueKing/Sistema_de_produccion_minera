@@ -4,6 +4,7 @@ namespace App\Models\Laboratorio;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\DB;
 
 class Camionada extends Model
 {
@@ -213,5 +214,66 @@ class Camionada extends Model
     {
         $this->ley_lab_camion = $leyLab;
         $this->save();
+    }
+
+    /**
+     * Recalcula ley_mezcla/ley_visual desde el estado ACTUAL de las mezclas asociadas
+     * (promedio ponderado por toneladas de la pivot) — para cuando una mezcla actualiza
+     * su ley después de que la camionada ya se despachó (antes quedaba "congelada" para
+     * siempre con lo que había al momento de crearla). También refresca el ley_mezcla
+     * guardado en el pivot camionada_mezcla, y si esta camionada ya tiene ley_lab_camion
+     * propio, recalcula diferencia_ley/porcentaje_error_ley contra el valor nuevo.
+     *
+     * Se aplica sin importar el estado (Despachado/Recibido/Completado): cerrar o
+     * recepcionar una camionada solo afecta sus toneladas, no la ley que le corresponde
+     * según la mezcla que la compone.
+     *
+     * @return bool true si algún valor cambió (y se guardó), false si no había nada que actualizar.
+     */
+    public function refrescarLeyDesdeMezclas(): bool
+    {
+        $mezclas = $this->mezclas()->get();
+
+        $totalTon = $mezclas->sum('pivot.toneladas');
+        if ($totalTon <= 0) {
+            return false;
+        }
+
+        $sumaLote = 0;
+        $sumaVisual = 0;
+
+        foreach ($mezclas as $mezcla) {
+            $ton = $mezcla->pivot->toneladas;
+            $leyLote = $mezcla->ley_prom_lote ?? $mezcla->ley_lab;
+            $leyVisual = $mezcla->ley_prom_visual ?? $mezcla->ley_lab;
+
+            $sumaLote += ($leyLote ?? 0) * $ton;
+            $sumaVisual += ($leyVisual ?? 0) * $ton;
+
+            DB::table('camionada_mezcla')
+                ->where('camionada_id', $this->id)
+                ->where('mezcla_id', $mezcla->id)
+                ->update(['ley_mezcla' => $leyLote]);
+        }
+
+        $nuevaLeyMezcla = round($sumaLote / $totalTon, 4);
+        $nuevaLeyVisual = round($sumaVisual / $totalTon, 4);
+
+        $cambio = $this->ley_mezcla != $nuevaLeyMezcla || $this->ley_visual != $nuevaLeyVisual;
+
+        if (!$cambio) {
+            return false;
+        }
+
+        $this->ley_mezcla = $nuevaLeyMezcla;
+        $this->ley_visual = $nuevaLeyVisual;
+
+        if ($this->ley_lab_camion) {
+            $this->calcularDiferenciaLey();
+        }
+
+        $this->save();
+
+        return true;
     }
 }

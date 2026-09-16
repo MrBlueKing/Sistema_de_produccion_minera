@@ -4,7 +4,9 @@ namespace App\Providers;
 
 use Illuminate\Support\ServiceProvider;
 use App\Models\Dispatch\Dumpada;
+use App\Models\Laboratorio\Mezcla;
 use App\Observers\DumpadaObserver;
+use App\Observers\MezclaObserver;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -22,5 +24,6 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Dumpada::observe(DumpadaObserver::class);
+        Mezcla::observe(MezclaObserver::class);
     }
 }
