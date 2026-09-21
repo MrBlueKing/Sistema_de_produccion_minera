@@ -59,20 +59,10 @@ class CamionadaService
             // Número correlativo por lote (lote ya bloqueado arriba)
             $numeroCamionada = $this->siguienteNumeroCamionada($lote->id);
 
-            // Calcular ley_mezcla promedio ponderado por toneladas
-            $totalTon = array_sum(array_column($mezclasData, 'toneladas'));
-            $sumaLeyLote = 0;
-            $sumaLeyVisual = 0;
-
-            foreach ($mezclas as $item) {
-                $m = $item['mezcla'];
-                $ton = $item['toneladas'];
-                $sumaLeyLote += ($m->ley_prom_lote ?? $m->ley_lab ?? 0) * $ton;
-                $sumaLeyVisual += ($m->ley_prom_visual ?? $m->ley_lab ?? 0) * $ton;
-            }
-
-            $leyMezcla = $totalTon > 0 ? round($sumaLeyLote / $totalTon, 4) : null;
-            $leyVisual = $totalTon > 0 ? round($sumaLeyVisual / $totalTon, 4) : null;
+            // Calcular ley_mezcla promedio ponderado por toneladas (reparto tecleado
+            // al despachar). Este es el reparto "teórico" -- ver recepcionarCamionada()
+            // para el recálculo con el reparto REAL una vez pesado en balanza.
+            [$leyMezcla, $leyVisual] = $this->calcularLeyPonderada($mezclas);
 
             // Crear la camionada
             $camionada = Camionada::create([
@@ -295,7 +285,7 @@ class CamionadaService
 
             // Restaurar toneladas solo si fue recepcionada
             if ($pesoReal !== null && $pesoReal > 0) {
-                $this->restaurarToneladasProporcionales($camionada->mezclas, $camionada->peso, $pesoReal);
+                $this->restaurarToneladasProporcionales($camionada->mezclas, (float) $pesoReal);
             }
 
             DB::commit();
@@ -355,9 +345,23 @@ class CamionadaService
                 }
             }
 
-            // Descontar toneladas de cada mezcla proporcionalmente
+            // Descontar toneladas de cada mezcla proporcionalmente al reparto
+            // tecleado al despachar, topando en el disponible real de cada mezcla
+            // (ver descontarToneladasProporcionales) -- y recalcular la ley de la
+            // camionada con el reparto REAL aplicado, no con el tecleado original.
             $pesoReal = (float) $datos['peso_real'];
-            $this->descontarToneladasProporcionales($camionada->mezclas, $camionada->peso, $pesoReal);
+            $repartoReal = $this->descontarToneladasProporcionales($camionada->mezclas, $pesoReal);
+
+            $paresReparto = $camionada->mezclas->map(fn ($m) => [
+                'mezcla' => $m,
+                'toneladas' => $repartoReal[$m->id] ?? 0,
+            ])->all();
+            [$leyMezcla, $leyVisual] = $this->calcularLeyPonderada($paresReparto);
+            if ($leyMezcla !== null) {
+                $camionada->ley_mezcla = $leyMezcla;
+                $camionada->ley_visual = $leyVisual;
+                $camionada->save();
+            }
 
             DB::commit();
             return $camionada->fresh(['mezclas', 'lote']);
@@ -385,14 +389,32 @@ class CamionadaService
 
             $pesoReal = (float) $camionada->peso_real;
 
-            // Restaurar toneladas a cada mezcla
-            $this->restaurarToneladasProporcionales($camionada->mezclas, $camionada->peso, $pesoReal);
+            // Restaurar toneladas a cada mezcla. Nota: si al recepcionar hubo que
+            // topar alguna mezcla por falta de stock (ver descontarToneladasProporcionales),
+            // esta restauración proporcional simple no revierte exactamente ese caso
+            // puntual -- solo el reparto tecleado original, sin registro del reparto
+            // real aplicado. Limitación conocida, poco probable (requiere camionada
+            // multi-mezcla + tope de stock a la vez), documentada para no asumir
+            // reversión perfecta.
+            $this->restaurarToneladasProporcionales($camionada->mezclas, $pesoReal);
+
+            // La ley vuelve al valor de despacho: recalculada con el reparto
+            // tecleado original (camionada_mezcla.toneladas), que nunca cambia.
+            $paresDespacho = $camionada->mezclas->map(fn ($m) => [
+                'mezcla' => $m,
+                'toneladas' => $m->pivot->toneladas,
+            ])->all();
+            [$leyMezcla, $leyVisual] = $this->calcularLeyPonderada($paresDespacho);
 
             $camionada->peso_real       = null;
             $camionada->fecha_recepcion = null;
             $camionada->hora_recepcion  = null;
             $camionada->ticket          = null;
             $camionada->estado          = Camionada::ESTADO_DESPACHADO;
+            if ($leyMezcla !== null) {
+                $camionada->ley_mezcla = $leyMezcla;
+                $camionada->ley_visual = $leyVisual;
+            }
             $camionada->save();
 
             DB::commit();
@@ -514,24 +536,70 @@ class CamionadaService
     /**
      * Descuenta peso_real de cada mezcla en la pivot, proporcionalmente a sus toneladas.
      */
-    private function descontarToneladasProporcionales($mezclas, float $pesoTeorico, float $pesoReal): void
+    /**
+     * Reparte el peso real (balanza) entre las mezclas de la camionada, proporcional
+     * al reparto tecleado al despachar -- salvo que a alguna mezcla no le alcance el
+     * disponible: ahí se topa en su stock y el excedente se reparte entre las demás
+     * mezclas de la misma camionada (proporcional a su reparto original). Si ni así
+     * alcanza (el déficit total supera lo disponible entre TODAS las mezclas de la
+     * camionada), se deja que quede negativa -- es la señal de que el estimado de
+     * dumpadas/peso teórico de esa mezcla quedó corto, a ajustar aparte, no se
+     * esconde repartiendo un stock que no existe.
+     *
+     * @return array<int, float> toneladas realmente descontadas, por mezcla_id
+     */
+    private function descontarToneladasProporcionales($mezclas, float $pesoReal): array
     {
         $totalPivot = $mezclas->sum('pivot.toneladas');
 
         if ($totalPivot <= 0) {
-            return;
+            return [];
+        }
+
+        // Reparto proporcional según lo tecleado al despachar (como antes).
+        $reparto = [];
+        foreach ($mezclas as $mezcla) {
+            $proporcion = $mezcla->pivot->toneladas / $totalPivot;
+            $reparto[$mezcla->id] = round($pesoReal * $proporcion, 4);
+        }
+
+        // Topar las que no tienen disponible suficiente, y juntar el excedente.
+        $excedente = 0;
+        $conMargen = [];
+        foreach ($mezclas as $mezcla) {
+            $disponible = (float) $mezcla->toneladas_disponibles;
+            if ($reparto[$mezcla->id] > $disponible && $disponible > 0) {
+                $excedente += $reparto[$mezcla->id] - $disponible;
+                $reparto[$mezcla->id] = $disponible;
+            } else {
+                $conMargen[] = $mezcla->id;
+            }
+        }
+
+        // Repartir el excedente entre las mezclas con margen, proporcional a lo
+        // que ya les tocaba (si ninguna tiene margen, el excedente simplemente
+        // no se reparte y las toneladas capadas se quedan en su disponible --
+        // no hay negativo "extra" que inventar en ese caso).
+        if ($excedente > 0 && !empty($conMargen)) {
+            $sumaConMargen = array_sum(array_map(fn ($id) => $reparto[$id], $conMargen));
+            foreach ($conMargen as $id) {
+                $porcion = $sumaConMargen > 0 ? ($reparto[$id] / $sumaConMargen) : (1 / count($conMargen));
+                $reparto[$id] += round($excedente * $porcion, 4);
+            }
         }
 
         foreach ($mezclas as $mezcla) {
-            $proporcion = $mezcla->pivot->toneladas / $totalPivot;
-            $mezcla->descontarToneladas(round($pesoReal * $proporcion, 4));
+            $mezcla->descontarToneladas($reparto[$mezcla->id]);
         }
+
+        return $reparto;
     }
 
     /**
-     * Restaura peso a cada mezcla en la pivot, proporcionalmente a sus toneladas.
+     * Restaura peso a cada mezcla en la pivot, proporcionalmente a sus toneladas
+     * tecleadas al despachar. Ver limitación documentada en anularRecepcion().
      */
-    private function restaurarToneladasProporcionales($mezclas, float $pesoTeorico, float $pesoReal): void
+    private function restaurarToneladasProporcionales($mezclas, float $pesoReal): void
     {
         $totalPivot = $mezclas->sum('pivot.toneladas');
 
@@ -543,5 +611,37 @@ class CamionadaService
             $proporcion = $mezcla->pivot->toneladas / $totalPivot;
             $mezcla->restaurarToneladas(round($pesoReal * $proporcion, 4));
         }
+    }
+
+    /**
+     * Promedio ponderado de ley (lote y visual) de un conjunto de mezclas según
+     * las toneladas indicadas para cada una. Usado al despachar (reparto tecleado),
+     * al recepcionar (reparto real aplicado) y al anular (vuelta al reparto tecleado).
+     *
+     * @param array<int, array{mezcla: Mezcla, toneladas: float}> $pares
+     * @return array{0: ?float, 1: ?float} [ley_lote, ley_visual], null si no hay toneladas
+     */
+    private function calcularLeyPonderada(array $pares): array
+    {
+        $sumaLeyLote = 0;
+        $sumaLeyVisual = 0;
+        $total = 0;
+
+        foreach ($pares as $par) {
+            $m = $par['mezcla'];
+            $ton = $par['toneladas'];
+            if ($ton <= 0) {
+                continue;
+            }
+            $sumaLeyLote += ($m->ley_prom_lote ?? $m->ley_lab ?? 0) * $ton;
+            $sumaLeyVisual += ($m->ley_prom_visual ?? $m->ley_lab ?? 0) * $ton;
+            $total += $ton;
+        }
+
+        if ($total <= 0) {
+            return [null, null];
+        }
+
+        return [round($sumaLeyLote / $total, 4), round($sumaLeyVisual / $total, 4)];
     }
 }
