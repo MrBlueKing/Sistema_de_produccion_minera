@@ -39,6 +39,30 @@ const TIPO_CONFIG = {
 
 // ─── MovimientoCard (móvil) ───────────────────────────────────────────────────
 
+
+// Devoluciones del reporte para el mismo explosivo de esta salida (la salida del
+// reporte ya viene neta: lo despachado menos lo devuelto).
+function devolucionesDeSalida(mov) {
+  if (mov.tipo !== 'salida' || !mov.reporte_perforacion?.devoluciones) return [];
+  return mov.reporte_perforacion.devoluciones.filter((d) => d.id_tipo_explosivo === mov.id_tipo_explosivo);
+}
+
+function DevueltoPor({ mov, className = '' }) {
+  const devs = devolucionesDeSalida(mov);
+  if (devs.length === 0) return null;
+  return (
+    <p className={`text-xs text-blue-700 ${className}`}>
+      Devuelto:{' '}
+      {devs.map((d, i) => (
+        <span key={d.id}>
+          {i > 0 && ' · '}
+          {parseFloat(d.cantidad).toLocaleString('es-CL')} {d.personal ? `${d.personal.nombre} ${d.personal.apellido || ''}`.trim() : 'sin perforista'}
+        </span>
+      ))}
+    </p>
+  );
+}
+
 function MovimientoCard({ mov }) {
   const cfg = TIPO_CONFIG[mov.tipo] || TIPO_CONFIG.ajuste;
   const Icon = cfg.icon;
@@ -96,6 +120,7 @@ function MovimientoCard({ mov }) {
       {mov.motivo && (
         <p className="text-xs text-gray-500 italic truncate">{mov.motivo}</p>
       )}
+      <DevueltoPor mov={mov} />
     </div>
   );
 }
@@ -489,8 +514,9 @@ export default function MovimientosView({ polvorin, polvorines = [], tipos, onRe
                           </span>
                           <span className="text-xs text-gray-400 ml-1">{mov.tipo_explosivo?.unidad_medida}</span>
                         </td>
-                        <td className="px-4 py-3 text-gray-500 text-sm max-w-[200px] truncate" title={mov.motivo || ''}>
-                          {mov.motivo || '—'}
+                        <td className="px-4 py-3 text-gray-500 text-sm max-w-[200px]" title={mov.motivo || ''}>
+                          <div className="truncate">{mov.motivo || '—'}</div>
+                          <DevueltoPor mov={mov} className="mt-0.5" />
                         </td>
                         <td className="px-4 py-3 text-center">
                           {mov.reporte_perforacion ? (

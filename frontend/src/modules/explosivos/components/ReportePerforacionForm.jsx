@@ -1377,7 +1377,7 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
                   <tr className="border-b bg-gray-50">
                     <th className="px-3 py-2 text-left font-semibold">Tipo Explosivo</th>
                     <th className="px-3 py-2 text-center font-semibold">Devolución</th>
-                    <th className="px-3 py-2 text-left font-semibold">Operador</th>
+                    <th className="px-3 py-2 text-left font-semibold">Devuelto por</th>
                     <th className="px-3 py-2 text-left font-semibold">Motivo</th>
                   </tr>
                 </thead>
@@ -1429,6 +1429,7 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
                       <th className="px-3 py-2 text-left font-semibold">Tipo Explosivo</th>
                       <th className="px-3 py-2 text-center font-semibold">Entregado (nuevo total)</th>
                       <th className="px-3 py-2 text-center font-semibold">Devolución</th>
+                      <th className="px-3 py-2 text-left font-semibold">Devuelto por</th>
                       <th className="px-3 py-2 text-left font-semibold">Motivo</th>
                     </tr>
                   </thead>
@@ -1454,6 +1455,12 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
                               onChange={(e) => actualizarDevolucionRevisar(index, 'cantidad', e.target.value)}
                               className="w-24 px-2 py-1 text-center border border-amber-300 rounded focus:ring-1 focus:ring-amber-500"
                             />
+                          </td>
+                          <td className="px-3 py-2 text-gray-700">
+                            {(() => {
+                              const p = personalAutorizado.find((x) => String(x.id) === String(dev.id_personal));
+                              return p ? `${p.nombre} ${p.apellido || ''}` : '-';
+                            })()}
                           </td>
                           <td className="px-3 py-2">
                             <input

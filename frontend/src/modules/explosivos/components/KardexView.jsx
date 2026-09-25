@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Fragment } from 'react';
 import * as XLSX from 'xlsx';
 import { HiTableCells, HiArrowDownTray, HiShieldCheck, HiChevronRight, HiArrowLeft } from 'react-icons/hi2';
 import Card from '../../../shared/components/atoms/Card';
@@ -24,6 +24,18 @@ const hoy = () => new Date().toISOString().split('T')[0];
 // Vista de solo lectura: reemplazo digital del libro físico de control de
 // explosivos. "Todos" muestra el resumen ingreso/salida/saldo de cada tipo;
 // al elegir un tipo, el libro diario de ese explosivo (que exige la DGMN).
+
+// "Devuelto en reporte X: 5 Juan Pérez · 3 Pedro Soto" — la salida del reporte
+// ya viene neta, esto solo informa de dónde salió la diferencia.
+function textoDevoluciones(devs) {
+  if (!devs || devs.length === 0) return '';
+  const porReporte = {};
+  devs.forEach((d) => { (porReporte[d.reporte] = porReporte[d.reporte] || []).push(d); });
+  return Object.entries(porReporte)
+    .map(([rep, lista]) => `Devuelto en ${rep}: ` + lista.map((d) => `${formatNumero(d.cantidad)} ${d.perforista || 'sin perforista'}`).join(' · '))
+    .join(' | ');
+}
+
 export default function KardexView({ polvorin, polvorines = [], esAdmin = false, tipos = [] }) {
   const toast = useToast();
 
@@ -96,7 +108,7 @@ export default function KardexView({ polvorin, polvorines = [], esAdmin = false,
         { Fecha: '', Documento: '', 'F/A': data.f_a || '', Entrada: '', Salida: '', Devolución: '', Ajuste: '', Saldo: data.existencia_anterior, Detalle: 'Existencia Anterior' },
         ...data.filas.map(f => ({
           Fecha: formatFecha(f.fecha), Documento: f.documento, 'F/A': data.f_a || '',
-          Entrada: f.entrada || '', Salida: f.salida || '', Devolución: f.devolucion || '', Ajuste: f.ajuste || '', Saldo: f.saldo, Detalle: '',
+          Entrada: f.entrada || '', Salida: f.salida || '', Devolución: f.devolucion || '', Ajuste: f.ajuste || '', Saldo: f.saldo, Detalle: textoDevoluciones(f.devoluciones_reporte),
         })),
       ];
       XLSX.utils.book_append_sheet(libro, XLSX.utils.json_to_sheet(filas), 'Kardex');
@@ -300,7 +312,8 @@ export default function KardexView({ polvorin, polvorines = [], esAdmin = false,
                     <td className="px-4 py-2 text-right font-semibold">{formatNumero(data.existencia_anterior)}</td>
                   </tr>
                   {data.filas.map((fila, i) => (
-                    <tr key={i} className="border-b hover:bg-gray-50">
+                    <Fragment key={i}>
+                    <tr className={`hover:bg-gray-50 ${fila.devoluciones_reporte?.length ? '' : 'border-b'}`}>
                       <td className="px-4 py-2">{formatFecha(fila.fecha)}</td>
                       <td className="px-4 py-2 text-gray-600">{fila.documento || '-'}</td>
                       <td className="px-4 py-2 text-center text-gray-600">{data.f_a || '-'}</td>
@@ -314,6 +327,14 @@ export default function KardexView({ polvorin, polvorines = [], esAdmin = false,
                       )}
                       <td className="px-4 py-2 text-right font-semibold">{formatNumero(fila.saldo)}</td>
                     </tr>
+                    {fila.devoluciones_reporte?.length > 0 && (
+                      <tr className="border-b">
+                        <td className="px-4 pb-2 pt-0 text-xs text-blue-700" colSpan={nCols}>
+                          {textoDevoluciones(fila.devoluciones_reporte)}
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>

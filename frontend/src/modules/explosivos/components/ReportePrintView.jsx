@@ -84,7 +84,7 @@ export default function ReportePrintView({ reporte, polvorin, columnasExplosivos
               <tr className="bg-gray-200">
                 <th className="border border-black px-2 py-1">Tipo Explosivo</th>
                 <th className="border border-black px-2 py-1">Cantidad</th>
-                <th className="border border-black px-2 py-1">Operador</th>
+                <th className="border border-black px-2 py-1">Devuelto por</th>
                 <th className="border border-black px-2 py-1">Motivo</th>
               </tr>
             </thead>

@@ -276,25 +276,85 @@ function CerrarModal({ reporte, onClose, onConfirm, submitting }) {
       id_tipo_explosivo: t.id_tipo_explosivo,
       tipo_explosivo: t.tipo_explosivo,
       cantidad_despachada: t.cantidad_total,
-      cantidad_devuelta: '',
       motivo: '',
+      // Una devolución de un mismo explosivo puede venir de varios perforistas
+      partes: [{ id_personal: '', cantidad: '' }],
     }))
   );
 
-  const setDevolucion = (idx, field, value) => {
-    setDevoluciones(prev => prev.map((d, i) => i === idx ? { ...d, [field]: value } : d));
+  // Solo los perforistas que están en este reporte pueden hacer la devolución
+  const [perforistas, setPerforistas] = useState([]);
+  const [loadingPerforistas, setLoadingPerforistas] = useState(true);
+  useEffect(() => {
+    let vivo = true;
+    explosivosService.getReporte(reporte.id)
+      .then(d => {
+        if (!vivo) return;
+        const unicos = new Map();
+        (d.lineas || []).forEach(l => {
+          if (l.id_personal && !unicos.has(l.id_personal)) {
+            const p = l.personal;
+            unicos.set(l.id_personal, p ? `${p.nombre} ${p.apellido || ''}`.trim() : `Perforista #${l.id_personal}`);
+          }
+        });
+        const lista = [...unicos].map(([id, nombre]) => ({ id: String(id), nombre }));
+        setPerforistas(lista);
+        // Con un solo perforista en el reporte, queda elegido de entrada
+        if (lista.length === 1) {
+          setDevoluciones(prev => prev.map(d => ({ ...d, partes: d.partes.map(p => ({ ...p, id_personal: lista[0].id })) })));
+        }
+      })
+      .catch(() => { if (vivo) setPerforistas([]); })
+      .finally(() => { if (vivo) setLoadingPerforistas(false); });
+    return () => { vivo = false; };
+  }, [reporte.id]);
+
+  const setMotivo = (idx, value) => {
+    setDevoluciones(prev => prev.map((d, i) => i === idx ? { ...d, motivo: value } : d));
+  };
+  const setParte = (idx, pIdx, field, value) => {
+    setDevoluciones(prev => prev.map((d, i) => i !== idx ? d : {
+      ...d, partes: d.partes.map((p, j) => j === pIdx ? { ...p, [field]: value } : p),
+    }));
+  };
+  const agregarParte = (idx) => {
+    setDevoluciones(prev => prev.map((d, i) => {
+      if (i !== idx) return d;
+      // Si queda un solo perforista sin usar en este explosivo, se elige solo
+      const libres = perforistas.filter(p => !d.partes.some(o => o.id_personal === p.id));
+      return { ...d, partes: [...d.partes, { id_personal: libres.length === 1 ? libres[0].id : '', cantidad: '' }] };
+    }));
+  };
+  const quitarParte = (idx, pIdx) => {
+    setDevoluciones(prev => prev.map((d, i) => i !== idx ? d : { ...d, partes: d.partes.filter((_, j) => j !== pIdx) }));
   };
 
-  const hayDevoluciones = devoluciones.some(d => parseFloat(d.cantidad_devuelta) > 0);
+  const cantidad = (v) => parseFloat(v) || 0;
+  const totalDevuelto = (dev) => dev.partes.reduce((s, p) => s + cantidad(p.cantidad), 0);
+
+  // Error por explosivo (null = ok)
+  const errorDe = (dev) => {
+    const conCantidad = dev.partes.filter(p => cantidad(p.cantidad) > 0);
+    if (conCantidad.some(p => !p.id_personal)) return 'Elige qué perforista hizo la devolución.';
+    const ids = conCantidad.map(p => p.id_personal);
+    if (new Set(ids).size !== ids.length) return 'Un perforista aparece dos veces: suma sus cantidades en una sola fila.';
+    if (Math.round(totalDevuelto(dev) * 100) > Math.round(parseFloat(dev.cantidad_despachada) * 100)) return 'La cantidad devuelta supera lo despachado.';
+    return null;
+  };
+
+  const hayDevoluciones = devoluciones.some(d => totalDevuelto(d) > 0);
+  const hayErrores = devoluciones.some(d => errorDe(d));
+  const sinPerforistas = !loadingPerforistas && perforistas.length === 0;
 
   const handleConfirm = () => {
-    const devs = devoluciones
-      .filter(d => parseFloat(d.cantidad_devuelta) > 0)
-      .map(d => ({
+    const devs = devoluciones.flatMap(d => d.partes
+      .filter(p => cantidad(p.cantidad) > 0)
+      .map(p => ({
         id_tipo_explosivo: d.id_tipo_explosivo,
-        cantidad: parseFloat(d.cantidad_devuelta),
+        cantidad: cantidad(p.cantidad),
+        id_personal: parseInt(p.id_personal),
         motivo: d.motivo || 'Sobrante de tronadura',
-      }));
+      })));
     onConfirm(devs);
   };
 
@@ -314,54 +374,116 @@ function CerrarModal({ reporte, onClose, onConfirm, submitting }) {
         <div className="p-6 overflow-y-auto flex-1">
           <p className="text-sm text-gray-600 mb-4 bg-blue-50 border border-blue-200 rounded-lg p-3 flex items-start gap-2">
             <HiInformationCircle className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
-            Si hay explosivos que no se utilizaron y fueron devueltos al polvorín, ingresa las cantidades. Si no hay devoluciones, deja todo en 0.
+            Si hay explosivos que no se utilizaron y fueron devueltos al polvorín, ingresa las cantidades e indica qué perforista hizo cada devolución. Si no hay devoluciones, deja todo en 0.
           </p>
 
+          {sinPerforistas && (
+            <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
+              Este reporte no tiene perforistas asignados en sus líneas, así que no se pueden registrar devoluciones. Si no hubo devoluciones, puedes confirmar igual.
+            </p>
+          )}
+
           <div className="space-y-3">
-            {devoluciones.map((dev, idx) => (
-              <div key={dev.id_tipo_explosivo} className="bg-gray-50 rounded-lg p-3 border border-gray-200">
-                <div className="flex items-center justify-between mb-2">
-                  <div>
-                    <span className="font-mono text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded">
-                      {dev.tipo_explosivo?.codigo}
-                    </span>
-                    <span className="ml-2 text-sm font-medium text-gray-700">
-                      {dev.tipo_explosivo?.nombre}
+            {devoluciones.map((dev, idx) => {
+              const error = errorDe(dev);
+              const total = totalDevuelto(dev);
+              const unidad = dev.tipo_explosivo?.unidad_medida;
+              return (
+                <div key={dev.id_tipo_explosivo} className={`bg-gray-50 rounded-lg p-3 border ${error ? 'border-red-300' : 'border-gray-200'}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <span className="font-mono text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded">
+                        {dev.tipo_explosivo?.codigo}
+                      </span>
+                      <span className="ml-2 text-sm font-medium text-gray-700">
+                        {dev.tipo_explosivo?.nombre}
+                      </span>
+                    </div>
+                    <span className="text-xs text-gray-500">
+                      Despachado: <strong>{formatNum(dev.cantidad_despachada)} {unidad}</strong>
                     </span>
                   </div>
-                  <span className="text-xs text-gray-500">
-                    Despachado: <strong>{formatNum(dev.cantidad_despachada)} {dev.tipo_explosivo?.unidad_medida}</strong>
-                  </span>
-                </div>
-                <div className="flex gap-2">
-                  <div className="flex-1">
-                    <label className="text-xs text-gray-500 block mb-1">Cantidad devuelta</label>
-                    <input
-                      type="number"
-                      min="0"
-                      max={dev.cantidad_despachada}
-                      step="0.01"
-                      value={dev.cantidad_devuelta}
-                      onChange={(e) => setDevolucion(idx, 'cantidad_devuelta', e.target.value)}
-                      placeholder="0"
-                      className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                    />
+
+                  <div className="space-y-2">
+                    {dev.partes.map((parte, pIdx) => (
+                      <div key={pIdx} className="flex gap-2 items-end">
+                        <div className="w-28 shrink-0">
+                          {pIdx === 0 && <label className="text-xs text-gray-500 block mb-1">Cantidad devuelta</label>}
+                          <input
+                            type="number"
+                            min="0"
+                            max={dev.cantidad_despachada}
+                            step="0.01"
+                            value={parte.cantidad}
+                            onChange={(e) => setParte(idx, pIdx, 'cantidad', e.target.value)}
+                            placeholder="0"
+                            disabled={sinPerforistas}
+                            className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 disabled:bg-gray-100"
+                          />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          {pIdx === 0 && <label className="text-xs text-gray-500 block mb-1">Perforista que devolvió {total > 0 && <span className="text-red-500">*</span>}</label>}
+                          <select
+                            value={parte.id_personal}
+                            onChange={(e) => setParte(idx, pIdx, 'id_personal', e.target.value)}
+                            disabled={loadingPerforistas || sinPerforistas}
+                            className={`w-full px-3 py-1.5 text-sm border rounded-lg focus:ring-2 focus:ring-green-500 disabled:bg-gray-100 ${
+                              cantidad(parte.cantidad) > 0 && !parte.id_personal ? 'border-red-400' : 'border-gray-300'
+                            }`}
+                          >
+                            <option value="">{loadingPerforistas ? 'Cargando...' : 'Seleccionar...'}</option>
+                            {perforistas
+                              // Un perforista no puede repetirse en el mismo explosivo:
+                              // se ocultan los ya elegidos en las otras filas
+                              .filter(p => p.id === parte.id_personal || !dev.partes.some((o, j) => j !== pIdx && o.id_personal === p.id))
+                              .map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                          </select>
+                        </div>
+                        {dev.partes.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => quitarParte(idx, pIdx)}
+                            title="Quitar"
+                            className="p-1.5 mb-0.5 text-gray-400 hover:text-red-600 rounded-lg hover:bg-red-50"
+                          >
+                            <HiXMark className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
                   </div>
-                  {parseFloat(dev.cantidad_devuelta) > 0 && (
-                    <div className="flex-1">
+
+                  {perforistas.length > 1 && dev.partes.length < perforistas.length && (
+                    <button
+                      type="button"
+                      onClick={() => agregarParte(idx)}
+                      className="mt-2 text-xs font-medium text-green-700 hover:text-green-800"
+                    >
+                      + Otro perforista
+                    </button>
+                  )}
+
+                  {dev.partes.length > 1 && total > 0 && (
+                    <p className="mt-1 text-xs text-gray-600">Total devuelto: <strong>{formatNum(total)} {unidad}</strong></p>
+                  )}
+
+                  {total > 0 && (
+                    <div className="mt-2">
                       <label className="text-xs text-gray-500 block mb-1">Motivo (opcional)</label>
                       <input
                         type="text"
                         value={dev.motivo}
-                        onChange={(e) => setDevolucion(idx, 'motivo', e.target.value)}
+                        onChange={(e) => setMotivo(idx, e.target.value)}
                         placeholder="Sobrante..."
                         className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500"
                       />
                     </div>
                   )}
+
+                  {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
@@ -373,7 +495,7 @@ function CerrarModal({ reporte, onClose, onConfirm, submitting }) {
             variant="primary"
             icon={HiCheckCircle}
             onClick={handleConfirm}
-            disabled={submitting}
+            disabled={submitting || hayErrores || (hayDevoluciones && loadingPerforistas)}
             className="flex-1 justify-center bg-green-600 hover:bg-green-700"
           >
             {submitting ? 'Cerrando...' : hayDevoluciones ? 'Confirmar con devoluciones' : 'Confirmar sin devoluciones'}

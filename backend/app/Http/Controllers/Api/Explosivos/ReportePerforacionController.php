@@ -830,12 +830,35 @@ class ReportePerforacionController extends Controller
             'devoluciones' => 'required|array',
             'devoluciones.*.id_tipo_explosivo' => 'required|exists:tipos_explosivos,id',
             'devoluciones.*.cantidad' => 'required|numeric|min:0.01',
-            'devoluciones.*.id_personal' => 'nullable|exists:personal_autorizado_explosivos,id',
+            'devoluciones.*.id_personal' => 'required|exists:personal_autorizado_explosivos,id',
             'devoluciones.*.motivo' => 'nullable|string|max:255',
+        ], [
+            'devoluciones.*.id_personal.required' => 'Indica qué perforista hizo cada devolución.',
         ]);
 
         if ($validator->fails()) {
-            return response()->json(['mensaje' => 'Datos inválidos', 'errores' => $validator->errors()], 422);
+            return response()->json(['mensaje' => $validator->errors()->first(), 'errores' => $validator->errors()], 422);
+        }
+
+        // Quien devuelve tiene que ser uno de los perforistas del reporte, y por tipo
+        // no se puede devolver más de lo que se despachó (una devolución puede venir
+        // repartida entre varios perforistas, por eso se suma por tipo).
+        $perforistas = $reporte->lineas()->whereNotNull('id_personal')->pluck('id_personal')->map(fn ($v) => (int) $v)->unique();
+        // Mismo total que muestra el modal como "Despachado" (con extras).
+        $despachadoPorTipo = collect($reporte->calcularTotalesConExtras())
+            ->mapWithKeys(fn ($t) => [(int) $t['id_tipo_explosivo'] => (float) $t['cantidad_total']]);
+        $devueltoPorTipo = [];
+        foreach ($request->devoluciones as $dev) {
+            if (!$perforistas->contains((int) $dev['id_personal'])) {
+                return response()->json(['mensaje' => 'La devolución debe asignarse a un perforista de este reporte.'], 422);
+            }
+            $idTipo = (int) $dev['id_tipo_explosivo'];
+            $devueltoPorTipo[$idTipo] = ($devueltoPorTipo[$idTipo] ?? 0) + (float) $dev['cantidad'];
+        }
+        foreach ($devueltoPorTipo as $idTipo => $devuelto) {
+            if (round($devuelto, 2) > round($despachadoPorTipo[$idTipo] ?? 0, 2)) {
+                return response()->json(['mensaje' => 'La cantidad devuelta no puede superar lo despachado.'], 422);
+            }
         }
 
         try {

@@ -121,7 +121,7 @@ export function generarReportePDF(reporte, polvorin, columnasExplosivos) {
       columns: [
         { header: 'Tipo Explosivo', dataKey: 'tipo' },
         { header: 'Cantidad', dataKey: 'cantidad' },
-        { header: 'Operador', dataKey: 'operador' },
+        { header: 'Devuelto por', dataKey: 'operador' },
         { header: 'Motivo', dataKey: 'motivo' },
       ],
       body: reporte.devoluciones.map((d) => ({

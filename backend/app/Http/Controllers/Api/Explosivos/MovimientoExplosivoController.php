@@ -7,6 +7,8 @@ use App\Models\Explosivos\MovimientoExplosivo;
 use App\Models\Explosivos\StockExplosivo;
 use App\Models\Explosivos\LoteExplosivo;
 use App\Models\Explosivos\Polvorin;
+use App\Models\Explosivos\DevolucionReporte;
+use App\Models\Explosivos\ReportePerforacion;
 use App\Traits\MultiTenancy;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -31,7 +33,10 @@ class MovimientoExplosivoController extends Controller
             'lote:id,numero_lote',
             'tronadura:id,codigo',
             'usuario:id,name',
-            'reportePerforacion:id,codigo'
+            'reportePerforacion:id,codigo',
+            // Para mostrar en la salida del reporte quién devolvió y cuánto
+            'reportePerforacion.devoluciones:id,id_reporte,id_tipo_explosivo,cantidad,id_personal',
+            'reportePerforacion.devoluciones.personal:id,nombre,apellido',
         ]);
 
         $this->aplicarFiltroFaena($query, $request);
@@ -680,10 +685,24 @@ class MovimientoExplosivoController extends Controller
 
         $porDia = $movimientosPeriodo->groupBy(fn ($m) => $m->fecha->toDateString());
 
+        // Devoluciones de reportes cerrados: no generan movimiento propio (la salida
+        // del reporte ya viene neta), así que se informan aparte, en el día del
+        // reporte, con quién devolvió. No cambian los totales del libro.
+        $devolucionesPorDia = DevolucionReporte::with(['personal:id,nombre,apellido', 'reporte:id,codigo,fecha'])
+            ->where('id_tipo_explosivo', $idTipo)
+            ->whereHas('reporte', fn ($q) => $q->where('id_polvorin', $idPolvorin)
+                ->where('estado', ReportePerforacion::ESTADO_CERRADO)
+                ->whereBetween('fecha', [$request->fecha_desde, $request->fecha_hasta]))
+            ->get()
+            ->groupBy(fn ($d) => $d->reporte->fecha->toDateString());
+
+        $fechas = collect(array_keys($porDia->all()))->merge(array_keys($devolucionesPorDia->all()))->unique()->sort()->values();
+
         $saldo = $existenciaAnterior;
         $filas = [];
 
-        foreach ($porDia as $fecha => $movimientosDia) {
+        foreach ($fechas as $fecha) {
+            $movimientosDia = $porDia->get($fecha, collect());
             $entradaDia = 0.0;      // compras
             $salidaDia = 0.0;       // consumo
             $devolucionDia = 0.0;   // volvió sin usar
@@ -725,6 +744,11 @@ class MovimientoExplosivoController extends Controller
                 'devolucion' => round($devolucionDia, 2),
                 'ajuste' => round($ajusteDia, 2),
                 'saldo' => round($saldo, 2),
+                'devoluciones_reporte' => $devolucionesPorDia->get($fecha, collect())->map(fn ($d) => [
+                    'reporte' => $d->reporte->codigo,
+                    'cantidad' => (float) $d->cantidad,
+                    'perforista' => $d->personal ? trim($d->personal->nombre . ' ' . ($d->personal->apellido ?? '')) : null,
+                ])->values(),
             ];
         }
 
