@@ -429,6 +429,8 @@ export const ProduccionCompleta = () => {
   // (no en el tooltip de hover — con muchos frentes esa lista no entra ni se
   // puede scrollear sin que el mouse se salga y el tooltip desaparezca).
   const [detalleClicDump, setDetalleClicDump] = useState(null); // { fecha, dataKey, etiqueta, detalles, color } | null
+  // Filas desplegadas del "Detalle por frente": clave → { loading, error, dumpadas }
+  const [filasDesplegadas, setFilasDesplegadas] = useState({});
   const [mostrarTendencia, setMostrarTendencia] = useState(false); // línea de promedio móvil en "Avance Diario"
   const [eficiencia, setEficiencia]         = useState(null);
   const [eficienciaLoading, setEficienciaLoading] = useState(false);
@@ -1680,30 +1682,34 @@ export const ProduccionCompleta = () => {
                 // un día sin producción se vea como barra vacía en vez de desaparecer del eje X.
                 const byFecha = {};
                 generarRangoFechas(debouncedFechaInicio, debouncedFechaFin).forEach((fechaISO) => {
-                  byFecha[fechaISO] = { fechaISO, fecha: formatFechaCorta(fechaISO), _detalle: {}, _tonTotal: 0, _tonLeyTotal: 0, _total: 0, _ton: {}, _tonLey: {} };
+                  byFecha[fechaISO] = { fechaISO, fecha: formatFechaCorta(fechaISO), _detalle: {}, _tonTotal: 0, _tonLeyTotal: 0, _total: 0, _totalConLey: 0, _ton: {}, _tonLey: {} };
                 });
                 dumpDiariasFiltradas.forEach(d => {
                   if (!byFecha[d.fecha]) {
-                    byFecha[d.fecha] = { fechaISO: d.fecha, fecha: formatFechaCorta(d.fecha), _detalle: {}, _tonTotal: 0, _tonLeyTotal: 0, _total: 0, _ton: {}, _tonLey: {} };
+                    byFecha[d.fecha] = { fechaISO: d.fecha, fecha: formatFechaCorta(d.fecha), _detalle: {}, _tonTotal: 0, _tonLeyTotal: 0, _total: 0, _totalConLey: 0, _ton: {}, _tonLey: {} };
                   }
                   const row = byFecha[d.fecha];
                   const valor = dumpMetrica === 'toneladas' ? d.toneladas : d.cantidad;
                   const clave = obtenerClave(d);
                   row[clave] = (row[clave] ?? 0) + valor;
                   row._total += valor;
+                  row._totalConLey += dumpMetrica === 'toneladas' ? d.toneladas_con_ley : d.cantidad_con_ley;
                   if (!row._detalle[clave]) row._detalle[clave] = [];
-                  row._detalle[clave].push({ frente: d.frente, grupo: d.grupo, jornada: d.jornada, toneladas: d.toneladas, cantidad: d.cantidad, ley_promedio: d.ley_promedio });
+                  row._detalle[clave].push({ id_faena: d.id_faena, frente: d.frente, grupo: d.grupo, jornada: d.jornada, toneladas: d.toneladas, cantidad: d.cantidad, cantidad_con_ley: d.cantidad_con_ley, toneladas_con_ley: d.toneladas_con_ley, ley_promedio: d.ley_promedio });
+                  // La ley se pondera SOLO con las toneladas que ya tienen resultado de
+                  // Laboratorio — las que esperan Lab no la bajan (van aparte en el tooltip).
                   if (d.ley_promedio != null) {
-                    row._tonTotal += d.toneladas;
-                    row._tonLeyTotal += d.toneladas * d.ley_promedio;
-                    row._ton[clave] = (row._ton[clave] ?? 0) + d.toneladas;
-                    row._tonLey[clave] = (row._tonLey[clave] ?? 0) + d.toneladas * d.ley_promedio;
+                    const tonLey = d.toneladas_con_ley;
+                    row._tonTotal += tonLey;
+                    row._tonLeyTotal += tonLey * d.ley_promedio;
+                    row._ton[clave] = (row._ton[clave] ?? 0) + tonLey;
+                    row._tonLey[clave] = (row._tonLey[clave] ?? 0) + tonLey * d.ley_promedio;
                     // En modo faena, acumula TAMBIÉN bajo el nombre de faena solo (sin
                     // jornada) — es la ley que va arriba de todo el grupo de columnas.
                     if (dumpAgrupacion === 'jornada') {
                       const nombreFaena = obtenerStackId(clave);
-                      row._ton[nombreFaena] = (row._ton[nombreFaena] ?? 0) + d.toneladas;
-                      row._tonLey[nombreFaena] = (row._tonLey[nombreFaena] ?? 0) + d.toneladas * d.ley_promedio;
+                      row._ton[nombreFaena] = (row._ton[nombreFaena] ?? 0) + tonLey;
+                      row._tonLey[nombreFaena] = (row._tonLey[nombreFaena] ?? 0) + tonLey * d.ley_promedio;
                     }
                   }
                 });
@@ -1831,20 +1837,42 @@ export const ProduccionCompleta = () => {
                                       const etiquetaSerie = dumpAgrupacion === 'jornada' ? p.dataKey.split('__').join(' · ') : p.dataKey;
                                       // Jornadas que componen este segmento — solo tiene sentido
                                       // mostrarlo cuando la barra NO está apilada ya por jornada.
-                                      const jornadasSerie = dumpAgrupacion !== 'jornada'
-                                        ? [...new Set((row?._detalle?.[p.dataKey] ?? []).map((d) => d.jornada))]
+                                      const detalleSerie = row?._detalle?.[p.dataKey] ?? [];
+                                      const jornadasDe = (filtro) => dumpAgrupacion !== 'jornada'
+                                        ? [...new Set(detalleSerie.filter(filtro).map((d) => d.jornada))]
                                             .sort((a, b) => (JORNADA_ORDEN[a] ?? 99) - (JORNADA_ORDEN[b] ?? 99))
                                         : [];
+                                      const jornadasSerie = jornadasDe(() => true);
+                                      // Si parte del segmento todavía espera Laboratorio, se separa en
+                                      // 2 líneas ("N con ley · X%" / "M esperando Lab") para que la ley
+                                      // no parezca de TODAS las dumpadas del segmento.
+                                      const unidad = dumpMetrica === 'toneladas' ? ' t' : '';
+                                      const valorConLey = detalleSerie.reduce((s, d) => s + (dumpMetrica === 'toneladas' ? d.toneladas_con_ley : d.cantidad_con_ley), 0);
+                                      const valorSinLey = (p.value ?? 0) - valorConLey;
+                                      const hayPendientes = valorSinLey > 0.001;
                                       return (
                                         <div key={p.dataKey} className="mb-1 last:mb-0">
                                           <div className="flex justify-between gap-3">
                                             <span style={{ color: p.fill }} className="font-medium">{etiquetaSerie}</span>
                                             <span className="font-mono font-semibold">
                                               {formatNumber(p.value)} {dumpMetrica === 'toneladas' ? 't' : 'dumpadas'}
-                                              {leySerie != null && ` · ${formatNumber(leySerie)}%`}
+                                              {!hayPendientes && leySerie != null && ` · ${formatNumber(leySerie)}%`}
                                             </span>
                                           </div>
-                                          {jornadasSerie.length > 0 && (
+                                          {hayPendientes ? (
+                                            <>
+                                              {valorConLey > 0 && (
+                                                <div className="flex justify-between gap-3 text-[10px] pl-2">
+                                                  <span className="font-mono text-gray-600">{formatNumber(valorConLey)}{unidad} con ley{leySerie != null && ` · ${formatNumber(leySerie)}%`}</span>
+                                                  <span className="text-gray-400">{jornadasDe((d) => d.cantidad_con_ley > 0).join(' · ')}</span>
+                                                </div>
+                                              )}
+                                              <div className="flex justify-between gap-3 text-[10px] pl-2">
+                                                <span className="font-mono text-amber-600">{formatNumber(valorSinLey)}{unidad} esperando Lab</span>
+                                                <span className="text-gray-400">{jornadasDe((d) => d.cantidad > d.cantidad_con_ley).join(' · ')}</span>
+                                              </div>
+                                            </>
+                                          ) : jornadasSerie.length > 0 && (
                                             <p className="text-[10px] text-gray-400 text-right">{jornadasSerie.join(' · ')}</p>
                                           )}
                                         </div>
@@ -1857,6 +1885,11 @@ export const ProduccionCompleta = () => {
                                         {row?._leyDia != null && ` · Ley ${formatNumber(row._leyDia)}%`}
                                       </span>
                                     </div>
+                                    {row?._leyDia != null && row._totalConLey < total - 0.001 && (
+                                      <p className="text-[10px] text-gray-400 text-right">
+                                        (ley de {formatNumber(row._totalConLey)} de {formatNumber(total)}{dumpMetrica === 'toneladas' ? ' t' : ''})
+                                      </p>
+                                    )}
                                     {mostrarTendencia && row?._promedioMovil != null && (
                                       <div className="flex justify-between text-gray-500 mt-0.5">
                                         <span>Promedio móvil (3d)</span>
@@ -1901,8 +1934,10 @@ export const ProduccionCompleta = () => {
                                   onClick={(data) => {
                                     const fila = data?.payload;
                                     if (!fila) return;
+                                    setFilasDesplegadas({});
                                     setDetalleClicDump({
                                       fecha: fila.fecha,
+                                      fechaISO: fila.fechaISO,
                                       etiqueta: dumpAgrupacion === 'jornada' ? g.split('__').join(' · ') : g,
                                       color: obtenerColorSerie(g),
                                       valor: fila[g],
@@ -1971,6 +2006,9 @@ export const ProduccionCompleta = () => {
                   const ob = JORNADA_ORDEN[b.jornada] ?? 99;
                   return oa !== ob ? oa - ob : a.frente.localeCompare(b.frente);
                 });
+                const cantidadFrentes = new Set(detallesOrdenados.map((d) => d.frente)).size;
+                const totalDumpadas = detallesOrdenados.reduce((s, d) => s + d.cantidad, 0);
+                const totalSinLey = detallesOrdenados.reduce((s, d) => s + (d.cantidad - d.cantidad_con_ley), 0);
                 return (
                   <div className="bg-white rounded-lg shadow-sm border overflow-hidden">
                     <div className="px-6 py-4 border-b flex items-center justify-between">
@@ -1982,7 +2020,12 @@ export const ProduccionCompleta = () => {
                           <p className="text-xs text-gray-400">
                             {formatNumber(detalleClicDump.valor)} {dumpMetrica === 'toneladas' ? 't' : 'dumpadas'}
                             {detalleClicDump.ley != null && ` · Ley ${formatNumber(detalleClicDump.ley)}%`}
-                            {' · '}{detallesOrdenados.length} frente{detallesOrdenados.length !== 1 ? 's' : ''}
+                            {' · '}{cantidadFrentes} frente{cantidadFrentes !== 1 ? 's' : ''}
+                            {totalSinLey > 0 && (
+                              <span className="text-amber-600 font-medium">
+                                {' · '}{totalSinLey} de {totalDumpadas} dumpadas esperando Lab (no entran en la ley)
+                              </span>
+                            )}
                           </p>
                         </div>
                       </div>
@@ -1994,23 +2037,92 @@ export const ProduccionCompleta = () => {
                       <table className="w-full text-xs">
                         <thead>
                           <tr className="text-left text-gray-400 uppercase text-[10px]">
+                            <th className="pb-1.5 w-5" />
                             <th className="pb-1.5 font-semibold">Frente</th>
                             <th className="pb-1.5 font-semibold">Túnel</th>
                             <th className="pb-1.5 font-semibold">Jornada</th>
-                            <th className="pb-1.5 font-semibold text-right">{dumpMetrica === 'toneladas' ? 'Toneladas' : 'Dumpadas'}</th>
+                            <th className="pb-1.5 font-semibold text-right">Dumpadas</th>
+                            <th className="pb-1.5 font-semibold text-right">Toneladas</th>
+                            <th className="pb-1.5 font-semibold text-right">Con ley</th>
                             <th className="pb-1.5 font-semibold text-right">Ley</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-100">
-                          {detallesOrdenados.map((det, i) => (
-                            <tr key={i}>
-                              <td className="py-1.5 font-medium text-gray-700">{det.frente}</td>
-                              <td className="py-1.5 text-gray-400">{det.grupo || '—'}</td>
-                              <td className={`py-1.5 font-semibold ${JORNADA_COLOR_TEXTO[det.jornada] ?? 'text-gray-400'}`}>{det.jornada || '—'}</td>
-                              <td className="py-1.5 text-right font-mono">{formatNumber(dumpMetrica === 'toneladas' ? det.toneladas : det.cantidad)}</td>
-                              <td className="py-1.5 text-right font-mono">{det.ley_promedio != null ? `${formatNumber(det.ley_promedio)}%` : '—'}</td>
-                            </tr>
-                          ))}
+                          {detallesOrdenados.map((det, i) => {
+                            const sinLey = det.cantidad - det.cantidad_con_ley;
+                            const claveFila = `${det.id_faena}|${det.frente}|${det.jornada}`;
+                            const desplegada = filasDesplegadas[claveFila];
+                            const toggleFila = async () => {
+                              if (desplegada) {
+                                setFilasDesplegadas((prev) => { const { [claveFila]: _, ...resto } = prev; return resto; });
+                                return;
+                              }
+                              setFilasDesplegadas((prev) => ({ ...prev, [claveFila]: { loading: true } }));
+                              try {
+                                const res = await gerencialService.getDumpadasDetalle({
+                                  fecha: detalleClicDump.fechaISO, frente: det.frente, jornada: det.jornada, id_faena: det.id_faena,
+                                });
+                                setFilasDesplegadas((prev) => prev[claveFila] ? { ...prev, [claveFila]: { dumpadas: res.data ?? [] } } : prev);
+                              } catch {
+                                setFilasDesplegadas((prev) => prev[claveFila] ? { ...prev, [claveFila]: { error: true } } : prev);
+                              }
+                            };
+                            return (
+                              <Fragment key={i}>
+                                <tr onClick={toggleFila} className="cursor-pointer hover:bg-gray-50">
+                                  <td className="py-1.5 text-gray-400">
+                                    <FiChevronRight className={`w-3.5 h-3.5 transition-transform ${desplegada ? 'rotate-90' : ''}`} />
+                                  </td>
+                                  <td className="py-1.5 font-medium text-gray-700">{det.frente}</td>
+                                  <td className="py-1.5 text-gray-400">{det.grupo || '—'}</td>
+                                  <td className={`py-1.5 font-semibold ${JORNADA_COLOR_TEXTO[det.jornada] ?? 'text-gray-400'}`}>{det.jornada || '—'}</td>
+                                  <td className="py-1.5 text-right font-mono">{det.cantidad}</td>
+                                  <td className="py-1.5 text-right font-mono">{formatNumber(det.toneladas)}</td>
+                                  <td className={`py-1.5 text-right font-mono ${sinLey > 0 ? 'text-amber-600' : 'text-gray-500'}`}>{det.cantidad_con_ley}/{det.cantidad}</td>
+                                  <td className="py-1.5 text-right font-mono">{det.ley_promedio != null ? `${formatNumber(det.ley_promedio)}%` : '—'}</td>
+                                </tr>
+                                {desplegada && (
+                                  <tr>
+                                    <td />
+                                    <td colSpan={7} className="pb-2 pt-1">
+                                      {desplegada.loading ? (
+                                        <p className="text-[11px] text-gray-400 py-1">Cargando dumpadas…</p>
+                                      ) : desplegada.error ? (
+                                        <p className="text-[11px] text-red-500 py-1">No se pudieron cargar las dumpadas.</p>
+                                      ) : (
+                                        <table className="w-full text-[11px] bg-gray-50 rounded">
+                                          <thead>
+                                            <tr className="text-left text-gray-400 uppercase text-[9px]">
+                                              <th className="px-2 py-1 font-semibold">N° Dumpada</th>
+                                              <th className="px-2 py-1 font-semibold">Hora</th>
+                                              <th className="px-2 py-1 font-semibold text-right">Ton</th>
+                                              <th className="px-2 py-1 font-semibold text-right">Cu Insoluble</th>
+                                              <th className="px-2 py-1 font-semibold">Certificado</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody className="divide-y divide-gray-100">
+                                            {desplegada.dumpadas.map((dmp) => (
+                                              <tr key={dmp.id} className={dmp.cu_insoluble == null ? 'bg-amber-50' : ''}>
+                                                <td className="px-2 py-1 font-mono text-gray-700">{dmp.numero_dumpada}</td>
+                                                <td className="px-2 py-1 font-mono text-gray-500">{dmp.hora ?? '—'}</td>
+                                                <td className="px-2 py-1 text-right font-mono">{formatNumber(dmp.ton)}</td>
+                                                <td className="px-2 py-1 text-right font-mono">
+                                                  {dmp.cu_insoluble != null
+                                                    ? `${formatNumber(dmp.cu_insoluble)}%`
+                                                    : <span className="font-sans font-semibold text-amber-600">Esperando Lab</span>}
+                                                </td>
+                                                <td className="px-2 py-1 font-mono text-gray-500">{dmp.certificado ?? '—'}</td>
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                        </table>
+                                      )}
+                                    </td>
+                                  </tr>
+                                )}
+                              </Fragment>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>

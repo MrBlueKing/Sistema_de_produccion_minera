@@ -30,6 +30,7 @@ Route::middleware(['validate.token'])->group(function () {
         Route::get('/lotes/{id}/reconstruccion', [GerencialController::class, 'reconstruccionLote']);
         Route::get('/analisis-lotes', [GerencialController::class, 'analisisLotes']);
         Route::get('/dumpadas-diarias', [GerencialController::class, 'dumpadasDiarias']);
+        Route::get('/dumpadas-detalle', [GerencialController::class, 'dumpadasDetalle']);
         Route::get('/resumen-dumpadas', [GerencialController::class, 'resumenDumpadas']);
         Route::get('/plantas', [GerencialController::class, 'plantas']);
         Route::get('/empresas', [GerencialController::class, 'empresas']);

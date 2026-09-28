@@ -61,6 +61,11 @@ const gerencialService = {
     return response.data;
   },
 
+  getDumpadasDetalle: async (params = {}) => {
+    const response = await api.get('/gerencial/dumpadas-detalle', { params });
+    return response.data;
+  },
+
   getPlantas: async () => {
     const response = await api.get('/gerencial/plantas');
     return response.data;

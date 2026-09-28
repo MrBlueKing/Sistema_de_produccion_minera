@@ -846,9 +846,13 @@ class GerencialController extends Controller
                 DB::raw('COALESCE(d.jornada, "Sin jornada") as jornada'),
                 DB::raw('COUNT(d.id) as cantidad'),
                 DB::raw('COALESCE(SUM(d.ton), 0) as toneladas'),
-                // cu_insoluble (no ley/Cu Total) — mismo criterio que statsDumpadas y
-                // topFrentes en resumen().
-                DB::raw('CASE WHEN SUM(d.ton) > 0 THEN SUM(d.ton * d.cu_insoluble) / SUM(d.ton) ELSE NULL END as ley_promedio')
+                // cu_insoluble (no ley/Cu Total), ponderada solo por las toneladas que
+                // YA tienen resultado — las que esperan Laboratorio no la bajan.
+                DB::raw('CASE WHEN SUM(CASE WHEN d.cu_insoluble IS NOT NULL THEN d.ton END) > 0 THEN SUM(d.ton * d.cu_insoluble) / SUM(CASE WHEN d.cu_insoluble IS NOT NULL THEN d.ton END) ELSE NULL END as ley_promedio'),
+                // Cuántas dumpadas/toneladas ya tienen resultado de Laboratorio — el
+                // tooltip separa "N con ley" de "M esperando Lab" con esto.
+                DB::raw('SUM(CASE WHEN d.cu_insoluble IS NOT NULL THEN 1 ELSE 0 END) as cantidad_con_ley'),
+                DB::raw('COALESCE(SUM(CASE WHEN d.cu_insoluble IS NOT NULL THEN d.ton END), 0) as toneladas_con_ley')
             )
             ->whereNotNull('d.fecha')
             ->whereBetween('d.fecha', [$fechaDesde, $fechaHasta]);
@@ -872,6 +876,52 @@ class GerencialController extends Controller
                 'cantidad'     => (int) $r->cantidad,
                 'toneladas'    => (float) $r->toneladas,
                 'ley_promedio' => $r->ley_promedio !== null ? round((float) $r->ley_promedio, 3) : null,
+                'cantidad_con_ley'  => (int) $r->cantidad_con_ley,
+                'toneladas_con_ley' => (float) $r->toneladas_con_ley,
+            ]),
+        ]);
+    }
+
+    /**
+     * Dumpadas individuales de un frente + jornada en un día — se piden recién al
+     * desplegar una fila del "Detalle por frente" del gráfico Avance Diario.
+     * GET /api/gerencial/dumpadas-detalle?fecha=&frente=&jornada=&id_faena=
+     */
+    public function dumpadasDetalle(Request $request)
+    {
+        $request->validate([
+            'fecha'    => 'required|date',
+            'frente'   => 'required|string',
+            'jornada'  => 'required|string',
+            'id_faena' => 'nullable|integer',
+        ]);
+
+        // Mismas expresiones de frente/jornada que dumpadasDiarias(), para que la
+        // fila desplegada traiga exactamente las dumpadas que suma esa fila.
+        $query = DB::table('dumpadas as d')
+            ->join('frentes_trabajo as f', 'f.id', '=', 'd.id_frente_trabajo')
+            ->where('d.fecha', $request->fecha)
+            ->whereRaw('COALESCE(f.codigo_completo, CONCAT(f.manto, "-", COALESCE(f.calle, ""), COALESCE(f.hebra, ""))) = ?', [$request->frente])
+            ->whereRaw('COALESCE(d.jornada, "Sin jornada") = ?', [$request->jornada]);
+
+        if ($request->filled('id_faena')) $query->where('d.id_faena', $request->id_faena);
+
+        $rows = $query
+            ->select('d.id', 'd.numero_dumpada', 'd.hora', 'd.ton', 'd.cu_insoluble', 'd.certificado', 'd.estado')
+            ->orderBy('d.hora')
+            ->orderBy('d.numero_dumpada')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'data'    => $rows->map(fn($r) => [
+                'id'             => $r->id,
+                'numero_dumpada' => $r->numero_dumpada,
+                'hora'           => $r->hora ? substr($r->hora, 0, 5) : null,
+                'ton'            => (float) $r->ton,
+                'cu_insoluble'   => $r->cu_insoluble !== null ? round((float) $r->cu_insoluble, 3) : null,
+                'certificado'    => $r->certificado,
+                'estado'         => $r->estado,
             ]),
         ]);
     }
