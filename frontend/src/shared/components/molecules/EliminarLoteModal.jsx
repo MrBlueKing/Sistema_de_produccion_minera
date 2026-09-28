@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
    HiExclamationTriangle, HiArrowPath, HiTrash } from 'react-icons/hi2';
 import { HiX } from 'react-icons/hi';
@@ -15,13 +15,24 @@ import LoteSelector from '../../../modules/dispatch/components/LoteSelector';
  */
 export default function EliminarLoteModal({ show, lote, onConfirm, onCancel }) {
   const esCerrado = lote?.estado === 'Cerrado' || lote?.estado === 'CERRADO';
-  const [opcionSeleccionada, setOpcionSeleccionada] = useState(esCerrado ? 'eliminar_camionadas' : 'reasignar');
+  const cantidadCamionadas = lote?.camionadas?.length || lote?.numero_camionadas || 0;
+  const [opcionSeleccionada, setOpcionSeleccionada] = useState(
+    esCerrado || cantidadCamionadas === 0 ? 'eliminar_camionadas' : 'reasignar'
+  );
   const [loteDestinoId, setLoteDestinoId] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  if (!show || !lote) return null;
+  // El modal queda montado entre aperturas (solo cambian show/lote por props),
+  // así que hay que resincronizar la opción por defecto cada vez que se abre.
+  useEffect(() => {
+    if (show && lote) {
+      setOpcionSeleccionada(esCerrado || cantidadCamionadas === 0 ? 'eliminar_camionadas' : 'reasignar');
+      setLoteDestinoId(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [show, lote?.id]);
 
-  const cantidadCamionadas = lote.camionadas?.length || lote.numero_camionadas || 0;
+  if (!show || !lote) return null;
 
   const puedeConfirmar = opcionSeleccionada !== 'reasignar' || !!loteDestinoId;
 
