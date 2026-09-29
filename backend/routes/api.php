@@ -32,6 +32,7 @@ Route::middleware(['validate.token'])->group(function () {
         Route::get('/dumpadas-diarias', [GerencialController::class, 'dumpadasDiarias']);
         Route::get('/dumpadas-detalle', [GerencialController::class, 'dumpadasDetalle']);
         Route::get('/resumen-dumpadas', [GerencialController::class, 'resumenDumpadas']);
+        Route::get('/perforacion-tronadura', [GerencialController::class, 'perforacionTronadura']);
         Route::get('/plantas', [GerencialController::class, 'plantas']);
         Route::get('/empresas', [GerencialController::class, 'empresas']);
         Route::get('/certificados-resumen', [GerencialController::class, 'certificadosResumen']);

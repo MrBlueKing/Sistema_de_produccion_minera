@@ -8,6 +8,7 @@ use App\Models\Laboratorio\Camionada;
 use App\Models\Laboratorio\Lote;
 use App\Models\Laboratorio\Planta;
 use App\Models\Laboratorio\Empresa;
+use App\Services\Explosivos\PerforacionTronaduraService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
@@ -672,7 +673,10 @@ class GerencialController extends Controller
             'empresa'           => $lote->empresa ? ['nombre' => $lote->empresa->nombre] : null,
             'estado'            => $lote->estado,
             'fecha_creacion'    => $lote->fecha_creacion,
-            'peso_total'        => $lote->getPesoTotal(),
+            // Despachado = Real + Teórico (converge hacia Recepcionado), no el
+            // teórico total de todas las camionadas — mismo criterio que
+            // reporteProduccion()/buscarLotes(), ver Lote::getPesoDespachado().
+            'peso_despachado'   => $lote->getPesoDespachado(),
             'peso_recibido'     => $lote->getPesoRecibido(),
             'ley_lote_promedio' => $lote->getLeyLotePromedio(),
             'ley_lab_promedio'  => $lote->getLeyLabPromedio(),
@@ -1005,6 +1009,31 @@ class GerencialController extends Controller
             'success' => true,
             'data'    => $resultado,
             'periodo' => ['desde' => $fechaDesde, 'hasta' => $fechaHasta],
+        ]);
+    }
+
+    /**
+     * Dashboard de Perforación y Tronadura: tiros por día y turno, mapa de
+     * tiros por frente cruzado con lo extraído, explosivos real contra
+     * calculado, cobertura del stock, perforistas y estado de los reportes.
+     * Reemplaza al antiguo "Resumen de Tiros". El cálculo está en
+     * PerforacionTronaduraService, que también usa Ingeniería.
+     *
+     * GET /api/gerencial/perforacion-tronadura
+     */
+    public function perforacionTronadura(Request $request, PerforacionTronaduraService $service)
+    {
+        $fechaDesde = $request->get('fecha_desde', Carbon::now()->subDays(29)->format('Y-m-d'));
+        $fechaHasta = $request->get('fecha_hasta', Carbon::now()->format('Y-m-d'));
+
+        $idsFaena = null;
+        if ($request->filled('id_faena')) {
+            $idsFaena = array_map('intval', array_map('trim', explode(',', (string) $request->id_faena)));
+        }
+
+        return response()->json([
+            'success' => true,
+            'data'    => $service->dashboard($fechaDesde, $fechaHasta, $idsFaena),
         ]);
     }
 

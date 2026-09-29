@@ -3,6 +3,13 @@ import { HiMagnifyingGlass, HiCheckCircle, HiChevronDown, HiChevronRight, HiXMar
 import gerencialService from '../../services/gerencialService';
 import useDebounce from '../../../../hooks/useDebounce';
 import { FAENA_COLORS, DEFAULT_FAENA_COLORS } from '../../../../contexts/faenaColor';
+import InfoPopover from '../../../../shared/components/molecules/InfoPopover';
+
+// Mismo texto que "Tonelaje Despachado" / "Tonelaje Recepcionado" en Resumen
+// de Producción — Despachado converge hacia Recepcionado a medida que se
+// recepcionan camionadas, nunca al revés (ver Lote::getPesoDespachado()).
+const DESPACHADO_TOOLTIP = 'Real + Teórico: por cada camionada usa el peso real si ya fue recepcionada en planta (con ticket), o el peso teórico declarado en el despacho si todavía no llega. El total se mantiene estable en el tiempo — cada camionada solo cambia de teórico a real al recepcionarse. Cuando todas las camionadas del lote ya fueron recepcionadas, este número coincide con Recepcionado.';
+const RECEPCIONADO_TOOLTIP = 'Suma del peso real (con ticket de planta) de las camionadas de este lote ya recepcionadas. Es el subconjunto "ya con ticket" de Despachado: parte más bajo y va subiendo a medida que llegan los tickets, hasta emparejarse con Despachado cuando ya no queda tonelaje teórico pendiente.';
 
 const fmtTon = (v) => v != null
   ? parseFloat(v).toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' t'
@@ -141,14 +148,17 @@ function ArbolLote({ reconstruccion }) {
           <div className="flex gap-px rounded-xl overflow-hidden border border-white/10">
             {[
               { label: 'camionadas', value: lote.numero_camionadas },
-              { label: 'despacho', value: lote.peso_total != null ? fmtTon(lote.peso_total) : '—' },
-              lote.peso_recibido != null && { label: 'recibido', value: fmtTon(lote.peso_recibido), color: 'text-emerald-300' },
+              { label: 'despachado', value: lote.peso_despachado != null ? fmtTon(lote.peso_despachado) : '—', tooltip: DESPACHADO_TOOLTIP },
+              lote.peso_recibido != null && { label: 'recepcionado', value: fmtTon(lote.peso_recibido), color: 'text-emerald-300', tooltip: RECEPCIONADO_TOOLTIP },
               lote.ley_lote_promedio != null && { label: 'ley lote', value: fmtLey(lote.ley_lote_promedio), color: 'text-indigo-300' },
               lote.ley_lab_promedio != null && { label: 'ley lab', value: fmtLey(lote.ley_lab_promedio), color: 'text-green-300' },
             ].filter(Boolean).map((kpi, i) => (
               <div key={i} className="px-4 py-2.5 text-center bg-white/5">
                 <p className={`text-base font-bold ${kpi.color ?? 'text-amber-300'}`}>{kpi.value}</p>
-                <p className="text-slate-500 text-[9px] uppercase tracking-widest mt-0.5">{kpi.label}</p>
+                <p className="text-slate-500 text-[9px] uppercase tracking-widest mt-0.5 flex items-center justify-center gap-1">
+                  {kpi.label}
+                  {kpi.tooltip && <InfoPopover text={kpi.tooltip} />}
+                </p>
               </div>
             ))}
           </div>

@@ -763,6 +763,8 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
             <label className="block text-sm font-medium text-gray-700 mb-1">Fecha *</label>
             <input
               type="date"
+              min="2025-01-01"
+              max={new Date(Date.now() + 864e5).toISOString().slice(0, 10)}
               value={cabecera.fecha}
               onChange={(e) => { setCabecera((prev) => ({ ...prev, fecha: e.target.value })); setHasUnsavedChanges(true); }}
               disabled={!esBorrador}

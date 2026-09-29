@@ -36,6 +36,11 @@ const gerencialService = {
     return response.data;
   },
 
+  getPerforacionTronadura: async (params = {}, signal) => {
+    const response = await api.get('/gerencial/perforacion-tronadura', { params, signal });
+    return response.data;
+  },
+
   getLote: async (id) => {
     const response = await api.get(`/gerencial/lotes/${id}`);
     return response.data;

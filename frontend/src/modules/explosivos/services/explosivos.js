@@ -357,6 +357,11 @@ class ExplosivosService {
     return response.data;
   }
 
+  async getDashboardPerforacion(params = {}) {
+    const response = await api.get('/explosivos/reportes-perforacion/dashboard', { params });
+    return response.data;
+  }
+
   async getHistorialReporte(id) {
     const response = await api.get(`/explosivos/reportes-perforacion/${id}/historial`);
     return response.data;

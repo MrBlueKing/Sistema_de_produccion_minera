@@ -333,6 +333,30 @@ class ReportePerforacion extends Model
         $fechaMov = $fechaMovimiento ?? Carbon::now()->toDateString();
 
         return DB::transaction(function () use ($devoluciones, $fechaMov) {
+            // lockForUpdate cierra la ventana de carrera de 2 clicks casi
+            // simultaneos (doble click, o un reintento del navegador por mala
+            // conexion): sin el lock, ambas peticiones pueden leer estado=
+            // Confirmado en el controlador ANTES de que la primera termine de
+            // guardar, y las dos ejecutan cerrar() completo -- descuento doble.
+            $fresco = self::where('id', $this->id)->lockForUpdate()->first();
+            if ($fresco->estado !== self::ESTADO_CONFIRMADO) {
+                throw new \Exception('Este reporte ya no esta en estado Confirmado -- puede haberse cerrado recien desde otra pestana, sesion o dispositivo. Recarga la pagina antes de reintentar.');
+            }
+
+            // Salvaguarda independiente del estado: si el reporte ya tiene
+            // movimientos de salida vigentes de un cierre anterior (por ejemplo
+            // porque su estado se toco a mano fuera de la app, sin pasar por
+            // "Habilitar correccion" -- que si limpia los movimientos viejos --
+            // no volver a descontar. Ver incidente real 2026-08-31/09-03,
+            // documentado en memoria bug_explosivos_preparado_descuento_excesivo.
+            $yaTieneSalida = $this->movimientos()
+                ->where('tipo', MovimientoExplosivo::TIPO_SALIDA)
+                ->where('motivo', 'like', 'Salida por reporte%')
+                ->exists();
+            if ($yaTieneSalida) {
+                throw new \Exception('Este reporte ya tiene movimientos de salida registrados de un cierre anterior -- no se puede cerrar de nuevo. Usa "Habilitar correccion" si necesitas rehacer el cierre.');
+            }
+
             $devueltoPorTipo = [];
             foreach ($devoluciones as $dev) {
                 $idTipo = $dev['id_tipo_explosivo'];

@@ -18,6 +18,12 @@ use Exception;
 
 class ReportePerforacionController extends Controller
 {
+    // Mensajes para el rango de fecha del reporte (la app está en locale 'en').
+    private const MENSAJES_FECHA = [
+        'fecha.after_or_equal'  => 'La fecha del reporte no puede ser anterior al 01-01-2025. Revisa el año.',
+        'fecha.before_or_equal' => 'La fecha del reporte no puede ser posterior a mañana. Revisa el año.',
+    ];
+
     use MultiTenancy;
 
     /**
@@ -151,11 +157,13 @@ class ReportePerforacionController extends Controller
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'fecha' => 'required|date',
+            // Rango acotado: un año mal tipeado (ej. '26' -> 0026-09-15) pasaba
+            // la regla 'date' y el reporte quedaba fuera de todo período.
+            'fecha' => 'required|date|after_or_equal:2025-01-01|before_or_equal:tomorrow',
             'turno' => 'required|in:AM,PM,Noche,Madrugada',
             'id_polvorin' => 'required|exists:polvorines,id',
             'observaciones' => 'nullable|string',
-        ]);
+        ], self::MENSAJES_FECHA);
 
         if ($validator->fails()) {
             return response()->json(['mensaje' => 'Datos inválidos', 'errores' => $validator->errors()], 422);
@@ -239,10 +247,10 @@ class ReportePerforacionController extends Controller
         }
 
         $validator = Validator::make($request->all(), [
-            'fecha' => 'sometimes|date',
+            'fecha' => 'sometimes|date|after_or_equal:2025-01-01|before_or_equal:tomorrow',
             'turno' => 'sometimes|in:AM,PM,Noche,Madrugada',
             'observaciones' => 'nullable|string',
-        ]);
+        ], self::MENSAJES_FECHA);
 
         if ($validator->fails()) {
             return response()->json(['mensaje' => 'Datos inválidos', 'errores' => $validator->errors()], 422);
@@ -800,7 +808,10 @@ class ReportePerforacionController extends Controller
         }
 
         try {
-            $reporte->cerrar([]);
+            // Fecha real del reporte, no la de hoy -- si el polvorinero cierra un
+            // reporte represado varios dias despues, el consumo debe quedar en el
+            // mes que corresponde (ver [[bug_explosivos_preparado_descuento_excesivo]]).
+            $reporte->cerrar([], $reporte->fecha->toDateString());
 
             $this->registrarAuditoria($reporte, 'cerrado', null, 'Cerrado sin devoluciones');
 
@@ -862,7 +873,8 @@ class ReportePerforacionController extends Controller
         }
 
         try {
-            $reporte->cerrar($request->devoluciones);
+            // Fecha real del reporte, no la de hoy -- ver nota en cerrar() arriba.
+            $reporte->cerrar($request->devoluciones, $reporte->fecha->toDateString());
 
             $this->registrarAuditoria($reporte, 'cerrado', null, 'Cerrado con ' . count($request->devoluciones) . ' devolución(es)');
 
@@ -951,6 +963,24 @@ class ReportePerforacionController extends Controller
     /**
      * GET /api/explosivos/reportes-perforacion/estadisticas
      */
+    /**
+     * Dashboard de Perforación y Tronadura para Ingeniería. Mismos datos que
+     * Dashboard Gerencial > Operaciones (PerforacionTronaduraService), limitados
+     * a la faena del usuario o a la que eligió.
+     *
+     * GET /api/explosivos/reportes-perforacion/dashboard
+     */
+    public function dashboard(Request $request, \App\Services\Explosivos\PerforacionTronaduraService $service)
+    {
+        $idFaena = $this->faenaParaIngenieria($request);
+        $fechaDesde = $request->get('fecha_desde', now()->subDays(29)->toDateString());
+        $fechaHasta = $request->get('fecha_hasta', now()->toDateString());
+
+        return response()->json([
+            'data' => $service->dashboard($fechaDesde, $fechaHasta, $idFaena !== null ? [(int) $idFaena] : null),
+        ]);
+    }
+
     public function estadisticas(Request $request)
     {
         $idFaena = $this->faenaParaIngenieria($request);

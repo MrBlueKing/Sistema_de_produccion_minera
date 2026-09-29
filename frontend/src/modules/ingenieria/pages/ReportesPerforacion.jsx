@@ -134,7 +134,7 @@ function ReportesPerforacionContent() {
           />
         );
       case 'dashboard':
-        return <DashboardPerforacion faenaActual={faenaActual} />;
+        return <DashboardPerforacion faenaActual={faenaActual} faenas={faenas} />;
       case 'formulas':
         return (
           <ConfiguracionView

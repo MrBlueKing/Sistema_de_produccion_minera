@@ -15,6 +15,7 @@ import {
 } from 'react-icons/fi';
 import { FaIndustry, FaMountain } from 'react-icons/fa';
 import ReconstruccionLote from './ReconstruccionLote';
+import PerforacionTronaduraDashboard from '../../../explosivos/components/PerforacionTronaduraDashboard';
 import InfoPopover from '../../../../shared/components/molecules/InfoPopover';
 import { CATEGORICAL, crearAsignadorDeFrentes } from '../../utils/chartColors';
 import useDebounce from '../../../../hooks/useDebounce';
@@ -436,6 +437,8 @@ export const ProduccionCompleta = () => {
   const [eficienciaLoading, setEficienciaLoading] = useState(false);
   const [resumenDumpadas, setResumenDumpadas] = useState([]);
   const [resumenDumpadasLoading, setResumenDumpadasLoading] = useState(false);
+  const [perforacion, setPerforacion] = useState(null);
+  const [perforacionLoading, setPerforacionLoading] = useState(false);
   // Detalle desplegable de "Por Empresa y Planta": qué filas (empresa|||planta)
   // están expandidas ahora mismo (pueden ser varias a la vez, cada una con su
   // propio fetch independiente) y los lotes que le corresponden a cada una
@@ -520,6 +523,7 @@ export const ProduccionCompleta = () => {
   const genEficienciaRef = useRef(0);
   const genLotesRef = useRef(0);
   const genResumenDumpadasRef = useRef(0);
+  const genResumenTirosRef = useRef(0);
 
   // Un AbortController por sección: al arrancar una carga nueva, se cancela
   // la anterior en vez de dejarla terminar sola — así el servidor local (de
@@ -530,6 +534,7 @@ export const ProduccionCompleta = () => {
   const abortEficienciaRef = useRef(null);
   const abortLotesRef = useRef(null);
   const abortResumenDumpadasRef = useRef(null);
+  const abortResumenTirosRef = useRef(null);
   // Un AbortController y un contador de generación por fila (Map keyed por
   // "empresa_id|||planta_id") — así varias filas pueden estar cargando/abiertas
   // a la vez sin cancelarse entre sí.
@@ -641,6 +646,24 @@ export const ProduccionCompleta = () => {
     } catch (e) { if (!esCancelacion(e) && miGen === genResumenDumpadasRef.current) console.error('Error resumen de dumpadas:', e); }
     finally {
       if (miGen === genResumenDumpadasRef.current) setResumenDumpadasLoading(false);
+    }
+  };
+
+  const cargarPerforacion = async (faenaId, fi, ff) => {
+    abortResumenTirosRef.current?.abort();
+    const controller = new AbortController();
+    abortResumenTirosRef.current = controller;
+    const miGen = ++genResumenTirosRef.current;
+    setPerforacionLoading(true);
+    try {
+      const params = { fecha_desde: fi, fecha_hasta: ff };
+      if (faenaId) params.id_faena = faenaId;
+      const res = await gerencialService.getPerforacionTronadura(params, controller.signal);
+      if (miGen !== genResumenTirosRef.current) return;
+      if (res.success) setPerforacion(res.data ?? null);
+    } catch (e) { if (!esCancelacion(e) && miGen === genResumenTirosRef.current) console.error('Error perforación y tronadura:', e); }
+    finally {
+      if (miGen === genResumenTirosRef.current) setPerforacionLoading(false);
     }
   };
 
@@ -793,12 +816,26 @@ export const ProduccionCompleta = () => {
     cargarResumenDumpadas(idFaenaParam, debouncedFechaInicio, debouncedFechaFin);
   }, [vista, faenaIdActiva, selectedFaenas, faenasConDatos, debouncedFechaInicio, debouncedFechaFin, ningunaSeleccionada]);
 
+  // "Perforación y Tronadura" — mismo patrón de carga perezosa que "Resumen de
+  // Dumpadas" arriba (ver comentario ahí): solo se pide al backend cuando el
+  // usuario abre esta pestaña, no en el Promise.all inicial.
+  useEffect(() => {
+    if (vista !== 'tiros') return;
+    if (ningunaSeleccionada) return;
+    const idFaenaParam = faenaIdActiva
+      || (selectedFaenas.length > 1
+        ? faenasConDatos.filter(f => selectedFaenas.includes(f.name)).map(f => f.id).join(',')
+        : null);
+    cargarPerforacion(idFaenaParam, debouncedFechaInicio, debouncedFechaFin);
+  }, [vista, faenaIdActiva, selectedFaenas, faenasConDatos, debouncedFechaInicio, debouncedFechaFin, ningunaSeleccionada]);
+
   return (
     <div className="mt-6 space-y-6">
       {/* Sub-navegación */}
       <div className="flex gap-2 border-b border-gray-200 pb-0">
         {[
           { id: 'resumen', label: 'Resumen de Producción' },
+          { id: 'tiros', label: 'Perforación y Tronadura' },
           { id: 'dumpadas', label: 'Resumen de Dumpadas' },
           { id: 'lotes', label: 'Resumen de Lotes' },
           { id: 'trazabilidad', label: 'Trazabilidad de Lote' },
@@ -818,6 +855,34 @@ export const ProduccionCompleta = () => {
       </div>
 
       {vista === 'trazabilidad' && <ReconstruccionLote />}
+
+      {vista === 'tiros' && (
+        <>
+          {faenasConDatos.length > 0 && (
+            <SelectorFaenasGrid
+              faenas={faenasConDatos}
+              mode="multi"
+              selectedFaenas={selectedFaenas}
+              onToggle={handleFaenaToggle}
+              loading={loading}
+            />
+          )}
+
+          <FiltrosProduccion
+            fechaInicio={fechaInicio} setFechaInicio={setFechaInicio}
+            fechaFin={fechaFin} setFechaFin={setFechaFin}
+            loading={loading || cargandoFiltro}
+          />
+
+          {!ningunaSeleccionada && (
+            <PerforacionTronaduraDashboard
+              data={perforacion}
+              loading={perforacionLoading}
+              nombreFaena={(id) => faenasConDatos.find(f => f.id === id)?.name ?? `Faena ${id}`}
+            />
+          )}
+        </>
+      )}
 
       {vista === 'dumpadas' && (
         <>

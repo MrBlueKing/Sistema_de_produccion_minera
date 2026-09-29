@@ -101,6 +101,7 @@ Route::prefix('formulas')->group(function () {
 // REPORTES DE PERFORACIÓN Y TRONADURA
 Route::prefix('reportes-perforacion')->group(function () {
     Route::get('/estadisticas', [ReportePerforacionController::class, 'estadisticas']);
+    Route::get('/dashboard', [ReportePerforacionController::class, 'dashboard']);
     Route::get('/', [ReportePerforacionController::class, 'index']);
     Route::post('/', [ReportePerforacionController::class, 'store']);
     Route::post('/calcular', [ReportePerforacionController::class, 'calcularExplosivos']);
