@@ -25,10 +25,12 @@ class Dumpada extends Model
         'acopios', // Código COMPLETO del acopio (ej: "ZN-PM-DIA-A001-27-11-2025")
         'jornada',
         'numero_jornada', // Número secuencial por frente+jornada+fecha
-        'fecha', // Fecha de EXTRACCIÓN
-        'hora', // Hora de EXTRACCIÓN, editable (por defecto la hora de ingreso)
-        'fecha_cyt', // Fecha de Carguío y Transporte (CyT) — puede ser muy posterior a la extracción
+        'fecha', // Fecha PRINCIPAL = la del CyT (día en que el dumper saca el material). Antes del 29-09-2026 era la única fecha
+        'hora', // Hora principal = la del CyT
+        'fecha_cyt', // Fecha de Carguío y Transporte (CyT) — igual a `fecha` desde el 29-09-2026
         'hora_cyt',
+        'fecha_extraccion', // Fecha real de extracción/tronadura — puede ser días antes del CyT
+        'hora_extraccion',
         'ton',
         'ley',
         'ley_cup',

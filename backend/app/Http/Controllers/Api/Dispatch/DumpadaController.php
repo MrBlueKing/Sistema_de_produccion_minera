@@ -392,11 +392,14 @@ class DumpadaController extends Controller
             'certificado' => $request->certificado,
             'numero_dumpada' => $numeroDumpada,
             'acopios' => $acopios,
-            'fecha' => $fecha,
-            // La hora de la dumpada es la de la vuelta del dumper (CyT)
+            // Fecha/hora principal de la dumpada = la del CyT (vuelta del dumper);
+            // la de extracción/tronadura se guarda aparte
+            'fecha' => $fechaCorrelativo,
             'hora' => $request->hora_cyt ?? $request->hora ?? now()->format('H:i:s'),
             'fecha_cyt' => $this->convertirFecha($request->fecha_cyt),
             'hora_cyt' => $request->hora_cyt,
+            'fecha_extraccion' => $fecha,
+            'hora_extraccion' => $request->hora,
             'rango' => $rango,
             'estado' => $estado,
             'user_id' => $request->auth_user_id,
@@ -529,11 +532,14 @@ class DumpadaController extends Controller
                     'certificado' => $dumpadaData['certificado'] ?? null,
                     'numero_dumpada' => $numeroDumpada,
                     'acopios' => $acopios,
-                    'fecha' => $fecha,
-                    // La hora de la dumpada es la de la vuelta del dumper (CyT)
+                    // Fecha/hora principal de la dumpada = la del CyT (vuelta del dumper);
+                    // la de extracción/tronadura se guarda aparte
+                    'fecha' => $fechaCorrelativo,
                     'hora' => $dumpadaData['hora_cyt'] ?? $dumpadaData['hora'] ?? now()->format('H:i:s'),
                     'fecha_cyt' => $this->convertirFecha($dumpadaData['fecha_cyt']),
                     'hora_cyt' => $dumpadaData['hora_cyt'],
+                    'fecha_extraccion' => $fecha,
+                    'hora_extraccion' => $dumpadaData['hora'] ?? null,
                     'rango' => $rango,
                     'estado' => $estado,
                     'user_id' => $request->auth_user_id,
@@ -665,17 +671,17 @@ class DumpadaController extends Controller
         $frente = FrenteTrabajo::find($request->id_frente_trabajo);
 
         // Regenerar numero_jornada si cambiaron datos relevantes (frente, jornada o
-        // fecha del correlativo). La edición no toca fecha_cyt, así que si la
-        // dumpada tiene CyT, cambiar la fecha de Extracción no la renumera.
+        // fecha). La fecha que se edita es la principal = la del CyT; si la dumpada
+        // tiene CyT, fecha_cyt se mantiene igual a ella (ver $data abajo).
         $fecha = $this->convertirFecha($request->fecha) ?? $dumpada->getRawOriginal('fecha');
         $fechaCyt = $dumpada->getRawOriginal('fecha_cyt');
-        $fechaCorrelativo = Dumpada::fechaCorrelativo($fechaCyt, $fecha);
+        $fechaCorrelativo = $fecha;
         $numeroJornada = $dumpada->numero_jornada;
 
         $grupoAnterior = [
             'id_frente_trabajo' => $dumpada->id_frente_trabajo,
             'jornada'           => $dumpada->jornada,
-            'fecha'             => Dumpada::fechaCorrelativo($fechaCyt, $dumpada->getRawOriginal('fecha')),
+            'fecha'             => $dumpada->getRawOriginal('fecha'),
         ];
 
         $seMovio = $request->id_frente_trabajo != $dumpada->id_frente_trabajo ||
@@ -726,7 +732,8 @@ class DumpadaController extends Controller
             'numero_jornada' => $numeroJornada,
             'fecha' => $fecha,
             'hora' => $request->hora ?? $dumpada->hora,
-            // hora = hora del CyT: si se corrige la hora, mantener el CyT igual
+            // fecha/hora principal = la del CyT: si se corrigen, mantener el CyT igual
+            'fecha_cyt' => $fechaCyt ? $fecha : null,
             'hora_cyt' => ($request->filled('hora') && $dumpada->hora_cyt) ? $request->hora : $dumpada->hora_cyt,
             // filled(), no ?? — mismo motivo que $ley más arriba: un campo decimal
             // dejado en blanco manda '' (no null) y ?? no lo detecta, pisando el
