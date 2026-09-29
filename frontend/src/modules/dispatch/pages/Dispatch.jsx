@@ -530,6 +530,11 @@ function DispatchContent() {
       return fecha;
     }
 
+    // YYYY-MM-DD (ej. fecha_cyt): armarla a mano — new Date() la toma como UTC
+    // y en Chile la muestra un día antes
+    const iso = typeof fecha === 'string' && fecha.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (iso) return `${iso[3]}-${iso[2]}-${iso[1]}`;
+
     // Si es otro formato, convertirla a DD-MM-YYYY
     const date = new Date(fecha);
     if (isNaN(date.getTime())) return '-';
@@ -2071,7 +2076,8 @@ function DispatchContent() {
                             </td>
                             <td className="py-3 px-3 text-gray-800 text-xs">
                               <div className="flex flex-col">
-                                <span className="font-semibold">{formatearFecha(dumpada.fecha)}</span>
+                                {/* Fecha del CyT (vuelta del dumper), igual que la hora; las antiguas sin CyT muestran su fecha */}
+                                <span className="font-semibold">{formatearFecha(dumpada.fecha_cyt || dumpada.fecha)}</span>
                                 {(dumpada.hora || dumpada.created_at) && (
                                   <span className="text-gray-500 text-[10px]">
                                     {(dumpada.hora || dumpada.created_at.split(' ')[1])?.substring(0, 5)} hrs
