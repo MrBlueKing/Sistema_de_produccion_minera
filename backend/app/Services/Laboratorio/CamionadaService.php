@@ -70,10 +70,14 @@ class CamionadaService
                 'id_faena'         => $lote->id_faena,
                 'numero_camionada' => $numeroCamionada,
                 'patente'          => $datos['patente'],
-                'cliente'          => $datos['cliente'] ?? $lote->empresa->nombre,
-                'planta'           => $datos['planta'] ?? $lote->planta->nombre,
+                'cliente'          => $datos['cliente'] ?? $lote->empresa?->nombre,
+                'planta'           => $datos['planta'] ?? $lote->planta?->nombre,
                 'ticket'           => $datos['ticket'] ?? null,
                 'numero_guia'      => $datos['numero_guia'] ?? null,
+                // Dato del viaje, opcional: si esta camionada pasó por un
+                // punto de transbordo antes de llegar al lote. No afecta
+                // nada de la lógica de lote_id/planta/empresa.
+                'punto_transbordo_id' => $datos['punto_transbordo_id'] ?? null,
                 'fecha_despacho'   => $datos['fecha_despacho'] ?? now(),
                 'hora_despacho'    => $datos['hora_despacho'] ?? now()->toTimeString(),
                 'peso'             => $datos['peso'],
@@ -327,6 +331,10 @@ class CamionadaService
                 $camionada->ley_lab_camion = $datos['ley_lab_camion'];
             }
 
+            if (array_key_exists('patente_camion_2', $datos)) {
+                $camionada->patente_camion_2 = $datos['patente_camion_2'];
+            }
+
             $camionada->calcularDiferencia();
             $camionada->calcularPorcentajeError();
 
@@ -461,7 +469,7 @@ class CamionadaService
     public function obtenerMezclasConRemanente($faenaId = null, bool $todas = false)
     {
         $mezclas = Mezcla::select([
-                'id', 'codigo', 'fecha', 'total_ton',
+                'id', 'codigo', 'fecha', 'total_ton', 'id_faena',
                 'toneladas_disponibles', 'toneladas_despachadas',
                 'ley_lab', 'ley_prom_visual', 'ley_prom_lote',
                 'estado', 'es_remanente', 'mezcla_origen_id'
@@ -476,6 +484,7 @@ class CamionadaService
             return [
                 'id'                   => $mezcla->id,
                 'codigo'               => $mezcla->codigo,
+                'id_faena'             => $mezcla->id_faena,
                 'fecha'                => $mezcla->fecha->format('d-m-Y'),
                 'total_ton'            => round((float) $mezcla->total_ton, 2),
                 'toneladas_disponibles'=> round((float) ($mezcla->toneladas_disponibles ?? 0), 2),

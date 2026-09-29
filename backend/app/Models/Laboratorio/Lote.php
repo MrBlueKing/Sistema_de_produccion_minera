@@ -145,6 +145,20 @@ class Lote extends Model
             ->sum('peso');
     }
 
+    /**
+     * Despachado = Real + Teórico: peso real de las camionadas ya recepcionadas
+     * más el teórico declarado de las que aún no llegan — converge hacia
+     * getPesoRecibido() a medida que se recepcionan, nunca al revés. Mismo
+     * criterio que reporteProduccion()/buscarLotes() en GerencialController;
+     * NO usar getPesoTotal() para esto, que es el teórico de TODAS las
+     * camionadas sin importar si ya se recepcionaron (sirve para Remanente,
+     * no para "Despachado").
+     */
+    public function getPesoDespachado()
+    {
+        return $this->getPesoRecibido() + $this->getPesoTeoricoPendiente();
+    }
+
     public function getNumeroCamionadas()
     {
         return $this->camionadas->count();

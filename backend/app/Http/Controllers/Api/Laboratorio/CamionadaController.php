@@ -26,7 +26,7 @@ class CamionadaController extends Controller
      */
     public function index(Request $request)
     {
-        $query = Camionada::with(['mezclas', 'lote.planta', 'lote.empresa']);
+        $query = Camionada::with(['mezclas', 'lote.planta', 'lote.empresa', 'puntoTransbordo']);
 
         // ✅ MULTI-FAENA: Filtrar por faena del usuario si no es global
         if (!$this->esUsuarioGlobal($request)) {
@@ -100,6 +100,8 @@ class CamionadaController extends Controller
             'peso'                 => 'required|numeric|min:0.01',
             'ticket'               => 'nullable|string|max:100',
             'numero_guia'          => 'nullable|string|max:50',
+            'patente_camion_2'     => 'nullable|string|max:20',
+            'punto_transbordo_id'  => 'nullable|integer|exists:puntos_transbordo,id',
             'ley_visual'           => 'nullable|numeric|min:0',
             'ley_mezcla'           => 'nullable|numeric|min:0',
             'observaciones'        => 'nullable|string',
@@ -156,6 +158,8 @@ class CamionadaController extends Controller
             'peso_real'       => 'nullable|numeric|min:0.01',
             'ticket'          => 'nullable|string|max:100',
             'numero_guia'     => 'nullable|string|max:50',
+            'patente_camion_2'    => 'nullable|string|max:20',
+            'punto_transbordo_id' => 'nullable|integer|exists:puntos_transbordo,id',
             'ley_visual'      => 'nullable|numeric|min:0',
             'ley_mezcla'      => 'nullable|numeric|min:0',
             'observaciones'   => 'nullable|string',
@@ -274,6 +278,7 @@ class CamionadaController extends Controller
             'ley_lab_camion' => 'nullable|numeric|min:0',
             'ticket' => 'nullable|string|max:100',
             'numero_lote' => 'nullable|string|max:50',
+            'patente_camion_2' => 'nullable|string|max:20',
         ]);
 
         if ($validator->fails()) {
@@ -281,6 +286,20 @@ class CamionadaController extends Controller
                 'error' => 'Datos inválidos',
                 'detalles' => $validator->errors()
             ], 422);
+        }
+
+        // Vía transbordo: el que llega a planta es el 2° camión — sin su patente no se
+        // puede recepcionar (sirve el que ya estaba guardado o el que viene en el request).
+        $camionadaActual = Camionada::find($id);
+        if ($camionadaActual && $camionadaActual->punto_transbordo_id) {
+            $patente2 = trim((string) ($request->input('patente_camion_2') ?? $camionadaActual->patente_camion_2 ?? ''));
+            if ($patente2 === '') {
+                return response()->json([
+                    'error' => 'Datos inválidos',
+                    'mensaje' => 'Esta camionada va vía transbordo: indica la patente del 2° camión antes de recepcionar',
+                    'detalles' => ['patente_camion_2' => ['Requerida para camionadas vía transbordo']],
+                ], 422);
+            }
         }
 
         try {

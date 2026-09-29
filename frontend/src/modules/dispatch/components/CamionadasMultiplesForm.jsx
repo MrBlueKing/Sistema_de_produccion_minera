@@ -5,6 +5,7 @@ import useToast from '../../../hooks/useToast';
 import laboratorioService from '../../../services/laboratorio';
 import configuracionService from '../../../services/configuracion';
 import Button from '../../../shared/components/atoms/Button';
+import CamionCombobox from '../../../shared/components/molecules/CamionCombobox';
 
 const MezclaCombobox = ({ mezclas, value, onChange, toneladasAsignadas, disabled }) => {
   const [search, setSearch] = useState('');
@@ -110,12 +111,23 @@ const MezclaCombobox = ({ mezclas, value, onChange, toneladasAsignadas, disabled
 
 const mezclaVacia = () => ({ id: Date.now() + Math.random(), mezcla_id: '', toneladas: '' });
 
+const camionadaVacia = (id, peso) => ({
+  id,
+  patente: '',
+  peso,
+  mezclas: [mezclaVacia()],
+  punto_transbordo_id: '',
+  patente_camion_2: '',
+  viaTransbordo: false,
+});
+
 const CamionadasMultiplesForm = ({ onSuccess, onCancel, loteIdPreseleccionado = null }) => {
   const toast = useToast();
   const [loading, setLoading] = useState(false);
   const [mezclas, setMezclas] = useState([]);
   const [maquinas, setMaquinas] = useState([]);
   const [lotesAbiertos, setLotesAbiertos] = useState([]);
+  const [puntosTransbordo, setPuntosTransbordo] = useState([]);
   const [cargandoMaquinas, setCargandoMaquinas] = useState(true);
   const [cargandoMezclas, setCargandoMezclas] = useState(true);
   const [pesoCamionDefault, setPesoCamionDefault] = useState(29);
@@ -125,26 +137,26 @@ const CamionadasMultiplesForm = ({ onSuccess, onCancel, loteIdPreseleccionado = 
     fecha_despacho: new Date().toISOString().split('T')[0],
   });
 
-  const [camionadas, setCamionadas] = useState([
-    { id: 1, patente: '', peso: pesoCamionDefault, mezclas: [mezclaVacia()] }
-  ]);
+  const [camionadas, setCamionadas] = useState([camionadaVacia(1, pesoCamionDefault)]);
 
   useEffect(() => { cargarDatos(); }, []);
 
   const cargarDatos = async () => {
     try {
       setCargandoMaquinas(true);
-      const [mezclasRes, configRes, camionesRes, lotesRes] = await Promise.all([
+      const [mezclasRes, configRes, camionesRes, lotesRes, puntosRes] = await Promise.all([
         laboratorioService.getMezclasDisponibles({ todas: true }),
         configuracionService.getAll(),
         laboratorioService.getCamiones({ activos: true }),
-        laboratorioService.getLotesAbiertos()
+        laboratorioService.getLotesAbiertos(),
+        laboratorioService.getPuntosTransbordo({ activos: true })
       ]);
 
       setMezclas(mezclasRes || []);
       setCargandoMezclas(false);
       setMaquinas(camionesRes || []);
       setLotesAbiertos(lotesRes || []);
+      setPuntosTransbordo(Array.isArray(puntosRes) ? puntosRes : (puntosRes?.data || []));
 
       const pesoDefault = configRes.peso_camion_default || 29;
       setPesoCamionDefault(pesoDefault);
@@ -167,7 +179,7 @@ const CamionadasMultiplesForm = ({ onSuccess, onCancel, loteIdPreseleccionado = 
 
   const agregarCamionada = () => {
     const nuevoId = Math.max(...camionadas.map(c => c.id), 0) + 1;
-    setCamionadas([...camionadas, { id: nuevoId, patente: '', peso: pesoCamionDefault, mezclas: [mezclaVacia()] }]);
+    setCamionadas([...camionadas, camionadaVacia(nuevoId, pesoCamionDefault)]);
   };
 
   const quitarCamionada = (id) => {
@@ -176,6 +188,13 @@ const CamionadasMultiplesForm = ({ onSuccess, onCancel, loteIdPreseleccionado = 
 
   const actualizarCamionada = (id, campo, valor) => {
     setCamionadas(camionadas.map(c => c.id === id ? { ...c, [campo]: valor } : c));
+  };
+
+  const quitarTransbordo = (id) => {
+    setCamionadas(camionadas.map(c => c.id === id
+      ? { ...c, viaTransbordo: false, punto_transbordo_id: '', patente_camion_2: '' }
+      : c
+    ));
   };
 
   // ── Mezclas por camionada ───────────────────────────────────────────────
@@ -311,6 +330,8 @@ const CamionadasMultiplesForm = ({ onSuccess, onCancel, loteIdPreseleccionado = 
           patente: camionada.patente,
           peso: parseFloat(camionada.peso),
           fecha_despacho: formGeneral.fecha_despacho,
+          punto_transbordo_id: camionada.punto_transbordo_id ? parseInt(camionada.punto_transbordo_id) : null,
+          patente_camion_2: camionada.patente_camion_2?.trim() || null,
         });
       }
       toast.success(`${camionadasValidas.length} camionada(s) creada(s)`, `Total: ${calcularTotalPeso().toFixed(2)} t`);
@@ -415,19 +436,12 @@ const CamionadasMultiplesForm = ({ onSuccess, onCancel, loteIdPreseleccionado = 
                     {/* Patente */}
                     <div>
                       <label className="block text-[10px] font-semibold text-gray-400 uppercase tracking-wide mb-0.5">Camión</label>
-                      <select
+                      <CamionCombobox
+                        camiones={maquinas}
                         value={camionada.patente}
-                        onChange={(e) => actualizarCamionada(camionada.id, 'patente', e.target.value)}
+                        onChange={(val) => actualizarCamionada(camionada.id, 'patente', val)}
                         disabled={cargandoMaquinas}
-                        className="w-full px-2 py-1.5 border-2 border-gray-200 rounded-lg focus:ring-2 focus:ring-orange-400 font-mono text-sm disabled:bg-gray-100"
-                      >
-                        <option value="">{cargandoMaquinas ? 'Cargando...' : 'Seleccione...'}</option>
-                        {maquinas.map(cam => (
-                          <option key={cam.id} value={cam.patente}>
-                            {cam.nombre} ({cam.patente})
-                          </option>
-                        ))}
-                      </select>
+                      />
                     </div>
 
                     {/* Peso total */}
@@ -450,6 +464,50 @@ const CamionadasMultiplesForm = ({ onSuccess, onCancel, loteIdPreseleccionado = 
                         <HiTrash className="w-4 h-4" />
                       </button>
                     ) : <div />}
+                  </div>
+
+                  {/* Transbordo (opcional) */}
+                  <div className="px-3 pt-2 pb-1.5">
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={camionada.viaTransbordo}
+                      onClick={() => camionada.viaTransbordo ? quitarTransbordo(camionada.id) : actualizarCamionada(camionada.id, 'viaTransbordo', true)}
+                      className="flex items-center gap-2"
+                    >
+                      <span className={`w-8 h-[18px] rounded-full relative shrink-0 transition-colors ${camionada.viaTransbordo ? 'bg-amber-600' : 'bg-gray-200'}`}>
+                        <span className={`absolute top-0.5 w-3.5 h-3.5 rounded-full bg-white shadow transition-all ${camionada.viaTransbordo ? 'right-0.5' : 'left-0.5'}`} />
+                      </span>
+                      <span className={`text-xs font-semibold ${camionada.viaTransbordo ? 'text-amber-700' : 'text-gray-500'}`}>Vía transbordo</span>
+                    </button>
+
+                    {camionada.viaTransbordo && (
+                      <div className="flex gap-2 mt-2">
+                        <div className="flex-1">
+                          <label className="block text-[10px] font-semibold text-amber-600 uppercase tracking-wide mb-0.5">Punto transbordo</label>
+                          <select
+                            value={camionada.punto_transbordo_id}
+                            onChange={(e) => actualizarCamionada(camionada.id, 'punto_transbordo_id', e.target.value)}
+                            className="w-full px-2 py-1 border border-amber-200 rounded-md focus:ring-2 focus:ring-amber-400 text-xs"
+                          >
+                            <option value="">Seleccione...</option>
+                            {puntosTransbordo.map(p => (
+                              <option key={p.id} value={p.id}>{p.nombre}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="flex-1">
+                          <label className="block text-[10px] font-semibold text-amber-600 uppercase tracking-wide mb-0.5">2° camión (opcional)</label>
+                          <CamionCombobox
+                            camiones={maquinas}
+                            value={camionada.patente_camion_2}
+                            onChange={(val) => actualizarCamionada(camionada.id, 'patente_camion_2', val)}
+                            excluirPatente={camionada.patente}
+                            placeholder="Buscar..."
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Sub-tabla de mezclas */}

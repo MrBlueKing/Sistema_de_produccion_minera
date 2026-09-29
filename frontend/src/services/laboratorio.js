@@ -183,6 +183,11 @@ class LaboratorioService {
     return response.data;
   }
 
+  async getPuntosTransbordo(params = {}) {
+    const response = await api.get('/dispatch/puntos-transbordo', { params });
+    return response.data;
+  }
+
   async actualizarLeyLaboratorio(id, leyLabCamion) {
     const response = await api.post(`/dispatch/camionadas/${id}/ley-laboratorio`, {
       ley_lab_camion: leyLabCamion

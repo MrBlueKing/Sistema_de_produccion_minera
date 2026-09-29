@@ -50,7 +50,7 @@ class LoteController extends Controller
      */
     public function index(Request $request)
     {
-        $query = Lote::with(['planta', 'empresa', 'camionadas.mezclas']);
+        $query = Lote::with(['planta', 'empresa', 'camionadas.mezclas', 'camionadas.puntoTransbordo']);
 
         // ✅ MULTI-FAENA: Filtrar por faena del usuario si no es global
         if (!$this->esUsuarioGlobal($request)) {
@@ -75,11 +75,15 @@ class LoteController extends Controller
 
         // Filtros opcionales
         if ($request->has('planta_id') && !empty($request->planta_id)) {
-            $query->where('planta_id', $request->planta_id);
+            // Admite una o varias plantas separadas por coma (selector multi en el frontend)
+            $plantaIds = array_filter(explode(',', $request->planta_id));
+            $query->whereIn('planta_id', $plantaIds);
         }
 
         if ($request->has('empresa_id') && !empty($request->empresa_id)) {
-            $query->where('empresa_id', $request->empresa_id);
+            // Admite una o varias empresas separadas por coma (selector multi en el frontend)
+            $empresaIds = array_filter(explode(',', $request->empresa_id));
+            $query->whereIn('empresa_id', $empresaIds);
         }
 
         if ($request->has('estado') && !empty($request->estado)) {
@@ -201,8 +205,10 @@ class LoteController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'numero_lote' => 'nullable|string|max:50|unique:lotes,numero_lote',
-            'planta_id' => 'required|integer|exists:plantas,id',
-            'empresa_id' => 'required|integer|exists:empresas,id',
+            // Opcionales: se puede abrir un lote sin saber todavía la planta
+            // y/o la empresa -- se completan después editando el lote.
+            'planta_id' => 'nullable|integer|exists:plantas,id',
+            'empresa_id' => 'nullable|integer|exists:empresas,id',
             'fecha_creacion' => 'nullable|date',
             'fecha_estimada_llegada' => 'nullable|date',
             'observaciones' => 'nullable|string',
@@ -243,7 +249,7 @@ class LoteController extends Controller
      */
     public function show($id)
     {
-        $lote = Lote::with(['planta', 'empresa', 'camionadas.mezclas.detalles.dumpada'])->findOrFail($id);
+        $lote = Lote::with(['planta', 'empresa', 'camionadas.mezclas.detalles.dumpada', 'camionadas.puntoTransbordo'])->findOrFail($id);
 
         // Agregar campos calculados
         $loteData = $this->agregarCamposCalculados($lote);
@@ -258,12 +264,12 @@ class LoteController extends Controller
     public function update(Request $request, $id)
     {
         $validator = Validator::make($request->all(), [
-            'numero_lote' => 'sometimes|string|max:50|unique:lotes,numero_lote,' . $id,
-            'planta_id' => 'sometimes|integer|exists:plantas,id',
+            'numero_lote' => 'sometimes|nullable|string|max:50|unique:lotes,numero_lote,' . $id,
+            'planta_id' => 'sometimes|nullable|integer|exists:plantas,id',
             'fecha_creacion' => 'sometimes|date',
             'fecha_estimada_llegada' => 'sometimes|date',
             'estado' => 'sometimes|in:Abierto,Completado',
-            'empresa_id' => 'sometimes|integer|exists:empresas,id',
+            'empresa_id' => 'sometimes|nullable|integer|exists:empresas,id',
             'observaciones' => 'nullable|string',
         ]);
 
@@ -775,11 +781,15 @@ class LoteController extends Controller
         }
 
         if ($request->has('planta_id') && !empty($request->planta_id)) {
-            $query->where('planta_id', $request->planta_id);
+            // Admite una o varias plantas separadas por coma (selector multi en el frontend)
+            $plantaIds = array_filter(explode(',', $request->planta_id));
+            $query->whereIn('planta_id', $plantaIds);
         }
 
         if ($request->has('empresa_id') && !empty($request->empresa_id)) {
-            $query->where('empresa_id', $request->empresa_id);
+            // Admite una o varias empresas separadas por coma (selector multi en el frontend)
+            $empresaIds = array_filter(explode(',', $request->empresa_id));
+            $query->whereIn('empresa_id', $empresaIds);
         }
 
         $lotes = $query->orderBy('created_at', 'desc')->get();
@@ -793,7 +803,7 @@ class LoteController extends Controller
      */
     public function lotesAbiertosConCamionadas(Request $request)
     {
-        $query = Lote::with(['planta', 'empresa', 'camionadas.mezclas'])
+        $query = Lote::with(['planta', 'empresa', 'camionadas.mezclas', 'camionadas.puntoTransbordo'])
             ->where('estado', Lote::ESTADO_ABIERTO);
 
         if (!$this->esUsuarioGlobal($request)) {
@@ -801,11 +811,15 @@ class LoteController extends Controller
         }
 
         if ($request->has('planta_id') && !empty($request->planta_id)) {
-            $query->where('planta_id', $request->planta_id);
+            // Admite una o varias plantas separadas por coma (selector multi en el frontend)
+            $plantaIds = array_filter(explode(',', $request->planta_id));
+            $query->whereIn('planta_id', $plantaIds);
         }
 
         if ($request->has('empresa_id') && !empty($request->empresa_id)) {
-            $query->where('empresa_id', $request->empresa_id);
+            // Admite una o varias empresas separadas por coma (selector multi en el frontend)
+            $empresaIds = array_filter(explode(',', $request->empresa_id));
+            $query->whereIn('empresa_id', $empresaIds);
         }
 
         $lotes = $query->orderBy('created_at', 'desc')->get();

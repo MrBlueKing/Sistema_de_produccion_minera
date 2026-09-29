@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\Dispatch\DumpadaController;
+use App\Http\Controllers\Api\Dispatch\OperadorController;
 use App\Http\Controllers\Api\Dispatch\ImportarDumpadasController;
 use App\Http\Controllers\Api\Dispatch\CompararNumerosController;
 use App\Http\Controllers\Api\Dispatch\CompararMezclasController;
@@ -13,6 +14,7 @@ use App\Http\Controllers\Api\Dispatch\AcopioController;
 use App\Http\Controllers\Api\Laboratorio\MezclaController;
 use App\Http\Controllers\Api\Laboratorio\CamionadaController;
 use App\Http\Controllers\Api\Laboratorio\PlantaController;
+use App\Http\Controllers\Api\Laboratorio\PuntoTransbordoController;
 use App\Http\Controllers\Api\Laboratorio\EmpresaController;
 use App\Http\Controllers\Api\Laboratorio\LoteController;
 use App\Http\Controllers\Api\Laboratorio\TarifaController;
@@ -30,6 +32,14 @@ use Illuminate\Support\Facades\Route;
 
 // Resumen semanal para el hub
 Route::get('/resumen-semana', [DumpadaController::class, 'resumenSemana']);
+
+// Operadores de dumper (personal interno de Petróleo) para el Ingreso de Dumpadas
+Route::prefix('operadores')->group(function () {
+    Route::get('/', [OperadorController::class, 'index']);                 // autorizados (selector del Ingreso)
+    Route::get('/disponibles', [OperadorController::class, 'disponibles']); // personal de Petróleo, para autorizar
+    Route::post('/', [OperadorController::class, 'store']);
+    Route::delete('/{id}', [OperadorController::class, 'destroy']);
+});
 
 // Dumpadas
 Route::prefix('dumpadas')->group(function () {
@@ -238,6 +248,16 @@ Route::prefix('plantas')->group(function () {
     Route::get('/{id}', [PlantaController::class, 'show']);
     Route::put('/{id}', [PlantaController::class, 'update']);
     Route::delete('/{id}', [PlantaController::class, 'destroy']);
+});
+
+// ==========================
+// PUNTOS DE TRANSBORDO
+// ==========================
+Route::prefix('puntos-transbordo')->group(function () {
+    Route::get('/', [PuntoTransbordoController::class, 'index']);
+    Route::post('/', [PuntoTransbordoController::class, 'store']);
+    Route::put('/{id}', [PuntoTransbordoController::class, 'update']);
+    Route::delete('/{id}', [PuntoTransbordoController::class, 'destroy']);
 });
 
 // ==========================

@@ -17,8 +17,11 @@ import {
   HiXCircle,
   HiChevronUp,
   HiChevronDown,
+  HiChevronRight,
   HiInformationCircle,
-  HiCalendar
+  HiCalendar,
+  HiSwitchHorizontal,
+  HiUserGroup
 } from 'react-icons/hi';
 import { HiScale } from 'react-icons/hi2';
 import useToast from '../../../hooks/useToast';
@@ -28,11 +31,51 @@ import Button from '../../../shared/components/atoms/Button';
 import Loader from '../../../shared/components/atoms/Loader';
 import ConfirmModal from '../../../shared/components/molecules/ConfirmModal';
 import EliminarLoteModal from '../../../shared/components/molecules/EliminarLoteModal';
+import CamionCombobox from '../../../shared/components/molecules/CamionCombobox';
+import OperadoresAutorizadosSection from './OperadoresAutorizadosSection';
 import LoteSelector from './LoteSelector';
 import CamionadaFormMejorado from './CamionadaFormMejorado';
 import CamionadasMultiplesForm from './CamionadasMultiplesForm';
 import CerrarLoteModal from './CerrarLoteModal';
 import Badge from '../../../shared/components/atoms/Badge';
+
+/**
+ * Ley ponderada de una camionada considerando TODAS sus mezclas, no solo la primera.
+ * Orden de preferencia:
+ *   1. Valor ya calculado por el backend (`ley_mezcla` / `ley_visual`): promedio
+ *      ponderado por toneladas de la pivot, calculado al crear la camionada.
+ *   2. Promedio ponderado en vivo desde `mezclas[].pivot.toneladas` (por si el
+ *      valor guardado viene null en datos antiguos).
+ *   3. Primera mezcla, como último recurso.
+ *
+ * @param {object} cam camionada con `mezclas` (cada una con `pivot.toneladas`)
+ * @param {'lote'|'visual'} tipo
+ * @returns {number|null}
+ */
+const leyPonderadaCamionada = (cam, tipo) => {
+  if (!cam) return null;
+
+  const guardada = tipo === 'lote' ? cam.ley_mezcla : cam.ley_visual;
+  if (guardada != null && guardada !== '') return parseFloat(guardada);
+
+  const mezclas = cam.mezclas ?? [];
+  if (mezclas.length === 0) return null;
+  const campo = tipo === 'lote' ? 'ley_prom_lote' : 'ley_prom_visual';
+
+  let sumaProd = 0;
+  let sumaTon = 0;
+  for (const m of mezclas) {
+    const ley = m?.[campo];
+    const ton = parseFloat(m?.pivot?.toneladas ?? 0);
+    if (ley == null || !(ton > 0)) continue;
+    sumaProd += ton * parseFloat(ley);
+    sumaTon += ton;
+  }
+  if (sumaTon > 0) return sumaProd / sumaTon;
+
+  const primera = mezclas[0]?.[campo];
+  return primera != null ? parseFloat(primera) : null;
+};
 
 const DespachosView = () => {
   const toast = useToast();
@@ -123,7 +166,7 @@ const DespachosView = () => {
   const [camionadaResaltada, setCamionadaResaltada] = useState(null);
 
   // Modal editar lote
-  const [modalEditarFecha, setModalEditarFecha] = useState({ show: false, lote: null, numero_lote: '', fecha_creacion: '', observaciones: '', confirmando: false });
+  const [modalEditarFecha, setModalEditarFecha] = useState({ show: false, lote: null, numero_lote: '', fecha_creacion: '', observaciones: '', planta_id: '', empresa_id: '', confirmando: false });
 
   // Edición inline de camionadas en el modal de detalle
   const [camionadaEditando, setCamionadaEditando] = useState(null); // { id, peso_real, fecha_recepcion }
@@ -133,6 +176,9 @@ const DespachosView = () => {
   const [mostrarFormLote, setMostrarFormLote] = useState(false);
   const [formLote, setFormLote] = useState({ planta_id: '', empresa_id: '' });
   const [creandoLote, setCreandoLote] = useState(false);
+  const [puntosTransbordo, setPuntosTransbordo] = useState([]);
+  // Bloque "En transbordo" del Resumen General: ids de puntos colapsados (por defecto abiertos)
+  const [transbordoColapsados, setTransbordoColapsados] = useState({});
 
   // Estado para agregar camionada desde card de lote
   const [loteIdParaCamionada, setLoteIdParaCamionada] = useState(null);
@@ -227,14 +273,18 @@ const DespachosView = () => {
         setEmpresas(empresasRes || []);
         setCamionesLista(camionesRes || []);
       } else if (vistaActiva === 'lotes') {
-        const [plantasRes, empresasRes, lotesAbRes] = await Promise.all([
+        const [plantasRes, empresasRes, lotesAbRes, puntosRes, camionesRes] = await Promise.all([
           laboratorioService.getPlantas({ activas: true }),
           laboratorioService.getEmpresas({ activas: true }),
-          laboratorioService.getLotesAbiertosConCamionadas()
+          laboratorioService.getLotesAbiertosConCamionadas(),
+          laboratorioService.getPuntosTransbordo({ activos: true }),
+          laboratorioService.getCamiones({ activos: true })
         ]);
         setPlantas(plantasRes || []);
         setEmpresas(empresasRes || []);
         setLotesAbiertosCards(lotesAbRes || []);
+        setPuntosTransbordo(puntosRes || []);
+        setCamionesLista(camionesRes || []);
         // cargarLotes se maneja por el effect que observa tabLotesActivo + filtrosLotes
       }
     } catch (error) {
@@ -496,6 +546,7 @@ const DespachosView = () => {
       // Recargar cards de lotes abiertos
       const lotesAbRes = await laboratorioService.getLotesAbiertosConCamionadas();
       setLotesAbiertosCards(lotesAbRes || []);
+      await cargarLotesResumenGeneral();
     } catch (error) {
       console.error('Error al eliminar lote:', error);
       toast.error(
@@ -625,6 +676,7 @@ const DespachosView = () => {
       await laboratorioService.updateCamionada(camionadaEditando.id, {
         peso_real:       camionadaEditando.peso_real       || null,
         fecha_recepcion: camionadaEditando.fecha_recepcion || null,
+        patente_camion_2: camionadaEditando.patente_camion_2?.trim() || null,
       });
       // Refrescar el detalle del lote
       const loteActualizado = await laboratorioService.getLote(loteSeleccionado.id);
@@ -669,15 +721,11 @@ const DespachosView = () => {
   };
 
   const handleCrearLote = async () => {
-    if (!formLote.planta_id || !formLote.empresa_id) {
-      toast.warning('Seleccione planta y empresa');
-      return;
-    }
     setCreandoLote(true);
     try {
       const response = await laboratorioService.createLote({
-        planta_id: parseInt(formLote.planta_id),
-        empresa_id: parseInt(formLote.empresa_id),
+        planta_id: formLote.planta_id ? parseInt(formLote.planta_id) : null,
+        empresa_id: formLote.empresa_id ? parseInt(formLote.empresa_id) : null,
       });
       toast.success('Lote creado', `Lote ${response.lote?.numero_lote || ''} creado exitosamente`);
       setMostrarFormLote(false);
@@ -686,6 +734,7 @@ const DespachosView = () => {
       const lotesAbRes = await laboratorioService.getLotesAbiertosConCamionadas();
       setLotesAbiertosCards(lotesAbRes || []);
       await cargarLotes();
+      await cargarLotesResumenGeneral();
     } catch (error) {
       console.error('Error creando lote:', error);
       toast.error('Error al crear lote', error.response?.data?.mensaje || error.message);
@@ -706,6 +755,7 @@ const DespachosView = () => {
     const lotesAbRes = await laboratorioService.getLotesAbiertosConCamionadas();
     setLotesAbiertosCards(lotesAbRes || []);
     await cargarLotes();
+    await cargarLotesResumenGeneral();
   };
 
   const handleCerrarLote = (lote) => {
@@ -746,6 +796,7 @@ const DespachosView = () => {
       const lotesAbRes = await laboratorioService.getLotesAbiertosConCamionadas();
       setLotesAbiertosCards(lotesAbRes || []);
       await cargarLotes();
+      await cargarLotesResumenGeneral();
     } catch (error) {
       console.error('Error al recepcionar:', error);
       toast.error('Error', error.response?.data?.mensaje || error.message);
@@ -767,6 +818,7 @@ const DespachosView = () => {
       const lotesAbRes = await laboratorioService.getLotesAbiertosConCamionadas();
       setLotesAbiertosCards(lotesAbRes || []);
       await cargarDatos();
+      await cargarLotesResumenGeneral();
     } catch (error) {
       toast.error('Error al anular recepción', error.response?.data?.mensaje || error.message);
     } finally {
@@ -784,6 +836,7 @@ const DespachosView = () => {
       const lotesAbRes = await laboratorioService.getLotesAbiertosConCamionadas();
       setLotesAbiertosCards(lotesAbRes || []);
       await cargarLotes();
+      await cargarLotesResumenGeneral();
     } catch (error) {
       const detalles = error.response?.data?.detalles;
       const primerError = detalles ? Object.values(detalles).flat()[0] : null;
@@ -799,19 +852,29 @@ const DespachosView = () => {
       const loteActualizado = await laboratorioService.getLote(loteSeleccionado.id);
       setLoteSeleccionado(loteActualizado);
       await cargarLotes();
+      await cargarLotesResumenGeneral();
     } catch (error) {
       toast.error(error.response?.data?.mensaje || 'Error al actualizar la fecha');
     }
   };
 
   const handleGuardarFechaModal = async () => {
-    const { lote, numero_lote, fecha_creacion, observaciones } = modalEditarFecha;
+    const { lote, numero_lote, fecha_creacion, observaciones, planta_id, empresa_id } = modalEditarFecha;
     if (!fecha_creacion) { toast.warning('La fecha de creación no puede estar vacía'); return; }
     try {
-      await laboratorioService.updateLote(lote.id, { numero_lote, fecha_creacion, observaciones });
+      await laboratorioService.updateLote(lote.id, {
+        numero_lote,
+        fecha_creacion,
+        observaciones,
+        planta_id: planta_id || null,
+        empresa_id: empresa_id || null,
+      });
       toast.success('Lote actualizado');
-      setModalEditarFecha({ show: false, lote: null, numero_lote: '', fecha_creacion: '', observaciones: '', confirmando: false });
+      setModalEditarFecha({ show: false, lote: null, numero_lote: '', fecha_creacion: '', observaciones: '', planta_id: '', empresa_id: '', confirmando: false });
       await cargarLotes();
+      const lotesAbRes = await laboratorioService.getLotesAbiertosConCamionadas();
+      setLotesAbiertosCards(lotesAbRes || []);
+      await cargarLotesResumenGeneral();
     } catch (error) {
       toast.error(error.response?.data?.mensaje || 'Error al actualizar el lote');
     }
@@ -825,6 +888,7 @@ const DespachosView = () => {
       peso_real: camionada.peso || '',
       observaciones_recepcion: '',
       numero_lote: '',
+      patente_camion_2: camionada.patente_camion_2 || '',
     });
     setShowModalRecepcion(true);
   };
@@ -833,6 +897,11 @@ const DespachosView = () => {
     e.preventDefault();
     if (!formRecepcionModal.peso_real || parseFloat(formRecepcionModal.peso_real) <= 0) {
       toast.error('El peso real debe ser mayor a 0');
+      return;
+    }
+
+    if (camionadaParaRecepcion.punto_transbordo && !formRecepcionModal.patente_camion_2?.trim()) {
+      toast.error('Falta el 2° camión', 'Esta camionada va vía transbordo: indica qué camión llegó a destino');
       return;
     }
 
@@ -856,6 +925,10 @@ const DespachosView = () => {
         datosRecepcion.numero_lote = formRecepcionModal.numero_lote.trim();
       }
 
+      if (camionadaParaRecepcion.punto_transbordo) {
+        datosRecepcion.patente_camion_2 = formRecepcionModal.patente_camion_2?.trim() || null;
+      }
+
       await laboratorioService.recepcionarCamionada(camionadaParaRecepcion.id, datosRecepcion);
 
       toast.success('Camionada recepcionada', `Patente ${camionadaParaRecepcion.patente} recibida`);
@@ -865,6 +938,7 @@ const DespachosView = () => {
       const lotesAbRes = await laboratorioService.getLotesAbiertosConCamionadas();
       setLotesAbiertosCards(lotesAbRes || []);
       await cargarLotes();
+      await cargarLotesResumenGeneral();
     } catch (error) {
       console.error('Error al recepcionar:', error);
       toast.error('Error', error.response?.data?.mensaje || error.response?.data?.message || 'No se pudo recepcionar');
@@ -941,6 +1015,7 @@ const DespachosView = () => {
       setLoteSeleccionado(null);
       setLoteACerrar(null);
       cargarDatos();
+      cargarLotesResumenGeneral();
     } catch (error) {
       console.error('Error cerrando lote:', error);
       toast.error('Error al cerrar lote', error.response?.data?.mensaje || error.message);
@@ -957,6 +1032,7 @@ const DespachosView = () => {
       setLoteSeleccionado(null);
       cargarDatos();
       cargarLotes(paginacionLotes.page);
+      cargarLotesResumenGeneral();
     } catch (error) {
       console.error('Error al reabrir lote:', error);
       toast.error('Error al reabrir lote', error.response?.data?.mensaje || error.message);
@@ -991,6 +1067,7 @@ const DespachosView = () => {
       // Recargar cards de lotes abiertos (origen y/o destino pueden haber cambiado)
       const lotesAbRes = await laboratorioService.getLotesAbiertosConCamionadas();
       setLotesAbiertosCards(lotesAbRes || []);
+      await cargarLotesResumenGeneral();
     } catch (error) {
       console.error('Error al mover camionada:', error);
       toast.error('Error al mover camionada(s)', error.response?.data?.mensaje || error.message);
@@ -1391,7 +1468,13 @@ const DespachosView = () => {
                           {camionada.mezclas?.map(m => m.codigo).join(', ') || '-'}
                         </td>
                         <td className="px-4 py-3 text-gray-600">
-                          {camionada.planta || camionada.lote?.planta?.nombre || '-'}
+                          {camionada.planta || camionada.lote?.planta?.nombre || (
+                            camionada.punto_transbordo ? (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+                                ↷ vía {camionada.punto_transbordo.nombre}
+                              </span>
+                            ) : '-'
+                          )}
                         </td>
                         <td className="px-4 py-3 text-gray-600">
                           {camionada.cliente || '-'}
@@ -1649,9 +1732,9 @@ const DespachosView = () => {
 
           {/* Filtros y Búsqueda */}
           <Card className="border-l-4 border-gray-300">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 gap-4">
               {/* Búsqueda */}
-              <div className="lg:col-span-2">
+              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   🔍 Buscar
                 </label>
@@ -1664,120 +1747,97 @@ const DespachosView = () => {
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
                 />
               </div>
-
-              {/* Planta */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  <HiOfficeBuilding className="inline mr-1" />
-                  Planta
-                </label>
-                <select
-                  name="planta_id"
-                  value={filtrosLotes.planta_id}
-                  onChange={handleFiltroLoteChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">Todas</option>
-                  {plantas.map(planta => (
-                    <option key={planta.id} value={planta.id}>
-                      {planta.nombre}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Empresa */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  <HiBriefcase className="inline mr-1" />
-                  Empresa
-                </label>
-                <select
-                  name="empresa_id"
-                  value={filtrosLotes.empresa_id}
-                  onChange={handleFiltroLoteChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">Todas</option>
-                  {empresas.map(empresa => (
-                    <option key={empresa.id} value={empresa.id}>
-                      {empresa.nombre}
-                    </option>
-                  ))}
-                </select>
-              </div>
             </div>
 
-            {/* Filtros extra para completados: pills planta/empresa + fecha */}
-            {tabLotesActivo === 'completados' && (
-              <div className="mt-4 pt-4 border-t border-gray-200 space-y-3">
-                {/* Pills planta */}
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide w-16 shrink-0">Planta</span>
-                  <button
-                    onClick={() => setFiltroLote('planta_id', '')}
-                    className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${!filtrosLotes.planta_id ? 'bg-gray-700 text-white border-gray-700' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-500'}`}
-                  >
-                    Todas
-                  </button>
-                  {plantas.map(p => (
+            {/* Pills planta/empresa — multi-select, visibles en ambas pestañas */}
+            <div className="mt-4 pt-4 border-t border-gray-200 space-y-3">
+              {/* Pills planta */}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide w-16 shrink-0">
+                  <HiOfficeBuilding className="inline mr-1" />Planta
+                </span>
+                <button
+                  onClick={() => setFiltroLote('planta_id', '')}
+                  className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${!filtrosLotes.planta_id ? 'bg-gray-700 text-white border-gray-700' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-500'}`}
+                >
+                  Todas
+                </button>
+                {plantas.map(p => {
+                  const seleccionadas = filtrosLotes.planta_id ? filtrosLotes.planta_id.split(',').filter(Boolean) : [];
+                  const activa = seleccionadas.includes(String(p.id));
+                  return (
                     <button
                       key={p.id}
-                      onClick={() => setFiltroLote('planta_id', filtrosLotes.planta_id === String(p.id) ? '' : String(p.id))}
-                      className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${filtrosLotes.planta_id === String(p.id) ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-blue-700 border-blue-200 hover:border-blue-500'}`}
+                      onClick={() => {
+                        const nuevas = activa ? seleccionadas.filter(id => id !== String(p.id)) : [...seleccionadas, String(p.id)];
+                        setFiltroLote('planta_id', nuevas.join(','));
+                      }}
+                      className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${activa ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-blue-700 border-blue-200 hover:border-blue-500'}`}
                     >
                       {p.nombre}
                     </button>
-                  ))}
-                </div>
-                {/* Pills empresa */}
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide w-16 shrink-0">Empresa</span>
-                  <button
-                    onClick={() => setFiltroLote('empresa_id', '')}
-                    className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${!filtrosLotes.empresa_id ? 'bg-gray-700 text-white border-gray-700' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-500'}`}
-                  >
-                    Todas
-                  </button>
-                  {empresas.map(e => (
+                  );
+                })}
+              </div>
+              {/* Pills empresa — multi-select */}
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide w-16 shrink-0">
+                  <HiBriefcase className="inline mr-1" />Empresa
+                </span>
+                <button
+                  onClick={() => setFiltroLote('empresa_id', '')}
+                  className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${!filtrosLotes.empresa_id ? 'bg-gray-700 text-white border-gray-700' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-500'}`}
+                >
+                  Todas
+                </button>
+                {empresas.map(e => {
+                  const seleccionadas = filtrosLotes.empresa_id ? filtrosLotes.empresa_id.split(',').filter(Boolean) : [];
+                  const activa = seleccionadas.includes(String(e.id));
+                  return (
                     <button
                       key={e.id}
-                      onClick={() => setFiltroLote('empresa_id', filtrosLotes.empresa_id === String(e.id) ? '' : String(e.id))}
-                      className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${filtrosLotes.empresa_id === String(e.id) ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-violet-700 border-violet-200 hover:border-violet-500'}`}
+                      onClick={() => {
+                        const nuevas = activa ? seleccionadas.filter(id => id !== String(e.id)) : [...seleccionadas, String(e.id)];
+                        setFiltroLote('empresa_id', nuevas.join(','));
+                      }}
+                      className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${activa ? 'bg-violet-600 text-white border-violet-600' : 'bg-white text-violet-700 border-violet-200 hover:border-violet-500'}`}
                     >
                       {e.nombre}
                     </button>
-                  ))}
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Rango de fecha + limpiar — solo en Venta/completados */}
+            {tabLotesActivo === 'completados' && (
+              <div className="mt-3 flex flex-wrap items-end gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Desde</label>
+                  <input
+                    type="date"
+                    name="fecha_desde"
+                    value={filtrosLotes.fecha_desde}
+                    onChange={handleFiltroLoteChange}
+                    className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+                  />
                 </div>
-                {/* Rango de fecha + limpiar */}
-                <div className="flex flex-wrap items-end gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Desde</label>
-                    <input
-                      type="date"
-                      name="fecha_desde"
-                      value={filtrosLotes.fecha_desde}
-                      onChange={handleFiltroLoteChange}
-                      className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Hasta</label>
-                    <input
-                      type="date"
-                      name="fecha_hasta"
-                      value={filtrosLotes.fecha_hasta}
-                      onChange={handleFiltroLoteChange}
-                      className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                  <button
-                    onClick={limpiarFiltrosLotes}
-                    className="px-4 py-1.5 text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg border border-gray-200 transition-colors"
-                  >
-                    Limpiar
-                  </button>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Hasta</label>
+                  <input
+                    type="date"
+                    name="fecha_hasta"
+                    value={filtrosLotes.fecha_hasta}
+                    onChange={handleFiltroLoteChange}
+                    className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500"
+                  />
                 </div>
+                <button
+                  onClick={limpiarFiltrosLotes}
+                  className="px-4 py-1.5 text-sm font-semibold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-lg border border-gray-200 transition-colors"
+                >
+                  Limpiar
+                </button>
               </div>
             )}
 
@@ -1806,33 +1866,34 @@ const DespachosView = () => {
                 </div>
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Planta *</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Planta</label>
                     <select
                       value={formLote.planta_id}
                       onChange={(e) => setFormLote({ ...formLote, planta_id: e.target.value })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
-                      required
                     >
-                      <option value="">Seleccionar planta...</option>
+                      <option value="">Sin asignar</option>
                       {plantas.map(p => (
                         <option key={p.id} value={p.id}>{p.nombre} ({p.codigo})</option>
                       ))}
                     </select>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Empresa *</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Empresa</label>
                     <select
                       value={formLote.empresa_id}
                       onChange={(e) => setFormLote({ ...formLote, empresa_id: e.target.value })}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500"
-                      required
                     >
-                      <option value="">Seleccionar empresa...</option>
+                      <option value="">Sin asignar</option>
                       {empresas.map(e => (
                         <option key={e.id} value={e.id}>{e.nombre} ({e.codigo})</option>
                       ))}
                     </select>
                   </div>
+                  <p className="text-xs text-gray-400">
+                    Planta y Empresa son opcionales al abrir el lote — si no se saben todavía, se completan después editando el lote.
+                  </p>
                   {formLote.planta_id && formLote.empresa_id && (
                     <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
                       <p className="text-sm text-yellow-800">
@@ -1885,8 +1946,8 @@ const DespachosView = () => {
             // Agrupar lotes por planta > empresa
             const resumen = {};
             lotesResumenGeneral.forEach(lote => {
-              const plantaNombre = lote.planta?.nombre || lote.planta_nombre || 'Sin Planta';
-              const empresaNombre = lote.empresa?.nombre || lote.empresa_nombre || 'Sin Empresa';
+              const plantaNombre = lote.planta?.nombre || lote.planta_nombre || 'Destino por definir';
+              const empresaNombre = lote.empresa?.nombre || lote.empresa_nombre || 'Sin empresa aún';
               const key = `${plantaNombre}|||${empresaNombre}`;
 
               if (!resumen[key]) {
@@ -1917,6 +1978,10 @@ const DespachosView = () => {
               const recep = lote.camionadas_recepcionadas || 0;
               resumen[key].pendientesRecepcion += (totalCamionadasLote - recep);
 
+              const camsTransbordo = (lote.camionadas || []).filter(c => c.punto_transbordo);
+              const camionadasTransbordo = camsTransbordo.length;
+              const puntosTransbordoLote = [...new Set(camsTransbordo.map(c => c.punto_transbordo.nombre))];
+
               resumen[key].detalleLotes.push({
                 id: lote.id,
                 numero_lote: lote.numero_lote,
@@ -1926,6 +1991,8 @@ const DespachosView = () => {
                 pesoRecibido,
                 pesoTeoricoPendiente,
                 ley: lote.ley_lote_promedio != null ? parseFloat(lote.ley_lote_promedio) : null,
+                camionadasTransbordo,
+                puntosTransbordoLote,
               });
 
               // "Ley Mezcla" acá debe ser el mismo campo que muestra la tarjeta de
@@ -1962,6 +2029,56 @@ const DespachosView = () => {
               ? (totalGeneral.sumProductoLey / totalGeneral.sumPesoConLey).toFixed(2)
               : null;
 
+            // "En transbordo": camionadas vía punto de transbordo que todavía no se
+            // recepcionan (sin peso_real, mismo criterio que peso_teorico_pendiente).
+            // Sale de lotesAbiertosCards (todos los lotes abiertos, sin acotar al mes ni
+            // a los filtros) — el material sigue en el punto aunque el lote sea de otro mes.
+            const hoyTransbordo = new Date();
+            hoyTransbordo.setHours(0, 0, 0, 0);
+            const diasEsperando = (fecha) => {
+              if (!fecha) return null;
+              const [y, m, d] = String(fecha).slice(0, 10).split('-').map(Number);
+              return Math.max(0, Math.round((hoyTransbordo - new Date(y, m - 1, d)) / 86400000));
+            };
+            const transbordoPorPunto = {};
+            puntosTransbordo.forEach(p => {
+              transbordoPorPunto[p.id] = { id: p.id, nombre: p.nombre, camionadas: [] };
+            });
+            lotesAbiertosCards.forEach(lote => {
+              (lote.camionadas || []).forEach(c => {
+                if (!c.punto_transbordo || c.peso_real != null) return;
+                const pid = c.punto_transbordo.id;
+                if (!transbordoPorPunto[pid]) {
+                  transbordoPorPunto[pid] = { id: pid, nombre: c.punto_transbordo.nombre, camionadas: [] };
+                }
+                transbordoPorPunto[pid].camionadas.push({
+                  ...c,
+                  _lote: lote.numero_lote || `#${lote.id}`,
+                  _dias: diasEsperando(c.fecha_despacho),
+                });
+              });
+            });
+            const puntosEnTransbordo = Object.values(transbordoPorPunto).map(p => {
+              const ton = p.camionadas.reduce((s, c) => s + parseFloat(c.peso || 0), 0);
+              const conLey = p.camionadas.filter(c => c.ley_mezcla != null);
+              const tonConLey = conLey.reduce((s, c) => s + parseFloat(c.peso || 0), 0);
+              const ley = tonConLey > 0
+                ? conLey.reduce((s, c) => s + parseFloat(c.peso || 0) * parseFloat(c.ley_mezcla), 0) / tonConLey
+                : null;
+              const dias = p.camionadas.map(c => c._dias).filter(d => d != null);
+              return {
+                ...p,
+                ton,
+                ley,
+                lotes: [...new Set(p.camionadas.map(c => c._lote))],
+                maxDias: dias.length ? Math.max(...dias) : null,
+                camionadas: [...p.camionadas].sort((a, b) => (b._dias ?? 0) - (a._dias ?? 0)),
+              };
+            }).sort((a, b) => b.ton - a.ton);
+            const totalTonTransbordo = puntosEnTransbordo.reduce((s, p) => s + p.ton, 0);
+            const totalCamTransbordo = puntosEnTransbordo.reduce((s, p) => s + p.camionadas.length, 0);
+            const DIAS_ALERTA_TRANSBORDO = 5;
+
             return (
               <Card className="border-l-4 border-indigo-400">
                 <h3 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
@@ -1971,6 +2088,107 @@ const DespachosView = () => {
                     · {(filtrosLotes.fecha_desde || filtrosLotes.fecha_hasta) ? 'rango filtrado' : new Date().toLocaleDateString('es-CL', { month: 'long', year: 'numeric' })} · abiertos + cerrados
                   </span>
                 </h3>
+
+                {totalCamTransbordo > 0 && (
+                  <div className="rounded-lg border-2 border-amber-300 bg-amber-50/60 mb-4 overflow-hidden">
+                    <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 border-b border-amber-200 bg-amber-100/70">
+                      <p className="text-sm font-bold uppercase tracking-wide text-amber-800 flex items-center gap-2">
+                        <HiSwitchHorizontal className="w-4 h-4" />
+                        En transbordo
+                        <span className="normal-case tracking-normal font-medium text-amber-700">· esperando 2° camión</span>
+                      </p>
+                      <p className="text-sm text-amber-900 tabular-nums">
+                        <span className="text-lg font-extrabold">{totalTonTransbordo.toFixed(2)} t</span> teórico · {totalCamTransbordo} cam.
+                      </p>
+                    </div>
+                    <div className="divide-y divide-amber-200">
+                      {puntosEnTransbordo.map(p => {
+                        if (p.camionadas.length === 0) {
+                          return (
+                            <div key={p.id} className="px-4 py-2.5 flex items-center gap-3 text-sm text-gray-400">
+                              <span className="w-3.5" />
+                              <span className="font-semibold">{p.nombre}</span>
+                              <span>sin material esperando</span>
+                            </div>
+                          );
+                        }
+                        const abierto = !transbordoColapsados[p.id];
+                        return (
+                          <div key={p.id}>
+                            <button
+                              type="button"
+                              onClick={() => setTransbordoColapsados(prev => ({ ...prev, [p.id]: !prev[p.id] }))}
+                              className="w-full text-left px-4 py-3 flex flex-wrap items-center gap-x-4 gap-y-1 hover:bg-amber-100/50 transition-colors"
+                            >
+                              {abierto
+                                ? <HiChevronDown className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                                : <HiChevronRight className="w-3.5 h-3.5 text-amber-700 shrink-0" />}
+                              <span className="font-bold text-gray-800">{p.nombre}</span>
+                              <span className="text-sm text-gray-600 tabular-nums">
+                                <span className="font-bold text-amber-700">{p.ton.toFixed(2)} t</span>
+                                {' · '}{p.camionadas.length} cam.
+                                {' · '}lote{p.lotes.length !== 1 ? 's' : ''} {p.lotes.join(', ')}
+                              </span>
+                              {p.ley != null && (
+                                <span className="text-sm text-orange-600 font-semibold tabular-nums">Ley Mezcla {p.ley.toFixed(2)}%</span>
+                              )}
+                              {p.maxDias != null && (
+                                <span className={`ml-auto text-xs font-semibold ${p.maxDias >= DIAS_ALERTA_TRANSBORDO ? 'text-red-600' : 'text-amber-700'}`}>
+                                  más antiguo: {p.maxDias === 0 ? 'hoy' : `${p.maxDias} día${p.maxDias !== 1 ? 's' : ''}`}
+                                </span>
+                              )}
+                            </button>
+                            {abierto && (
+                              <div className="px-4 pb-3 overflow-x-auto">
+                                <table className="w-full text-xs tabular-nums whitespace-nowrap">
+                                  <thead>
+                                    <tr className="text-left text-gray-500">
+                                      <th className="py-1 pr-3 font-semibold">Lote</th>
+                                      <th className="py-1 pr-3 font-semibold">1° camión</th>
+                                      <th className="py-1 pr-3 font-semibold">Mezcla</th>
+                                      <th className="py-1 pr-3 font-semibold text-right">Teórico</th>
+                                      <th className="py-1 pr-3 font-semibold">Salió</th>
+                                      <th className="py-1 pr-3 font-semibold">Esperando</th>
+                                      <th className="py-1 font-semibold">2° camión</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {p.camionadas.map(c => (
+                                      <tr key={c.id} className="border-t border-amber-100">
+                                        <td className="py-1.5 pr-3 font-mono font-semibold text-gray-700">{c._lote}</td>
+                                        <td className="py-1.5 pr-3 font-mono">{c.patente || '-'}</td>
+                                        <td className="py-1.5 pr-3">
+                                          <span className="font-semibold">{(c.mezclas || []).map(m => m.codigo).join(', ') || '-'}</span>
+                                          {c.ley_mezcla != null && <span className="text-orange-600"> {parseFloat(c.ley_mezcla).toFixed(2)}%</span>}
+                                        </td>
+                                        <td className="py-1.5 pr-3 text-right">{parseFloat(c.peso || 0).toFixed(2)} t</td>
+                                        <td className="py-1.5 pr-3">
+                                          {c.fecha_despacho ? String(c.fecha_despacho).slice(0, 10).split('-').reverse().slice(0, 2).join('-') : '-'}
+                                        </td>
+                                        <td className="py-1.5 pr-3">
+                                          {c._dias != null ? (
+                                            <span className={`px-1.5 py-0.5 rounded-full text-[11px] font-bold ${c._dias >= DIAS_ALERTA_TRANSBORDO ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800'}`}>
+                                              {c._dias === 0 ? 'hoy' : `${c._dias} día${c._dias !== 1 ? 's' : ''}`}
+                                            </span>
+                                          ) : '-'}
+                                        </td>
+                                        <td className="py-1.5">
+                                          {c.patente_camion_2
+                                            ? <span className="font-mono">{c.patente_camion_2}</span>
+                                            : <span className="text-gray-400 italic">sin 2° camión</span>}
+                                        </td>
+                                      </tr>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
 
                 <div className="bg-white border-2 border-indigo-200 rounded-lg px-4 py-3 mb-4">
                   <div className="flex items-center justify-between gap-2">
@@ -2005,8 +2223,8 @@ const DespachosView = () => {
                 <div className="space-y-3">
                   {Object.entries(porPlanta).map(([planta, empresas]) => (
                     <div key={planta}>
-                      <p className="text-xs font-bold text-gray-600 mb-1.5 flex items-center gap-1">
-                        <HiOfficeBuilding className="text-blue-500" />
+                      <p className={`text-xs font-bold mb-1.5 flex items-center gap-1 ${planta === 'Destino por definir' ? 'text-amber-700' : 'text-gray-600'}`}>
+                        <HiOfficeBuilding className={planta === 'Destino por definir' ? 'text-amber-500' : 'text-blue-500'} />
                         {planta}
                       </p>
                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 ml-4">
@@ -2058,6 +2276,13 @@ const DespachosView = () => {
                                         {l.numero_lote || `#${l.id}`}
                                       </span>
                                       <span className="text-gray-400">{l.camionadas} cam.{l.pendientes > 0 ? ` (${l.pendientes} pend.)` : ''}</span>
+                                      {l.camionadasTransbordo > 0 && (
+                                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 font-semibold" title={`${l.camionadasTransbordo} camionada(s) vía transbordo`}>
+                                          <HiSwitchHorizontal className="w-3 h-3" />
+                                          {l.puntosTransbordoLote.join(', ')}
+                                          {l.camionadasTransbordo > 1 && ` · ${l.camionadasTransbordo}`}
+                                        </span>
+                                      )}
                                       {l.ley != null && <span className="text-orange-600 font-semibold ml-auto">{l.ley.toFixed(2)}%</span>}
                                     </div>
                                     <p className="text-gray-500 mt-0.5 tabular-nums">
@@ -2157,12 +2382,12 @@ const DespachosView = () => {
                               </span>
                             )}
                             <span className="text-sm font-normal text-gray-500">
-                              ({lote.empresa?.nombre || lote.empresa_nombre || '-'})
+                              ({lote.empresa?.nombre || lote.empresa_nombre || <span className="italic text-amber-600">sin empresa aún</span>})
                             </span>
                           </h3>
                           <p className="text-xs text-gray-500 mt-1">
                             <HiOfficeBuilding className="inline mr-1" />
-                            {lote.planta?.nombre || lote.planta_nombre || '-'}
+                            {lote.planta?.nombre || lote.planta_nombre || <span className="italic text-amber-600">sin planta aún</span>}
                             {' | '}
                             {totalCamionadas} camionada(s)
                           </p>
@@ -2325,12 +2550,29 @@ const DespachosView = () => {
                                         </div>
                                       </div>
                                     </td>
-                                    <td className="px-1 py-1 font-mono font-bold text-gray-900 truncate">{cam.patente}</td>
+                                    <td className="px-1 py-1 font-mono font-bold text-gray-900 truncate">
+                                      <div className="flex items-center gap-0.5">
+                                        {cam.punto_transbordo && (
+                                          <span
+                                            title={`Vía transbordo: ${cam.punto_transbordo.nombre}${cam.patente_camion_2 ? ' · 2° camión: ' + cam.patente_camion_2 : ' · 2° camión: sin asignar aún'}`}
+                                            className="text-amber-500 shrink-0"
+                                          >
+                                            <HiSwitchHorizontal className="w-3 h-3" />
+                                          </span>
+                                        )}
+                                        <span className="truncate">{cam.patente}</span>
+                                      </div>
+                                    </td>
                                     <td className="px-1 py-1 truncate">
-                                      <span className="font-mono text-blue-600">{cam.mezclas?.[0]?.codigo || '-'}</span>
-                                      {cam.mezclas?.[0]?.ley_prom_lote != null && (
-                                        <span className="text-orange-600 font-semibold ml-1">{parseFloat(cam.mezclas[0].ley_prom_lote).toFixed(2)}%</span>
-                                      )}
+                                      <span className="font-mono text-blue-600">
+                                        {cam.mezclas?.length ? cam.mezclas.map(m => m.codigo).join(' + ') : '-'}
+                                      </span>
+                                      {(() => {
+                                        const ley = leyPonderadaCamionada(cam, 'lote');
+                                        return ley != null && (
+                                          <span className="text-orange-600 font-semibold ml-1">{ley.toFixed(2)}%</span>
+                                        );
+                                      })()}
                                     </td>
                                     <td className="px-1 py-1 whitespace-nowrap">
                                       {yaRecepcionado ? (
@@ -2460,6 +2702,30 @@ const DespachosView = () => {
                         >
                           Cerrar
                         </Button>
+                        {(() => {
+                          const faltaDestino = !lote.planta_id || !lote.empresa_id;
+                          return (
+                          <button
+                            type="button"
+                            onClick={() => setModalEditarFecha({
+                              show: true,
+                              lote,
+                              numero_lote: lote.numero_lote ?? '',
+                              fecha_creacion: lote.fecha_creacion?.split('T')[0] ?? lote.fecha_creacion ?? '',
+                              observaciones: lote.observaciones ?? '',
+                              planta_id: lote.planta_id ?? '',
+                              empresa_id: lote.empresa_id ?? '',
+                              confirmando: false,
+                            })}
+                            className={faltaDestino
+                              ? 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 transition-colors'
+                              : 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold text-gray-600 bg-gray-50 hover:bg-gray-100 border border-gray-200 transition-colors'}
+                            title={faltaDestino ? 'Completar planta/empresa cuando se sepan' : 'Editar número, fecha, planta o empresa del lote'}
+                          >
+                            <HiPencil className="w-3.5 h-3.5" /> {faltaDestino ? 'Completar destino' : 'Editar lote'}
+                          </button>
+                          );
+                        })()}
                       </div>
                     </Card>
                   );
@@ -2600,10 +2866,12 @@ const DespachosView = () => {
                                       numero_lote: lote.numero_lote ?? '',
                                       fecha_creacion: lote.fecha_creacion?.split('T')[0] ?? lote.fecha_creacion ?? '',
                                       observaciones: lote.observaciones ?? '',
+                                      planta_id: lote.planta_id ?? '',
+                                      empresa_id: lote.empresa_id ?? '',
                                       confirmando: false,
                                     })}
                                     className="p-1.5 rounded-lg text-blue-400 hover:text-blue-700 hover:bg-blue-50 transition-colors"
-                                    title="Editar fecha del lote"
+                                    title="Editar lote"
                                   >
                                     <HiCalendar className="w-3.5 h-3.5" />
                                   </button>
@@ -2855,7 +3123,46 @@ const DespachosView = () => {
                                           )).reduce((a, b) => [a, ', ', b])
                                         : <span className="text-gray-400">-</span>}
                                     </td>
-                                    <td className="px-3 py-2 font-mono">{camionada.patente}</td>
+                                    <td className="px-3 py-2 font-mono">
+                                      {!camionada.punto_transbordo ? camionada.patente : (
+                                        // Viaje vía transbordo: tramo 1 (origen → punto) y tramo 2 (punto → planta)
+                                        <div className="flex flex-col" title={`Vía transbordo: ${camionada.punto_transbordo.nombre}`}>
+                                          <div className="flex items-start gap-1.5">
+                                            <span className="mt-1 w-2 h-2 rounded-full bg-amber-500 shrink-0" />
+                                            <div className="leading-tight">
+                                              <span className="font-bold text-gray-900">{camionada.patente}</span>
+                                              <p className="font-sans text-[10px] text-amber-700">
+                                                dejó en <span className="font-semibold">{camionada.punto_transbordo.nombre}</span>
+                                              </p>
+                                            </div>
+                                          </div>
+                                          <span className="ml-[3px] w-0.5 h-2 bg-amber-300" />
+                                          <div className="flex items-start gap-1.5">
+                                            <span className={`mt-1 w-2 h-2 rounded-full shrink-0 ${camionada.patente_camion_2 || camionadaEditando?.id === camionada.id ? 'bg-green-500' : 'border border-dashed border-gray-400'}`} />
+                                            <div className="leading-tight">
+                                              {camionadaEditando?.id === camionada.id ? (
+                                                <div className="w-32">
+                                                  <CamionCombobox
+                                                    camiones={camionesLista}
+                                                    value={camionadaEditando.patente_camion_2 ?? ''}
+                                                    onChange={val => setCamionadaEditando(p => ({ ...p, patente_camion_2: val }))}
+                                                    placeholder="2° camión"
+                                                  />
+                                                </div>
+                                              ) : camionada.patente_camion_2 ? (
+                                                <span className="font-bold text-gray-900">{camionada.patente_camion_2}</span>
+                                              ) : (
+                                                <span className="font-sans text-gray-400 italic">2° camión sin asignar</span>
+                                              )}
+                                              <p className="font-sans text-[10px] text-green-700">
+                                                {camionada.peso_real != null ? 'entregó en ' : 'lleva a '}
+                                                <span className="font-semibold">{loteSeleccionado.planta?.nombre || 'destino por definir'}</span>
+                                              </p>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      )}
+                                    </td>
                                     {/* Fecha recepción — editable */}
                                     <td className="px-3 py-2">
                                       {camionadaEditando?.id === camionada.id ? (
@@ -2893,14 +3200,20 @@ const DespachosView = () => {
                                       )}
                                     </td>
                                     <td className="px-3 py-2 text-center">
-                                      {camionada.mezclas?.[0]?.ley_prom_lote != null
-                                        ? <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-orange-100 text-orange-800 font-semibold text-xs">{parseFloat(camionada.mezclas[0].ley_prom_lote).toFixed(2)}%</span>
-                                        : <span className="text-gray-400 text-xs">N/A</span>}
+                                      {(() => {
+                                        const ley = leyPonderadaCamionada(camionada, 'lote');
+                                        return ley != null
+                                          ? <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-orange-100 text-orange-800 font-semibold text-xs">{ley.toFixed(2)}%</span>
+                                          : <span className="text-gray-400 text-xs">N/A</span>;
+                                      })()}
                                     </td>
                                     <td className="px-3 py-2 text-center">
-                                      {camionada.mezclas?.[0]?.ley_prom_visual != null
-                                        ? <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-semibold text-xs">{parseFloat(camionada.mezclas[0].ley_prom_visual).toFixed(2)}%</span>
-                                        : <span className="text-gray-400 text-xs">N/A</span>}
+                                      {(() => {
+                                        const ley = leyPonderadaCamionada(camionada, 'visual');
+                                        return ley != null
+                                          ? <span className="inline-flex items-center px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-semibold text-xs">{ley.toFixed(2)}%</span>
+                                          : <span className="text-gray-400 text-xs">N/A</span>;
+                                      })()}
                                     </td>
                                     <td className="px-3 py-2 text-center">
                                       <Badge variant={getEstadoVariant(camionada.estado)}>
@@ -2934,6 +3247,7 @@ const DespachosView = () => {
                                               id: camionada.id,
                                               peso_real: camionada.peso_real ?? camionada.peso ?? '',
                                               fecha_recepcion: camionada.fecha_recepcion?.split('T')[0] ?? camionada.fecha_recepcion ?? '',
+                                              patente_camion_2: camionada.patente_camion_2 ?? '',
                                             })}
                                             className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold text-orange-600 bg-orange-50 hover:bg-orange-100 transition-colors border border-orange-200"
                                             title="Editar peso real y fecha recepción"
@@ -2962,6 +3276,24 @@ const DespachosView = () => {
                                   {isExp && tieneMezclas && (
                                     <tr className="bg-indigo-50">
                                       <td colSpan="10" className="px-4 py-3">
+                                        {camionada.mezclas.length > 1 && (() => {
+                                          const leyLote = leyPonderadaCamionada(camionada, 'lote');
+                                          const leyVisual = leyPonderadaCamionada(camionada, 'visual');
+                                          return (
+                                            <div className="mb-3 rounded-lg border border-indigo-200 bg-white px-3 py-2 text-xs">
+                                              <p className="font-bold text-indigo-800 mb-1">
+                                                Camión (promedio ponderado por toneladas)
+                                              </p>
+                                              <div className="flex flex-wrap gap-x-4 gap-y-0.5">
+                                                {leyLote != null && <span className="text-orange-700 font-semibold">Ley lote: {leyLote.toFixed(3)}%</span>}
+                                                {leyVisual != null && <span className="text-amber-700 font-semibold">Ley visual: {leyVisual.toFixed(3)}%</span>}
+                                              </div>
+                                              <div className="mt-1 text-gray-500">
+                                                {camionada.mezclas.map(m => `${m.codigo}: ${parseFloat(m?.pivot?.toneladas ?? 0).toFixed(2)} t`).join('  ·  ')}
+                                              </div>
+                                            </div>
+                                          );
+                                        })()}
                                         {camionada.mezclas.map(mezcla => {
                                           const detalles = mezcla.detalles ?? [];
                                           return (
@@ -3096,7 +3428,7 @@ const DespachosView = () => {
       {modalEditarFecha.show && (
         <div
           className="fixed inset-0 bg-black/40 flex items-center justify-center z-50"
-          onClick={() => !modalEditarFecha.confirmando && setModalEditarFecha({ show: false, lote: null, numero_lote: '', fecha_creacion: '', observaciones: '', confirmando: false })}
+          onClick={() => !modalEditarFecha.confirmando && setModalEditarFecha({ show: false, lote: null, numero_lote: '', fecha_creacion: '', observaciones: '', planta_id: '', empresa_id: '', confirmando: false })}
         >
           <div
             className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md"
@@ -3138,11 +3470,43 @@ const DespachosView = () => {
                       placeholder="Observaciones opcionales..."
                     />
                   </div>
+
+                  <div className="border-t border-gray-100 pt-4">
+                    <p className="text-xs font-bold text-amber-700 uppercase tracking-wide mb-2">Destino</p>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Planta</label>
+                        <select
+                          value={modalEditarFecha.planta_id}
+                          onChange={e => setModalEditarFecha(prev => ({ ...prev, planta_id: e.target.value }))}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="">Sin asignar</option>
+                          {plantas.map(p => (
+                            <option key={p.id} value={p.id}>{p.nombre} ({p.codigo})</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Empresa</label>
+                        <select
+                          value={modalEditarFecha.empresa_id}
+                          onChange={e => setModalEditarFecha(prev => ({ ...prev, empresa_id: e.target.value }))}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="">Sin asignar</option>
+                          {empresas.map(e => (
+                            <option key={e.id} value={e.id}>{e.nombre} ({e.codigo})</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="flex justify-end gap-2 mt-5">
                   <button
-                    onClick={() => setModalEditarFecha({ show: false, lote: null, numero_lote: '', fecha_creacion: '', observaciones: '', confirmando: false })}
+                    onClick={() => setModalEditarFecha({ show: false, lote: null, numero_lote: '', fecha_creacion: '', observaciones: '', planta_id: '', empresa_id: '', confirmando: false })}
                     className="px-4 py-2 rounded-lg text-sm font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors"
                   >
                     Cancelar
@@ -3168,6 +3532,8 @@ const DespachosView = () => {
                     { label: 'Número de lote', original: modalEditarFecha.lote?.numero_lote ?? '—', nuevo: modalEditarFecha.numero_lote || '—' },
                     { label: 'Fecha de creación', original: modalEditarFecha.lote?.fecha_creacion?.split('T')[0] ?? modalEditarFecha.lote?.fecha_creacion ?? '—', nuevo: modalEditarFecha.fecha_creacion || '—' },
                     { label: 'Observaciones', original: modalEditarFecha.lote?.observaciones || '—', nuevo: modalEditarFecha.observaciones || '—' },
+                    { label: 'Planta', original: modalEditarFecha.lote?.planta?.nombre || '—', nuevo: plantas.find(p => String(p.id) === String(modalEditarFecha.planta_id))?.nombre || '—' },
+                    { label: 'Empresa', original: modalEditarFecha.lote?.empresa?.nombre || '—', nuevo: empresas.find(e => String(e.id) === String(modalEditarFecha.empresa_id))?.nombre || '—' },
                   ].map(({ label, original, nuevo }) => {
                     const cambio = original !== nuevo;
                     return (
@@ -3214,7 +3580,7 @@ const DespachosView = () => {
             <div className="flex items-start justify-between mb-6">
               <div>
                 <h2 className="text-2xl font-bold text-gray-900 mb-2">⚙️ Gestión de Maestros</h2>
-                <p className="text-gray-600">Administración de Plantas y Empresas</p>
+                <p className="text-gray-600">Administración de Plantas, Empresas, Camiones y Operadores</p>
               </div>
 
               {/* Botones de navegación */}
@@ -3248,6 +3614,16 @@ const DespachosView = () => {
                 >
                   <HiTruck className="w-5 h-5" />
                   <span>Camiones</span>
+                </button>
+                <button
+                  onClick={() => setVistaPlantasActiva('operadores')}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all ${vistaPlantasActiva === 'operadores'
+                      ? 'bg-teal-600 text-white shadow-lg'
+                      : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                >
+                  <HiUserGroup className="w-5 h-5" />
+                  <span>Operadores</span>
                 </button>
               </div>
             </div>
@@ -3441,6 +3817,11 @@ const DespachosView = () => {
           )}
 
           {/* Vista de Camiones */}
+          {/* Vista de Operadores autorizados (selector "Operador" del Ingreso de Dumpadas) */}
+          {vistaPlantasActiva === 'operadores' && (
+            <OperadoresAutorizadosSection className="border-l-4 border-teal-400" />
+          )}
+
           {vistaPlantasActiva === 'camiones' && (
             <Card className="border-l-4 border-orange-400">
               <div className="flex items-center justify-between mb-6">
@@ -4033,6 +4414,24 @@ const DespachosView = () => {
               </div>
 
               <div className="space-y-4">
+                {/* Patente 2° camión - solo si esta camionada es vía transbordo */}
+                {camionadaParaRecepcion.punto_transbordo && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                    <label className="flex items-center gap-1 text-sm font-bold text-amber-700 mb-1">
+                      <HiSwitchHorizontal className="w-4 h-4" /> Vía transbordo ({camionadaParaRecepcion.punto_transbordo.nombre})
+                    </label>
+                    <p className="text-xs text-amber-700 mb-1.5">
+                      2° camión (el que llegó a destino) <span className="text-red-500 font-bold">*</span>
+                    </p>
+                    <CamionCombobox
+                      camiones={camionesLista}
+                      value={formRecepcionModal.patente_camion_2}
+                      onChange={(val) => setFormRecepcionModal(prev => ({ ...prev, patente_camion_2: val }))}
+                      placeholder="Patente del 2° camión (el que llegó a destino)"
+                    />
+                  </div>
+                )}
+
                 {/* Campo nombre del lote - solo si el lote no tiene nombre */}
                 {!camionadaParaRecepcion.lote?.numero_lote && (
                   <div className="bg-yellow-50 border border-yellow-300 rounded-lg p-3">

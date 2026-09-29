@@ -19,6 +19,8 @@ class Camionada extends Model
         'numero_camionada',
         'ticket',
         'numero_guia',
+        'patente_camion_2',
+        'punto_transbordo_id',
         'patente',
         'planta',
         'cliente',
@@ -79,6 +81,17 @@ class Camionada extends Model
     public function lote()
     {
         return $this->belongsTo(Lote::class, 'lote_id');
+    }
+
+    /**
+     * Punto de transbordo (ej. Santa Ana) si ESTA camionada puntual pasó por
+     * ahí antes de llegar a planta -- dato del viaje, no del Lote (un mismo
+     * Lote puede tener recargos directos y recargos vía transbordo
+     * mezclados). Null = viaje directo. Ver también patente_camion_2.
+     */
+    public function puntoTransbordo()
+    {
+        return $this->belongsTo(PuntoTransbordo::class, 'punto_transbordo_id');
     }
 
     /**

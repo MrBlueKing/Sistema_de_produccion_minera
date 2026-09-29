@@ -17,11 +17,14 @@ class LoteService
         DB::beginTransaction();
 
         try {
-            // numero_lote se asigna al recepcionar la primera camionada
+            // numero_lote se asigna al recepcionar la primera camionada.
+            // Planta y empresa son opcionales: un lote puede abrirse sin
+            // saber alguna, o ninguna, todavía -- se completan después
+            // editando el mismo lote.
             $lote = Lote::create([
                 'numero_lote' => $datos['numero_lote'] ?? null,
-                'planta_id' => $datos['planta_id'],
-                'empresa_id' => $datos['empresa_id'],
+                'planta_id' => $datos['planta_id'] ?? null,
+                'empresa_id' => $datos['empresa_id'] ?? null,
                 'id_faena' => $datos['id_faena'] ?? null,
                 'fecha_creacion' => $datos['fecha_creacion'] ?? now(),
                 'fecha_estimada_llegada' => $datos['fecha_estimada_llegada'] ?? null,
@@ -79,8 +82,23 @@ class LoteService
             $lote = Lote::findOrFail($loteId);
             $lote->update($datos);
 
+            // camionadas.planta / camionadas.cliente guardan el NOMBRE (texto) de la
+            // planta/empresa del lote al crearse — si se corrige el destino del lote,
+            // hay que arrastrarlo a sus camionadas o quedan mostrando el valor viejo.
+            if ($lote->wasChanged('planta_id') || $lote->wasChanged('empresa_id')) {
+                $lote->load(['planta', 'empresa']);
+                $cambios = [];
+                if ($lote->wasChanged('planta_id')) {
+                    $cambios['planta'] = $lote->planta?->nombre;
+                }
+                if ($lote->wasChanged('empresa_id')) {
+                    $cambios['cliente'] = $lote->empresa?->nombre;
+                }
+                $lote->camionadas()->update($cambios);
+            }
+
             DB::commit();
-            return $lote->fresh(['planta', 'camionadas']);
+            return $lote->fresh(['planta', 'empresa', 'camionadas']);
 
         } catch (Exception $e) {
             DB::rollBack();
