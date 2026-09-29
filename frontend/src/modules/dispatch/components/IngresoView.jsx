@@ -33,15 +33,15 @@ export default function IngresoView({
 
   // Fecha/hora "ahora" para autocompletar una fila nueva — separado para que
   // cada fila agregada tome el momento en que se agrega, no un valor congelado.
-  // Fecha de Extracción y fecha/hora de CyT arrancan con el momento actual
-  // (autocompletado, editable) — Extracción se corrige a la fecha del
-  // encabezado de la hoja cuando el material es de otro día.
+  // Extracción y CyT arrancan las dos con el momento actual (autocompletado,
+  // editable) — en la práctica Extracción es la que más se corrige hacia
+  // atrás (el dispatcher recién ahora se entera de qué jornada la tronó).
   const fechaHoraActual = () => {
     const ahora = new Date();
     const pad = (n) => String(n).padStart(2, '0');
     const fecha = `${ahora.getFullYear()}-${pad(ahora.getMonth() + 1)}-${pad(ahora.getDate())}`;
     const hora = `${pad(ahora.getHours())}:${pad(ahora.getMinutes())}`;
-    return { fecha, fecha_cyt: fecha, hora_cyt: hora };
+    return { fecha, hora, fecha_cyt: fecha, hora_cyt: hora };
   };
 
   const [formsIngresoMasivo, setFormsIngresoMasivo] = useState([{
@@ -169,8 +169,7 @@ export default function IngresoView({
         nombre_operador: form.nombre_operador || null,
         ton: form.ton ? parseFloat(form.ton) : tonelajeDumpadaDefault,
         fecha: form.fecha || undefined,
-        // La hora de la dumpada es la de la vuelta del dumper (CyT)
-        hora: form.hora_cyt,
+        hora: form.hora || undefined,
         fecha_cyt: form.fecha_cyt,
         hora_cyt: form.hora_cyt,
       }));
@@ -650,30 +649,39 @@ export default function IngresoView({
                     />
                   </div>
 
-                  {/* "Cuándo": Extracción = solo la FECHA del encabezado de la hoja de
-                      Dispatch (ej. "M47S (PM 28.09)" -> 28-09), con la que se arma el
-                      código y el correlativo; y CyT = fecha+hora de la vuelta del dumper,
-                      que es la hora de la dumpada. */}
+                  {/* "Cuándo": Extracción (cuándo se tronó — casi siempre se corrige
+                      hacia atrás, el dispatcher recién ahora se entera de qué jornada
+                      salió esto) y CyT (cuándo el dumper llega a cancha con el
+                      material — por defecto "ahora mismo") lado a lado, cada una con
+                      su propio color y espacio para fecha+hora sin apretarse. */}
                   <div className="flex flex-col md:flex-row gap-3">
                     <div className="flex-1 flex flex-wrap items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50/60 px-3 py-2.5">
                       <div className="flex-shrink-0 w-28">
                         <p className="text-xs font-bold text-emerald-800">Extracción <span className="text-red-500">*</span></p>
-                        <p className="text-[11px] text-emerald-600">fecha del encabezado de la hoja</p>
+                        <p className="text-[11px] text-emerald-600">cuándo se tronó</p>
                       </div>
                       <input
                         type="date"
                         value={form.fecha}
                         onChange={(e) => actualizarFilaIngreso(form.id, 'fecha', e.target.value)}
-                        title="Fecha del encabezado de la hoja (ej. M47S (PM 28.09) → 28-09). Con esta fecha se arma el código de la dumpada."
+                        title="Fecha en que se tronó — se autocompleta con hoy, editala si es de otra jornada/día"
                         required
                         className="flex-1 min-w-[130px] px-2 py-2 border border-emerald-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-400 focus:border-transparent"
+                      />
+                      <input
+                        type="time"
+                        value={form.hora}
+                        onChange={(e) => actualizarFilaIngreso(form.id, 'hora', e.target.value)}
+                        title="Hora en que se tronó"
+                        required
+                        className="w-24 flex-shrink-0 px-2 py-2 border border-emerald-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-400 focus:border-transparent"
                       />
                     </div>
 
                     <div className="flex-1 flex flex-wrap items-center gap-3 rounded-lg border border-sky-200 bg-sky-50/60 px-3 py-2.5">
                       <div className="flex-shrink-0 w-28">
                         <p className="text-xs font-bold text-sky-800">CyT <span className="text-red-500">*</span></p>
-                        <p className="text-[11px] text-sky-600">vuelta del dumper</p>
+                        <p className="text-[11px] text-sky-600">llegó a cancha</p>
                       </div>
                       <input
                         type="date"
@@ -723,7 +731,7 @@ export default function IngresoView({
           {/* Footer */}
           <div className="flex items-center justify-between pt-2">
             <p className="text-xs text-gray-400">
-              Extracción = fecha del encabezado de la hoja · CyT = fecha y hora de la vuelta del dumper · Tonelaje default: {tonelajeDumpadaDefault} ton · N° acopio: automático
+              Extracción y CyT: ambas obligatorias, se autocompletan con el momento actual y son editables · Tonelaje default: {tonelajeDumpadaDefault} ton · N° acopio: automático
             </p>
             <div className="flex gap-2">
               <Button type="button" variant="secondary" onClick={resetFormIngreso}>
