@@ -220,7 +220,7 @@ class ImportarDumpadasController extends Controller
                 if (!isset($jornadaCounter[$counterKey])) {
                     $jornadaCounter[$counterKey] = (int) Dumpada::where('id_frente_trabajo', $frente->id)
                         ->where('jornada', $jornada)
-                        ->whereDate('fecha', $fecha)
+                        ->deFechaCorrelativo($fecha)
                         ->max('numero_jornada') ?: 0;
                 }
                 $jornadaCounter[$counterKey]++;
