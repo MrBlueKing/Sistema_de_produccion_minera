@@ -261,43 +261,21 @@ class Dumpada extends Model
     }
 
     /**
-     * Fecha que agrupa el correlativo AM-N y va en el código de la dumpada:
-     * la de CyT (cuándo el dumper la llevó a cancha — el N es la vuelta del
-     * dumper), o la de Extracción si no tiene CyT (dumpadas anteriores al
-     * 29-09-2026, cuando había una sola fecha).
-     *
-     * @param string|null $fechaCyt (Y-m-d)
-     * @param string|null $fecha    (Y-m-d) fecha de Extracción
-     * @return string|null
-     */
-    public static function fechaCorrelativo($fechaCyt, $fecha)
-    {
-        return $fechaCyt ?: $fecha;
-    }
-
-    /** Filtra por la fecha del correlativo (ver fechaCorrelativo()). */
-    public function scopeDeFechaCorrelativo($query, $fecha)
-    {
-        return $query->whereRaw('COALESCE(fecha_cyt, fecha) = ?', [Carbon::parse($fecha)->toDateString()]);
-    }
-
-    /**
      * Genera el siguiente número de jornada para una combinación específica de:
-     * frente de trabajo + jornada + fecha del correlativo (CyT, o Extracción
-     * si no tiene CyT — ver fechaCorrelativo())
+     * frente de trabajo + jornada + fecha
      *
      * El número se reinicia a 1 cuando cambia cualquiera de estos 3 parámetros
      *
      * @param int $idFrenteTrabajo
      * @param string $jornada (AM, PM, Madrugada, Noche)
-     * @param string $fecha (formato Y-m-d) fecha del correlativo
+     * @param string $fecha (formato Y-m-d)
      * @return int
      */
     public static function generarNumeroJornada($idFrenteTrabajo, $jornada, $fecha)
     {
         $maxNumero = self::where('id_frente_trabajo', $idFrenteTrabajo)
             ->where('jornada', $jornada)
-            ->deFechaCorrelativo($fecha)
+            ->whereDate('fecha', $fecha)
             ->max('numero_jornada');
 
         return $maxNumero ? ($maxNumero + 1) : 1;
@@ -315,7 +293,7 @@ class Dumpada extends Model
      *
      * @param int    $idFrenteTrabajo
      * @param string $jornada
-     * @param string $fecha (Y-m-d o Carbon) fecha del correlativo, ver fechaCorrelativo()
+     * @param string $fecha (Y-m-d o Carbon)
      * @return void
      */
     public static function renumerarNumeroJornada($idFrenteTrabajo, $jornada, $fecha): void
@@ -326,7 +304,7 @@ class Dumpada extends Model
 
         $dumpadas = self::where('id_frente_trabajo', $idFrenteTrabajo)
             ->where('jornada', $jornada)
-            ->deFechaCorrelativo($fecha)
+            ->whereDate('fecha', $fecha)
             ->orderBy('numero_jornada')
             ->orderBy('id')
             ->get();
