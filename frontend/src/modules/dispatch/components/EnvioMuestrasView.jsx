@@ -515,8 +515,8 @@ export default function EnvioMuestrasView({
                       <td className="py-2 px-2 text-xs text-gray-800">
                         <div className="flex flex-col">
                           <span className="font-semibold">{formatearFecha(dumpada.fecha)}</span>
-                          {dumpada.created_at && (
-                            <span className="text-gray-500 text-[10px]">{dumpada.created_at.split(' ')[1]?.substring(0, 5)} hrs</span>
+                          {(dumpada.hora || dumpada.created_at) && (
+                            <span className="text-gray-500 text-[10px]">{(dumpada.hora || dumpada.created_at.split(' ')[1])?.substring(0, 5)} hrs</span>
                           )}
                         </div>
                       </td>

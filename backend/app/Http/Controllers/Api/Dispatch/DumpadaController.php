@@ -309,6 +309,8 @@ class DumpadaController extends Controller
             'jornada'            => 'required|in:AM,PM,Madrugada,Noche',
             'fecha'              => 'nullable|date',
             'hora'               => 'nullable|date_format:H:i',
+            'fecha_cyt'          => 'required|date',
+            'hora_cyt'           => 'required|date_format:H:i',
             'ton'                => 'nullable|numeric|min:0',
             'ley'                => 'nullable|numeric|min:0',
             'ley_cup'            => 'nullable|numeric|min:0',
@@ -317,6 +319,8 @@ class DumpadaController extends Controller
             'ley_visual'         => 'required_if:tipo_material,mineral|nullable|numeric|min:0',
             'id_maquina'         => 'nullable|integer',
             'nombre_maquina'     => 'nullable|string|max:150',
+            'id_operador'        => 'nullable|integer',
+            'nombre_operador'    => 'nullable|string|max:150',
         ], [
             'id_frente_trabajo.exists' => 'El frente de trabajo seleccionado no existe o está inactivo. Actualiza la página e intenta de nuevo.',
             'ley_visual.required_if' => 'La Ley Visual es obligatoria salvo que la dumpada sea Estéril.',
@@ -389,6 +393,8 @@ class DumpadaController extends Controller
             'acopios' => $acopios,
             'fecha' => $fecha,
             'hora' => $request->hora ?? now()->format('H:i:s'),
+            'fecha_cyt' => $this->convertirFecha($request->fecha_cyt),
+            'hora_cyt' => $request->hora_cyt,
             'rango' => $rango,
             'estado' => $estado,
             'user_id' => $request->auth_user_id,
@@ -396,6 +402,8 @@ class DumpadaController extends Controller
             'faena' => $nombreFaena, // Nombre de la faena
             'id_maquina' => $request->id_maquina,
             'nombre_maquina' => $request->nombre_maquina,
+            'id_operador' => $request->id_operador,
+            'nombre_operador' => $request->nombre_operador,
         ];
 
         $dumpada = Dumpada::create($data);
@@ -420,6 +428,8 @@ class DumpadaController extends Controller
             'dumpadas.*.jornada'             => 'required|in:AM,PM,Madrugada,Noche',
             'dumpadas.*.fecha'               => 'nullable|date',
             'dumpadas.*.hora'                => 'nullable|date_format:H:i',
+            'dumpadas.*.fecha_cyt'           => 'required|date',
+            'dumpadas.*.hora_cyt'            => 'required|date_format:H:i',
             'dumpadas.*.ton'                 => 'nullable|numeric|min:0',
             'dumpadas.*.ley'                 => 'nullable|numeric|min:0',
             'dumpadas.*.ley_cup'             => 'nullable|numeric|min:0',
@@ -428,7 +438,11 @@ class DumpadaController extends Controller
             'dumpadas.*.ley_visual'          => 'required_if:dumpadas.*.tipo_material,mineral|nullable|numeric|min:0',
             'dumpadas.*.id_maquina'          => 'nullable|integer',
             'dumpadas.*.nombre_maquina'      => 'nullable|string|max:150',
+            'dumpadas.*.id_operador'         => 'required|integer',
+            'dumpadas.*.nombre_operador'     => 'required|string|max:150',
         ], [
+            'dumpadas.*.id_operador.required' => 'Falta el operador en una de las dumpadas.',
+            'dumpadas.*.nombre_operador.required' => 'Falta el operador en una de las dumpadas.',
             'dumpadas.*.id_frente_trabajo.exists' => 'Uno de los frentes de trabajo seleccionados no existe o está inactivo. Actualiza la página e intenta de nuevo.',
             'dumpadas.*.ley_visual.required_if' => 'La Ley Visual es obligatoria salvo que la dumpada sea Estéril.',
         ]);
@@ -514,6 +528,8 @@ class DumpadaController extends Controller
                     'acopios' => $acopios,
                     'fecha' => $fecha,
                     'hora' => $dumpadaData['hora'] ?? now()->format('H:i:s'),
+                    'fecha_cyt' => $this->convertirFecha($dumpadaData['fecha_cyt']),
+                    'hora_cyt' => $dumpadaData['hora_cyt'],
                     'rango' => $rango,
                     'estado' => $estado,
                     'user_id' => $request->auth_user_id,
@@ -521,6 +537,8 @@ class DumpadaController extends Controller
                     'faena' => $nombreFaena,
                     'id_maquina' => $dumpadaData['id_maquina'] ?? null,
                     'nombre_maquina' => $dumpadaData['nombre_maquina'] ?? null,
+                    'id_operador' => $dumpadaData['id_operador'],
+                    'nombre_operador' => $dumpadaData['nombre_operador'],
                 ];
 
                 $dumpada = Dumpada::create($data);
@@ -613,6 +631,8 @@ class DumpadaController extends Controller
             'ley_visual'         => 'required_if:tipo_material,mineral|nullable|numeric|min:0',
             'id_maquina'         => 'nullable|integer',
             'nombre_maquina'     => 'nullable|string|max:150',
+            'id_operador'        => 'nullable|integer',
+            'nombre_operador'    => 'nullable|string|max:150',
             'para_muestreo'      => 'nullable|boolean',
         ], [
             'ley_visual.required_if' => 'La Ley Visual es obligatoria salvo que la dumpada sea Estéril.',
@@ -717,6 +737,8 @@ class DumpadaController extends Controller
             'estado' => $estado,
             'id_maquina' => $request->has('id_maquina') ? $request->id_maquina : $dumpada->id_maquina,
             'nombre_maquina' => $request->has('nombre_maquina') ? $request->nombre_maquina : $dumpada->nombre_maquina,
+            'id_operador' => $request->has('id_operador') ? $request->id_operador : $dumpada->id_operador,
+            'nombre_operador' => $request->has('nombre_operador') ? $request->nombre_operador : $dumpada->nombre_operador,
             'para_muestreo' => $request->has('para_muestreo') ? $request->para_muestreo : $dumpada->para_muestreo,
         ];
 

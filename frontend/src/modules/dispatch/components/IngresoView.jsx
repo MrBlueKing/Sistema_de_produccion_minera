@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { HiDocumentPlus, HiTrash, HiDocumentDuplicate, HiInformationCircle, HiBolt, HiChevronDown, HiChevronUp } from 'react-icons/hi2';
 import Button from '../../../shared/components/atoms/Button';
 import Input from '../../../shared/components/atoms/Input';
@@ -22,20 +22,30 @@ export default function IngresoView({
   const [loading, setLoading] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
   const [showLote, setShowLote] = useState(false);
+  // Operadores autorizados (Despachos → Plantas → Operadores), de la(s) faena(s) del usuario
+  const [operadores, setOperadores] = useState([]);
+
+  useEffect(() => {
+    dispatchService.getOperadores()
+      .then(res => setOperadores(res?.data || []))
+      .catch(() => setOperadores([]));
+  }, []);
 
   // Fecha/hora "ahora" para autocompletar una fila nueva — separado para que
   // cada fila agregada tome el momento en que se agrega, no un valor congelado.
+  // Extracción y CyT arrancan las dos con el momento actual (autocompletado,
+  // editable) — en la práctica Extracción es la que más se corrige hacia
+  // atrás (el dispatcher recién ahora se entera de qué jornada la tronó).
   const fechaHoraActual = () => {
     const ahora = new Date();
     const pad = (n) => String(n).padStart(2, '0');
-    return {
-      fecha: `${ahora.getFullYear()}-${pad(ahora.getMonth() + 1)}-${pad(ahora.getDate())}`,
-      hora: `${pad(ahora.getHours())}:${pad(ahora.getMinutes())}`,
-    };
+    const fecha = `${ahora.getFullYear()}-${pad(ahora.getMonth() + 1)}-${pad(ahora.getDate())}`;
+    const hora = `${pad(ahora.getHours())}:${pad(ahora.getMinutes())}`;
+    return { fecha, hora, fecha_cyt: fecha, hora_cyt: hora };
   };
 
   const [formsIngresoMasivo, setFormsIngresoMasivo] = useState([{
-    id: 1, id_frente_trabajo: '', jornada: '', ley_visual: '', tipo_material: 'mineral', id_maquina: '', nombre_maquina: '', ton: '', ...fechaHoraActual(),
+    id: 1, id_frente_trabajo: '', jornada: '', ley_visual: '', tipo_material: 'mineral', id_maquina: '', nombre_maquina: '', id_operador: '', nombre_operador: '', ton: '', ...fechaHoraActual(),
   }]);
 
   const [ingresoRapido, setIngresoRapido] = useState({
@@ -49,16 +59,21 @@ export default function IngresoView({
 
   const resetFormIngreso = () => {
     setFormsIngresoMasivo([{
-      id: 1, id_frente_trabajo: '', jornada: '', ley_visual: '', tipo_material: 'mineral', id_maquina: '', nombre_maquina: '', ton: '', ...fechaHoraActual(),
+      id: 1, id_frente_trabajo: '', jornada: '', ley_visual: '', tipo_material: 'mineral', id_maquina: '', nombre_maquina: '', id_operador: '', nombre_operador: '', ton: '', ...fechaHoraActual(),
     }]);
   };
 
   const agregarFilaIngreso = () => {
     const newId = Math.max(...formsIngresoMasivo.map(f => f.id)) + 1;
     setFormsIngresoMasivo([...formsIngresoMasivo, {
-      id: newId, id_frente_trabajo: '', jornada: '', ley_visual: '', tipo_material: 'mineral', id_maquina: '', nombre_maquina: '', ton: '', ...fechaHoraActual(),
+      id: newId, id_frente_trabajo: '', jornada: '', ley_visual: '', tipo_material: 'mineral', id_maquina: '', nombre_maquina: '', id_operador: '', nombre_operador: '', ton: '', ...fechaHoraActual(),
     }]);
   };
+
+  // Una fila se registra solo si tiene todos los obligatorios (mismo criterio en
+  // el contador, el botón y el submit).
+  const filaLista = (f) => f.id_frente_trabajo && f.jornada && (f.tipo_material === 'esteril' || f.ley_visual)
+    && f.id_maquina && f.id_operador && f.ton && f.fecha_cyt && f.hora_cyt;
 
   const eliminarFilaIngreso = (id) => {
     if (formsIngresoMasivo.length > 1) {
@@ -84,6 +99,8 @@ export default function IngresoView({
         tipo_material: filaToDuplicate.tipo_material || 'mineral',
         id_maquina: filaToDuplicate.id_maquina,
         nombre_maquina: filaToDuplicate.nombre_maquina,
+        id_operador: filaToDuplicate.id_operador,
+        nombre_operador: filaToDuplicate.nombre_operador,
         ton: filaToDuplicate.ton,
         ...fechaHoraActual(),
       }]);
@@ -109,7 +126,7 @@ export default function IngresoView({
         id_frente_trabajo: ingresoRapido.id_frente_trabajo,
         jornada: ingresoRapido.jornada,
         ley_visual: ingresoRapido.ley_visual,
-        id_maquina: '', nombre_maquina: '', ton: '',
+        id_maquina: '', nombre_maquina: '', id_operador: '', nombre_operador: '', ton: '',
         ...fechaHoraActual(),
       });
     }
@@ -124,7 +141,7 @@ export default function IngresoView({
   const handleSubmitIngresoMasivo = async (e) => {
     e.preventDefault();
     setLoading(true);
-    const filasValidas = formsIngresoMasivo.filter(f => f.id_frente_trabajo && f.jornada && (f.tipo_material === 'esteril' || f.ley_visual) && f.id_maquina && f.ton);
+    const filasValidas = formsIngresoMasivo.filter(filaLista);
     if (filasValidas.length === 0) {
       toast.warning('Atención', 'Debes completar al menos una fila para guardar');
       setLoading(false);
@@ -148,9 +165,13 @@ export default function IngresoView({
         ley_visual: form.tipo_material === 'esteril' ? null : form.ley_visual,
         id_maquina: form.id_maquina ? parseInt(form.id_maquina) : null,
         nombre_maquina: form.nombre_maquina || null,
+        id_operador: form.id_operador ? parseInt(form.id_operador) : null,
+        nombre_operador: form.nombre_operador || null,
         ton: form.ton ? parseFloat(form.ton) : tonelajeDumpadaDefault,
         fecha: form.fecha || undefined,
         hora: form.hora || undefined,
+        fecha_cyt: form.fecha_cyt,
+        hora_cyt: form.hora_cyt,
       }));
 
       const bulkResponse = await dispatchService.createDumpadasBulk(dumpadasData);
@@ -248,7 +269,7 @@ export default function IngresoView({
     setLoading(true);
     setProgressInfo({ show: true, steps: [{ id: 1, label: 'Procesando decisiones de acopios...', status: 'loading' }] });
     try {
-      const filasValidas = formsIngresoMasivo.filter(f => f.id_frente_trabajo && f.jornada && (f.tipo_material === 'esteril' || f.ley_visual) && f.id_maquina && f.ton);
+      const filasValidas = formsIngresoMasivo.filter(filaLista);
       for (let grupoIndex = 0; grupoIndex < gruposDetectados.length; grupoIndex++) {
         const grupo = gruposDetectados[grupoIndex];
         const decision = decisiones[grupoIndex];
@@ -310,7 +331,7 @@ export default function IngresoView({
           <div>
             <h3 className="text-xl font-bold text-gray-900">Ingreso de Dumpadas</h3>
             <p className="text-sm text-gray-500 mt-0.5">
-              {formsIngresoMasivo.length} fila(s) · {formsIngresoMasivo.filter(f => f.id_frente_trabajo && f.jornada && (f.tipo_material === 'esteril' || f.ley_visual) && f.id_maquina && f.ton).length} lista(s) para registrar
+              {formsIngresoMasivo.length} fila(s) · {formsIngresoMasivo.filter(filaLista).length} lista(s) para registrar
             </p>
           </div>
           <div className="flex gap-2">
@@ -460,158 +481,226 @@ export default function IngresoView({
 
         <form onSubmit={handleSubmitIngresoMasivo} className="space-y-3">
           {/* Filas */}
-          <div className="space-y-3">
+          <div className="space-y-4">
             {formsIngresoMasivo.map((form, index) => (
               <div
                 key={form.id}
-                className="flex items-start gap-3 p-4 rounded-xl border border-gray-200 bg-white shadow-sm hover:border-orange-200 transition-colors"
+                className="flex items-start gap-3 p-4 rounded-xl border border-gray-300 bg-gray-50 shadow hover:border-orange-300 hover:shadow-md transition-all"
               >
                 {/* Número */}
                 <div className="flex-shrink-0 w-7 h-7 mt-1 bg-orange-100 text-orange-700 rounded-full flex items-center justify-center text-xs font-bold">
                   {index + 1}
                 </div>
 
-                {/* Campos */}
-                <div className="flex-1 grid grid-cols-1 md:grid-cols-4 lg:grid-cols-8 gap-3 items-end">
-                  <SearchableSelect
-                    label="Frente de Trabajo *"
-                    options={frentes.map(frente => ({ value: frente.id, label: frente.codigo_completo }))}
-                    value={form.id_frente_trabajo}
-                    onChange={(value) => actualizarFilaIngreso(form.id, 'id_frente_trabajo', value)}
-                    placeholder="Buscar frente..."
-                    emptyMessage="No hay frentes disponibles"
-                    required
-                  />
-
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      Jornada <span className="text-red-500">*</span>
-                    </label>
-                    <select
-                      value={form.jornada}
-                      onChange={(e) => actualizarFilaIngreso(form.id, 'jornada', e.target.value)}
-                      required
-                      className={`w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-400 focus:border-transparent bg-white text-sm ${form.jornada ? 'text-gray-900' : 'text-gray-400'}`}
-                    >
-                      <option value="" className="text-gray-400">Jornada...</option>
-                      {jornadas.map((jornada) => (
-                        <option key={jornada} value={jornada} className="text-gray-900">{jornada}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">Material</label>
-                    <div className="flex h-[42px] border border-gray-300 rounded-lg overflow-hidden">
-                      <button
-                        type="button"
-                        onClick={() => setFormsIngresoMasivo(prev => prev.map(f =>
-                          f.id === form.id ? { ...f, tipo_material: 'mineral' } : f
-                        ))}
-                        className={`flex-1 text-xs font-semibold transition-colors ${
-                          form.tipo_material !== 'esteril'
-                            ? 'bg-indigo-600 text-white'
-                            : 'bg-white text-gray-500 hover:bg-gray-50'
-                        }`}
-                      >
-                        Mineral
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setFormsIngresoMasivo(prev => prev.map(f =>
-                          f.id === form.id ? { ...f, tipo_material: 'esteril', ley_visual: '' } : f
-                        ))}
-                        className={`flex-1 text-xs font-semibold border-l border-gray-300 transition-colors ${
-                          form.tipo_material === 'esteril'
-                            ? 'bg-stone-500 text-white'
-                            : 'bg-white text-gray-500 hover:bg-gray-50'
-                        }`}
-                      >
-                        Estéril
-                      </button>
+                {/* Campos, en dos secciones: los datos de la dumpada primero (grid
+                    parejo), y "Cuándo" aparte porque cada fecha ahí es en realidad
+                    2 inputs (fecha+hora) y no entraba bien mezclada con el resto. */}
+                <div className="flex-1 flex flex-col gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3 items-end">
+                    <div className="sm:col-span-2 lg:col-span-2">
+                      <SearchableSelect
+                        label="Frente de Trabajo *"
+                        options={frentes.map(frente => ({ value: frente.id, label: frente.codigo_completo }))}
+                        value={form.id_frente_trabajo}
+                        onChange={(value) => actualizarFilaIngreso(form.id, 'id_frente_trabajo', value)}
+                        placeholder="Buscar frente..."
+                        emptyMessage="No hay frentes disponibles"
+                        required
+                      />
                     </div>
-                  </div>
 
-                  {form.tipo_material === 'esteril' ? (
                     <div>
-                      <label className="block text-sm font-semibold text-gray-400 mb-2">Ley Visual (%)</label>
-                      <div className="w-full px-3 py-2.5 border border-dashed border-gray-300 rounded-lg bg-gray-50 text-sm text-gray-400 h-[42px] flex items-center">
-                        No aplica
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">
+                        Jornada <span className="text-red-500">*</span>
+                      </label>
+                      <select
+                        value={form.jornada}
+                        onChange={(e) => actualizarFilaIngreso(form.id, 'jornada', e.target.value)}
+                        required
+                        className={`w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-400 focus:border-transparent bg-white text-sm ${form.jornada ? 'text-gray-900' : 'text-gray-400'}`}
+                      >
+                        <option value="" className="text-gray-400">Jornada...</option>
+                        {jornadas.map((jornada) => (
+                          <option key={jornada} value={jornada} className="text-gray-900">{jornada}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">Material</label>
+                      <div className="flex h-[42px] border border-gray-300 rounded-lg overflow-hidden">
+                        <button
+                          type="button"
+                          onClick={() => setFormsIngresoMasivo(prev => prev.map(f =>
+                            f.id === form.id ? { ...f, tipo_material: 'mineral' } : f
+                          ))}
+                          className={`flex-1 text-xs font-semibold transition-colors ${
+                            form.tipo_material !== 'esteril'
+                              ? 'bg-indigo-600 text-white'
+                              : 'bg-white text-gray-500 hover:bg-gray-50'
+                          }`}
+                        >
+                          Mineral
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setFormsIngresoMasivo(prev => prev.map(f =>
+                            f.id === form.id ? { ...f, tipo_material: 'esteril', ley_visual: '' } : f
+                          ))}
+                          className={`flex-1 text-xs font-semibold border-l border-gray-300 transition-colors ${
+                            form.tipo_material === 'esteril'
+                              ? 'bg-stone-500 text-white'
+                              : 'bg-white text-gray-500 hover:bg-gray-50'
+                          }`}
+                        >
+                          Estéril
+                        </button>
                       </div>
                     </div>
-                  ) : (
+
+                    {form.tipo_material === 'esteril' ? (
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-400 mb-2">Ley Visual (%)</label>
+                        <div className="w-full px-3 py-2.5 border border-dashed border-gray-300 rounded-lg bg-gray-50 text-sm text-gray-400 h-[42px] flex items-center">
+                          No aplica
+                        </div>
+                      </div>
+                    ) : (
+                      <Input
+                        label="Ley Visual (%)"
+                        type="number"
+                        step="0.001"
+                        value={form.ley_visual}
+                        onChange={(e) => actualizarFilaIngreso(form.id, 'ley_visual', e.target.value)}
+                        placeholder="Ej: 2.300"
+                        required
+                      />
+                    )}
+
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-2">
+                        Máquina/Dumper <span className="text-red-500">*</span>
+                        {index === 0 && fuenteMaquinas === 'bd_local' && (
+                          <span
+                            title="API de petróleo no disponible — lista cargada desde BD local"
+                            className="ml-2 inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5"
+                          >
+                            ⚠ BD local
+                          </span>
+                        )}
+                      </label>
+                      <select
+                        value={form.id_maquina}
+                        onChange={(e) => {
+                          const selectedId = e.target.value;
+                          const maquina = maquinas.find(m => String(m.id_maquina) === selectedId);
+                          setFormsIngresoMasivo(prev => prev.map(f =>
+                            f.id === form.id
+                              ? { ...f, id_maquina: selectedId, nombre_maquina: maquina?.nombre_maquina || '', ton: maquina ? String(maquina.tonelaje) : f.ton }
+                              : f
+                          ));
+                        }}
+                        required
+                        className={`w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-400 focus:border-transparent bg-white text-sm ${form.id_maquina ? 'text-gray-900' : 'text-gray-400'}`}
+                      >
+                        <option value="" className="text-gray-400">Máquina...</option>
+                        {maquinas.map((m) => (
+                          <option key={m.id_maquina} value={m.id_maquina} className="text-gray-900">
+                            {m.nombre_maquina}{m.patente ? ` (${m.patente})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <SearchableSelect
+                        label="Operador *"
+                        options={operadores
+                          // Solo los de la faena del frente elegido (usuario global ve varias faenas)
+                          .filter(o => {
+                            const idFaenaFrente = frentes.find(fr => String(fr.id) === String(form.id_frente_trabajo))?.id_faena;
+                            return !idFaenaFrente || String(o.id_faena) === String(idFaenaFrente);
+                          })
+                          .map(o => ({ value: String(o.id_operador), label: o.cargo ? `${o.nombre} · ${o.cargo}` : o.nombre }))}
+                        value={form.id_operador}
+                        onChange={(value) => {
+                          const op = operadores.find(o => String(o.id_operador) === String(value));
+                          setFormsIngresoMasivo(prev => prev.map(f =>
+                            f.id === form.id
+                              ? { ...f, id_operador: value ? String(value) : '', nombre_operador: op?.nombre || '' }
+                              : f
+                          ));
+                        }}
+                        placeholder="Buscar operador..."
+                        emptyMessage="No hay operadores autorizados — agrégalos en Despachos → Plantas → Operadores"
+                        required
+                      />
+                    </div>
+
                     <Input
-                      label="Ley Visual (%)"
+                      label="Tonelaje (ton)"
                       type="number"
-                      step="0.001"
-                      value={form.ley_visual}
-                      onChange={(e) => actualizarFilaIngreso(form.id, 'ley_visual', e.target.value)}
-                      placeholder="Ej: 2.300"
+                      step="0.01"
+                      min="0"
+                      value={form.ton}
+                      onChange={(e) => actualizarFilaIngreso(form.id, 'ton', e.target.value)}
+                      placeholder="Ej: 30.00"
                       required
                     />
-                  )}
-
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      Máquina/Dumper <span className="text-red-500">*</span>
-                      {index === 0 && fuenteMaquinas === 'bd_local' && (
-                        <span
-                          title="API de petróleo no disponible — lista cargada desde BD local"
-                          className="ml-2 inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5"
-                        >
-                          ⚠ BD local
-                        </span>
-                      )}
-                    </label>
-                    <select
-                      value={form.id_maquina}
-                      onChange={(e) => {
-                        const selectedId = e.target.value;
-                        const maquina = maquinas.find(m => String(m.id_maquina) === selectedId);
-                        setFormsIngresoMasivo(prev => prev.map(f =>
-                          f.id === form.id
-                            ? { ...f, id_maquina: selectedId, nombre_maquina: maquina?.nombre_maquina || '', ton: maquina ? String(maquina.tonelaje) : f.ton }
-                            : f
-                        ));
-                      }}
-                      required
-                      className={`w-full px-3 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-400 focus:border-transparent bg-white text-sm ${form.id_maquina ? 'text-gray-900' : 'text-gray-400'}`}
-                    >
-                      <option value="" className="text-gray-400">Máquina...</option>
-                      {maquinas.map((m) => (
-                        <option key={m.id_maquina} value={m.id_maquina} className="text-gray-900">
-                          {m.nombre_maquina}{m.patente ? ` (${m.patente})` : ''}
-                        </option>
-                      ))}
-                    </select>
                   </div>
 
-                  <Input
-                    label="Tonelaje (ton) *"
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    value={form.ton}
-                    onChange={(e) => actualizarFilaIngreso(form.id, 'ton', e.target.value)}
-                    placeholder="Ej: 30.00"
-                    required
-                  />
+                  {/* "Cuándo": Extracción (cuándo se tronó — casi siempre se corrige
+                      hacia atrás, el dispatcher recién ahora se entera de qué jornada
+                      salió esto) y CyT (cuándo el dumper llega a cancha con el
+                      material — por defecto "ahora mismo") lado a lado, cada una con
+                      su propio color y espacio para fecha+hora sin apretarse. */}
+                  <div className="flex flex-col md:flex-row gap-3">
+                    <div className="flex-1 flex flex-wrap items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50/60 px-3 py-2.5">
+                      <div className="flex-shrink-0 w-28">
+                        <p className="text-xs font-bold text-emerald-800">Extracción <span className="text-red-500">*</span></p>
+                        <p className="text-[11px] text-emerald-600">cuándo se tronó</p>
+                      </div>
+                      <input
+                        type="date"
+                        value={form.fecha}
+                        onChange={(e) => actualizarFilaIngreso(form.id, 'fecha', e.target.value)}
+                        title="Fecha en que se tronó — se autocompleta con hoy, editala si es de otra jornada/día"
+                        required
+                        className="flex-1 min-w-[130px] px-2 py-2 border border-emerald-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-400 focus:border-transparent"
+                      />
+                      <input
+                        type="time"
+                        value={form.hora}
+                        onChange={(e) => actualizarFilaIngreso(form.id, 'hora', e.target.value)}
+                        title="Hora en que se tronó"
+                        required
+                        className="w-24 flex-shrink-0 px-2 py-2 border border-emerald-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-400 focus:border-transparent"
+                      />
+                    </div>
 
-                  <Input
-                    label="Fecha"
-                    type="date"
-                    value={form.fecha}
-                    onChange={(e) => actualizarFilaIngreso(form.id, 'fecha', e.target.value)}
-                    title="Se autocompleta con hoy — editala si esta dumpada es de otro día"
-                  />
-
-                  <Input
-                    label="Hora"
-                    type="time"
-                    value={form.hora}
-                    onChange={(e) => actualizarFilaIngreso(form.id, 'hora', e.target.value)}
-                    title="Se autocompleta con la hora actual — editala si esta dumpada es de otro momento"
-                  />
+                    <div className="flex-1 flex flex-wrap items-center gap-3 rounded-lg border border-sky-200 bg-sky-50/60 px-3 py-2.5">
+                      <div className="flex-shrink-0 w-28">
+                        <p className="text-xs font-bold text-sky-800">CyT <span className="text-red-500">*</span></p>
+                        <p className="text-[11px] text-sky-600">llegó a cancha</p>
+                      </div>
+                      <input
+                        type="date"
+                        value={form.fecha_cyt}
+                        onChange={(e) => actualizarFilaIngreso(form.id, 'fecha_cyt', e.target.value)}
+                        title="Fecha en que el dumper llegó a cancha con el material (Carguío y Transporte)"
+                        required
+                        className="flex-1 min-w-[130px] px-2 py-2 border border-sky-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-sky-400 focus:border-transparent"
+                      />
+                      <input
+                        type="time"
+                        value={form.hora_cyt}
+                        onChange={(e) => actualizarFilaIngreso(form.id, 'hora_cyt', e.target.value)}
+                        title="Hora en que el dumper llegó a cancha con el material"
+                        required
+                        className="w-24 flex-shrink-0 px-2 py-2 border border-sky-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-sky-400 focus:border-transparent"
+                      />
+                    </div>
+                  </div>
                 </div>
 
                 {/* Acciones fila */}
@@ -642,14 +731,14 @@ export default function IngresoView({
           {/* Footer */}
           <div className="flex items-center justify-between pt-2">
             <p className="text-xs text-gray-400">
-              Fecha/hora: se autocompletan y son editables · Tonelaje default: {tonelajeDumpadaDefault} ton · N° acopio: automático
+              Extracción y CyT: ambas obligatorias, se autocompletan con el momento actual y son editables · Tonelaje default: {tonelajeDumpadaDefault} ton · N° acopio: automático
             </p>
             <div className="flex gap-2">
               <Button type="button" variant="secondary" onClick={resetFormIngreso}>
                 Limpiar
               </Button>
               <Button type="submit" variant="success" disabled={loading}>
-                {loading ? 'Guardando...' : `Registrar ${formsIngresoMasivo.filter(f => f.id_frente_trabajo && f.jornada && (f.tipo_material === 'esteril' || f.ley_visual) && f.id_maquina && f.ton).length} Dumpada(s)`}
+                {loading ? 'Guardando...' : `Registrar ${formsIngresoMasivo.filter(filaLista).length} Dumpada(s)`}
               </Button>
             </div>
           </div>

@@ -25,8 +25,10 @@ class Dumpada extends Model
         'acopios', // Código COMPLETO del acopio (ej: "ZN-PM-DIA-A001-27-11-2025")
         'jornada',
         'numero_jornada', // Número secuencial por frente+jornada+fecha
-        'fecha',
-        'hora', // Hora real de la dumpada, editable (por defecto la hora de ingreso)
+        'fecha', // Fecha de EXTRACCIÓN
+        'hora', // Hora de EXTRACCIÓN, editable (por defecto la hora de ingreso)
+        'fecha_cyt', // Fecha de Carguío y Transporte (CyT) — puede ser muy posterior a la extracción
+        'hora_cyt',
         'ton',
         'ley',
         'ley_cup',
@@ -47,6 +49,8 @@ class Dumpada extends Model
         // Campos de máquina y muestreo
         'id_maquina',
         'nombre_maquina',
+        'id_operador',
+        'nombre_operador',
         'para_muestreo',
     ];
 

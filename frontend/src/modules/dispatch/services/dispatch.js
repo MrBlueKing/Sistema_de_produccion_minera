@@ -50,6 +50,28 @@ class DispatchService {
     return response.data;
   }
 
+  // Operadores autorizados para el Ingreso de Dumpadas — { data }
+  async getOperadores(params = {}) {
+    const response = await api.get('/dispatch/operadores', { params });
+    return response.data;
+  }
+
+  // Personal interno de Petróleo, marcando quiénes ya están autorizados — { data }
+  async getOperadoresDisponibles(params = {}) {
+    const response = await api.get('/dispatch/operadores/disponibles', { params });
+    return response.data;
+  }
+
+  async autorizarOperador(data, params = {}) {
+    const response = await api.post('/dispatch/operadores', data, { params });
+    return response.data;
+  }
+
+  async quitarOperador(id, params = {}) {
+    const response = await api.delete(`/dispatch/operadores/${id}`, { params });
+    return response.data;
+  }
+
   // Muestras Libres
   async getMuestrasLibres() {
     const response = await api.get('/dispatch/muestras-libres');
