@@ -392,7 +392,8 @@ class DumpadaController extends Controller
             'numero_dumpada' => $numeroDumpada,
             'acopios' => $acopios,
             'fecha' => $fecha,
-            'hora' => $request->hora ?? now()->format('H:i:s'),
+            // La hora de la dumpada es la de la vuelta del dumper (CyT)
+            'hora' => $request->hora_cyt ?? $request->hora ?? now()->format('H:i:s'),
             'fecha_cyt' => $this->convertirFecha($request->fecha_cyt),
             'hora_cyt' => $request->hora_cyt,
             'rango' => $rango,
@@ -527,7 +528,8 @@ class DumpadaController extends Controller
                     'numero_dumpada' => $numeroDumpada,
                     'acopios' => $acopios,
                     'fecha' => $fecha,
-                    'hora' => $dumpadaData['hora'] ?? now()->format('H:i:s'),
+                    // La hora de la dumpada es la de la vuelta del dumper (CyT)
+                    'hora' => $dumpadaData['hora_cyt'] ?? $dumpadaData['hora'] ?? now()->format('H:i:s'),
                     'fecha_cyt' => $this->convertirFecha($dumpadaData['fecha_cyt']),
                     'hora_cyt' => $dumpadaData['hora_cyt'],
                     'rango' => $rango,
@@ -718,6 +720,8 @@ class DumpadaController extends Controller
             'numero_jornada' => $numeroJornada,
             'fecha' => $fecha,
             'hora' => $request->hora ?? $dumpada->hora,
+            // hora = hora del CyT: si se corrige la hora, mantener el CyT igual
+            'hora_cyt' => ($request->filled('hora') && $dumpada->hora_cyt) ? $request->hora : $dumpada->hora_cyt,
             // filled(), no ?? — mismo motivo que $ley más arriba: un campo decimal
             // dejado en blanco manda '' (no null) y ?? no lo detecta, pisando el
             // valor real con 0.00.
