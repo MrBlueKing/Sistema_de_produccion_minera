@@ -44,6 +44,7 @@ class MezclaController extends Controller
                 'ley_lab',
                 'estado',
                 'es_remanente',
+                'finalidad',
                 'mezcla_origen_id',
                 'lote_origen_id',
                 // Campos de ajuste
@@ -72,14 +73,26 @@ class MezclaController extends Controller
             $query->where('estado', $request->estado);
         }
 
+        if ($request->filled('finalidad')) {
+            $query->where('finalidad', $request->finalidad);
+        }
+
+        if ($request->filled('planta_id')) {
+            $query->where('planta_id', $request->planta_id);
+        }
+
         if ($request->has('codigo')) {
             $query->where('codigo', 'like', '%' . $request->codigo . '%');
         }
 
         if ($request->filled('numero_dumpada')) {
-            $query->whereHas('dumpadas', function ($q) use ($request) {
-                $q->where('numero_dumpada', (int) $request->numero_dumpada);
-            });
+            // Admite varios números separados por coma (ej. "4207,4210,4300")
+            $numeros = array_filter(array_map('trim', explode(',', $request->numero_dumpada)));
+            if (count($numeros) > 0) {
+                $query->whereHas('dumpadas', function ($q) use ($numeros) {
+                    $q->whereIn('numero_dumpada', $numeros);
+                });
+            }
         }
 
         $perPage = min((int) $request->get('per_page', 20), 200);
@@ -98,7 +111,8 @@ class MezclaController extends Controller
             'codigo' => 'nullable|string|max:50|unique:mezclas,codigo',
             'fecha' => 'required|date',
             'id_faena' => 'nullable|integer',
-            'planta_id' => 'nullable|integer|exists:plantas,id',
+            'finalidad' => 'nullable|string|in:' . implode(',', Mezcla::FINALIDADES),
+            'planta_id' => 'required_if:finalidad,' . Mezcla::FINALIDAD_VENTA . '|nullable|integer|exists:plantas,id',
             'user_id' => 'nullable|integer',
             'acopios' => 'nullable|array',
             'acopios.*' => 'required|integer|exists:acopios,id',
@@ -139,13 +153,19 @@ class MezclaController extends Controller
     }
 
     /**
-     * Preview del próximo código de mezcla para una planta dada.
+     * Preview del próximo código de mezcla para una planta dada, o para
+     * Descarte (sin planta, prefijo fijo "DES") con finalidad=Descarte.
      * GET /api/mezclas/preview-codigo?planta_id=X
+     * GET /api/mezclas/preview-codigo?finalidad=Descarte
      */
     public function previewCodigo(Request $request)
     {
-        $plantaId = $request->input('planta_id');
-        $codigo   = Mezcla::generarCodigo($plantaId ? (int) $plantaId : null);
+        if ($request->input('finalidad') === Mezcla::FINALIDAD_DESCARTE) {
+            $codigo = Mezcla::generarCodigo(null, 'DES');
+        } else {
+            $plantaId = $request->input('planta_id');
+            $codigo   = Mezcla::generarCodigo($plantaId ? (int) $plantaId : null);
+        }
         return response()->json(['codigo' => $codigo]);
     }
 
@@ -414,7 +434,7 @@ class MezclaController extends Controller
     {
         try {
             $query = Mezcla::where('toneladas_disponibles', '>', 0.01)
-                ->where('es_descarte', false)
+                ->where('finalidad', '!=', Mezcla::FINALIDAD_DESCARTE)
                 ->select([
                     'id',
                     'codigo',
@@ -428,7 +448,7 @@ class MezclaController extends Controller
                     'ley_prom_lote',
                     'ley_lab',
                     'estado',
-                    'es_descarte',
+                    'finalidad',
                     'ajuste_aplicado'
                 ]);
 
@@ -485,7 +505,7 @@ class MezclaController extends Controller
                 ], 400);
             }
 
-            $mezcla->es_descarte = true;
+            $mezcla->finalidad = Mezcla::FINALIDAD_DESCARTE;
             $mezcla->save();
 
             return response()->json([

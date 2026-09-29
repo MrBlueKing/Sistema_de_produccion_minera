@@ -59,10 +59,13 @@ export default function MezclasView({
   const [formDataMezcla, setFormDataMezcla] = useState({
     codigo: '',
     fecha: new Date().toISOString().split('T')[0],
+    finalidad: 'Venta',
     planta_id: '',
     ley_base: 'auto',
     observaciones: '',
   });
+  // Paso del asistente "Crear Mezcla": 1=Finalidad, 2=Seleccionar material, 3=Confirmar
+  const [pasoCrear, setPasoCrear] = useState(1);
   const [plantas, setPlantas] = useState([]);
   const [codigoPreview, setCodigoPreview] = useState('');
   const [codigoEditado, setCodigoEditado] = useState(false);
@@ -78,9 +81,12 @@ export default function MezclasView({
   const [histSearch, setHistSearch] = useState('');
   const [histPerPage, setHistPerPage] = useState(20);
   const [histEstado, setHistEstado] = useState('');
+  const [histFinalidad, setHistFinalidad] = useState('');
+  const [histPlantaId, setHistPlantaId] = useState('');
   const [histFechaDesde, setHistFechaDesde] = useState('');
   const [histFechaHasta, setHistFechaHasta] = useState('');
   const [histNumeroDumpada, setHistNumeroDumpada] = useState('');
+  const [plantasTodas, setPlantasTodas] = useState([]); // incluye inactivas, para poder filtrar historial por plantas ya discontinuadas
   const [editandoFecha, setEditandoFecha] = useState(null); // { id, fecha }
 
   // Estados para remanentes de mezclas
@@ -147,6 +153,16 @@ export default function MezclasView({
       }
     };
 
+    const cargarPlantasTodas = async () => {
+      try {
+        const response = await mezclasService.getPlantasTodas();
+        setPlantasTodas(response.data || response);
+      } catch (error) {
+        console.error('Error cargando plantas (todas):', error);
+      }
+    };
+    cargarPlantasTodas();
+
     const cargarAcopios = async () => {
       try {
         const response = await acopiosService.getAcopiosParaMezclas();
@@ -176,12 +192,16 @@ export default function MezclasView({
     fechaDesde = histFechaDesde,
     fechaHasta = histFechaHasta,
     numeroDumpada = histNumeroDumpada,
+    finalidad = histFinalidad,
+    plantaId = histPlantaId,
   ) => {
     setHistLoading(true);
     try {
       const params = { page, per_page: perPage };
       if (search.trim())         params.codigo          = search.trim();
       if (estado)                params.estado          = estado;
+      if (finalidad)             params.finalidad       = finalidad;
+      if (plantaId)              params.planta_id       = plantaId;
       if (fechaDesde)            params.fecha_desde     = fechaDesde;
       if (fechaHasta)            params.fecha_hasta     = fechaHasta;
       if (numeroDumpada.trim())  params.numero_dumpada  = numeroDumpada.trim();
@@ -202,14 +222,14 @@ export default function MezclasView({
   const debouncedHistSearch = useDebounce(histSearch, 400);
   const debouncedHistNumeroDumpada = useDebounce(histNumeroDumpada, 400);
   useEffect(() => {
-    cargarHistorial(1, debouncedHistSearch, histPerPage, histEstado, histFechaDesde, histFechaHasta, debouncedHistNumeroDumpada);
-  }, [debouncedHistSearch, debouncedHistNumeroDumpada, histEstado, histFechaDesde, histFechaHasta]);
+    cargarHistorial(1, debouncedHistSearch, histPerPage, histEstado, histFechaDesde, histFechaHasta, debouncedHistNumeroDumpada, histFinalidad, histPlantaId);
+  }, [debouncedHistSearch, debouncedHistNumeroDumpada, histEstado, histFinalidad, histPlantaId, histFechaDesde, histFechaHasta]);
 
   // Recargar historial cuando el padre actualiza mezclas (nueva creada/eliminada).
   // IMPORTANTE: mantener los filtros activos del usuario — antes forzaba búsqueda
   // vacía y "pisaba" cualquier filtro/búsqueda en curso.
   useEffect(() => {
-    cargarHistorial(1, histSearch, histPerPage, histEstado, histFechaDesde, histFechaHasta, histNumeroDumpada);
+    cargarHistorial(1, histSearch, histPerPage, histEstado, histFechaDesde, histFechaHasta, histNumeroDumpada, histFinalidad, histPlantaId);
   }, [mezclas]);
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -596,7 +616,7 @@ export default function MezclasView({
 
 
     // ============ LEY VISUAL ============
-    // LÓGICA: Sumar todas las contribuciones SIN factor, luego aplicar 0.9 al final
+    // LÓGICA: Sumar todas las contribuciones SIN factor (Ley Visual no lleva el 0.9)
     // Para ACOPIOS: usar ley_visual_promedio (sin ajustar)
     // Para DUMPADAS DIRECTAS: usar ley_visual cruda (sin ajustar)
     let sumaPonderadaVisualOrigen = 0;
@@ -626,10 +646,10 @@ export default function MezclasView({
       }
     });
 
-    // Combinar leyes "originales" y aplicar factor 0.9 AL FINAL
+    // Combinar leyes "originales". Ley Visual es un estimado a ojo: SIN factor 0.9
+    // (espeja Mezcla::calcularTotales() en backend)
     const sumaTotalVisualOriginal = sumaPonderadaVisualOrigen + sumaPonderadaVisualRemanentes;
-    const leyVisualPromedio = totalTon > 0 ? (sumaTotalVisualOriginal / totalTon) : 0;
-    const leyVisual = leyVisualPromedio * factorAjusteLey; // Aplicar factor 0.9 al final
+    const leyVisual = totalTon > 0 ? (sumaTotalVisualOriginal / totalTon) : 0;
 
     // ============ LEY LAB (ley cupping reconstruida) ============
     // Inversa de la división: ley_lote = leyLab / factorLeyLote → leyLab = leyLote * factorLeyLote
@@ -661,7 +681,9 @@ export default function MezclasView({
       return;
     }
 
-    if (!formDataMezcla.planta_id) {
+    const esDescarte = formDataMezcla.finalidad === 'Descarte';
+
+    if (!esDescarte && !formDataMezcla.planta_id) {
       toast.warning('Atención', 'Debes seleccionar una planta destino');
       return;
     }
@@ -672,7 +694,8 @@ export default function MezclasView({
       const data = {
         codigo: codigoEditado ? (formDataMezcla.codigo || null) : (codigoPreview || null),
         fecha: new Date().toISOString().split('T')[0], // Siempre usar fecha actual
-        planta_id: parseInt(formDataMezcla.planta_id),
+        finalidad: formDataMezcla.finalidad,
+        planta_id: esDescarte ? null : parseInt(formDataMezcla.planta_id),
         id_faena: faenaUsuario ?? null,
         ley_base: formDataMezcla.ley_base || 'auto',
         observaciones: formDataMezcla.observaciones || null,
@@ -708,11 +731,14 @@ export default function MezclasView({
         `${response.mezcla.total_ton} toneladas`
       );
 
-      // Resetear formulario
+      // Resetear formulario y volver al Paso 1 — si no, quedaba en "Confirmar"
+      // mostrando una mezcla vacía (0 t) después de crear, lo cual confundía.
       setFormDataMezcla({
         codigo: '',
         fecha: new Date().toISOString().split('T')[0],
+        finalidad: 'Venta',
         planta_id: '',
+        ley_base: 'auto',
         observaciones: '',
       });
       setAcopiosSeleccionados([]);
@@ -722,6 +748,7 @@ export default function MezclasView({
       setRemanenteModos({});
       setCodigoPreview('');
       setCodigoEditado(false);
+      setPasoCrear(1);
 
       // Recargar datos
       await loadData();
@@ -1074,6 +1101,102 @@ export default function MezclasView({
 
         {/* ── Contenido tab "Crear Mezcla" ── */}
         {vistaTab === 'crear' && (<>
+
+        {/* Asistente de 3 pasos: Finalidad → Material → Confirmar */}
+        <div className="flex items-center gap-2 mb-6">
+          {[
+            { n: 1, label: 'Finalidad' },
+            { n: 2, label: 'Material' },
+            { n: 3, label: 'Confirmar' },
+          ].map((s) => (
+            <div key={s.n} className="flex items-center gap-2 flex-1 last:flex-none">
+              <button
+                type="button"
+                disabled={s.n > pasoCrear}
+                onClick={() => setPasoCrear(s.n)}
+                title={s.n < pasoCrear ? `Volver a ${s.label}` : undefined}
+                className={`flex items-center gap-2 rounded-lg px-1.5 py-1 -mx-1.5 -my-1 transition-colors ${
+                  s.n > pasoCrear ? 'cursor-not-allowed' : s.n < pasoCrear ? 'hover:bg-purple-50 cursor-pointer' : ''
+                }`}
+              >
+                <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                  pasoCrear === s.n ? 'bg-purple-600 text-white' : pasoCrear > s.n ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-500'
+                }`}>{pasoCrear > s.n ? '✓' : s.n}</span>
+                <span className={`text-sm font-semibold whitespace-nowrap ${
+                  pasoCrear === s.n ? 'text-gray-800' : pasoCrear > s.n ? 'text-green-700' : 'text-gray-400'
+                }`}>{s.label}</span>
+              </button>
+              {s.n < 3 && <div className={`flex-1 h-px ${pasoCrear > s.n ? 'bg-green-400' : 'bg-gray-200'}`} />}
+            </div>
+          ))}
+        </div>
+
+        {/* Paso 1: Finalidad */}
+        {pasoCrear === 1 && (
+          <Card className="mb-6">
+            <h3 className="text-xl font-bold text-gray-900 mb-1">¿Cuál es la finalidad de esta mezcla?</h3>
+            <p className="text-sm text-gray-600 mb-4">Define si el material va a venta (se pedirá Planta Destino más adelante) o a descarte (queda en mina, se contabiliza aparte).</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setFormDataMezcla({ ...formDataMezcla, finalidad: 'Venta', codigo: '' });
+                  setCodigoEditado(false);
+                  setCodigoPreview('');
+                }}
+                className={`text-left p-5 rounded-xl border-2 transition-colors ${
+                  formDataMezcla.finalidad === 'Venta' ? 'border-blue-500 bg-blue-50 shadow-sm' : 'border-gray-200 bg-white hover:border-gray-300'
+                }`}
+              >
+                <h4 className="text-lg font-bold text-gray-900 mb-1">▲ Venta</h4>
+                <p className="text-sm text-gray-600">Se despacha a una planta y sigue el flujo normal de camionadas.</p>
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setFormDataMezcla({ ...formDataMezcla, finalidad: 'Descarte', planta_id: '', codigo: '' });
+                  setCodigoEditado(false);
+                  try {
+                    setCodigoPreview(await mezclasService.previewCodigo(null, 'Descarte'));
+                  } catch { setCodigoPreview(''); }
+                }}
+                className={`text-left p-5 rounded-xl border-2 transition-colors ${
+                  formDataMezcla.finalidad === 'Descarte' ? 'border-amber-500 bg-amber-50 shadow-sm' : 'border-gray-200 bg-white hover:border-gray-300'
+                }`}
+              >
+                <h4 className="text-lg font-bold text-gray-900 mb-1">⟂ Descarte</h4>
+                <p className="text-sm text-gray-600">Ley muy baja para vender. Queda en mina para relleno u otros usos — no pide planta.</p>
+              </button>
+            </div>
+            <p className="text-xs text-gray-400 mt-4">＋ Por ahora son estas dos opciones — a futuro se puede sumar una tercera sin rehacer el formulario.</p>
+            <div className="flex justify-end mt-5">
+              <Button type="button" variant="primary" onClick={() => setPasoCrear(2)}>
+                Continuar →
+              </Button>
+            </div>
+          </Card>
+        )}
+
+        {pasoCrear === 2 && (<>
+
+        {/* Barra fija: queda visible arriba mientras se scrollea la selección,
+            para no tener que llegar al final de la tabla para continuar. */}
+        {(() => {
+          const cantidadSeleccion = usarSistemaAcopios ? acopiosSeleccionados.length : dumpadasSeleccionadas.length;
+          const tieneSeleccion = cantidadSeleccion > 0 || remanentesSeleccionados.length > 0;
+          return (
+            <div className="sticky top-2 z-20 mb-4 bg-white/95 backdrop-blur border-2 border-purple-200 rounded-xl shadow-md px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-gray-700">
+                <span className="font-bold text-purple-700">{cantidadSeleccion}</span> {usarSistemaAcopios ? 'acopios' : 'dumpadas'}
+                {remanentesSeleccionados.length > 0 && <> · <span className="font-bold text-purple-700">{remanentesSeleccionados.length}</span> remanentes</>}
+                {' '}seleccionados
+              </p>
+              <Button type="button" variant="primary" disabled={!tieneSeleccion} onClick={() => setPasoCrear(3)}>
+                Continuar a confirmar →
+              </Button>
+            </div>
+          );
+        })()}
 
         {/* Selección de Acopios O Dumpadas según configuración */}
         {usarSistemaAcopios ? (
@@ -1820,9 +1943,10 @@ export default function MezclasView({
             )}
           </Card>
         )}
+        </>)}
 
-        {/* Preview de la Mezcla - Solo aparece cuando hay acopios/dumpadas o remanentes seleccionados */}
-        {((usarSistemaAcopios ? acopiosSeleccionados.length > 0 : dumpadasSeleccionadas.length > 0) || remanentesSeleccionados.length > 0) && (
+        {/* Paso 3: Confirmar — Planta Destino, Ley Base, Observaciones y Crear Mezcla */}
+        {pasoCrear === 3 && (
           <Card className="mb-6 border-2 border-orange-500 bg-gradient-to-br from-orange-50 via-white to-blue-50 shadow-lg">
             {/* Header con título y botones */}
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between mb-4 gap-3">
@@ -1840,7 +1964,7 @@ export default function MezclasView({
                   type="button"
                   variant="success"
                   icon={HiBeaker}
-                  disabled={loading || !formDataMezcla.planta_id}
+                  disabled={loading || (formDataMezcla.finalidad !== 'Descarte' && !formDataMezcla.planta_id)}
                   onClick={handleCrearMezcla}
                   className="shadow-md"
                 >
@@ -1854,9 +1978,10 @@ export default function MezclasView({
                     setDumpadasSeleccionadas([]);
                     setRemanentesSeleccionados([]);
                     setLoteRemanenteSeleccionado('');
-                    setFormDataMezcla({ ...formDataMezcla, planta_id: '', codigo: '', observaciones: '' });
+                    setFormDataMezcla({ ...formDataMezcla, finalidad: 'Venta', planta_id: '', codigo: '', observaciones: '' });
                     setCodigoPreview('');
                     setCodigoEditado(false);
+                    setPasoCrear(1);
                   }}
                 >
                   Limpiar
@@ -1868,8 +1993,11 @@ export default function MezclasView({
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
               <div className="bg-white rounded-lg p-4 border-2 border-orange-200 shadow-sm">
                 <label className="block text-sm font-bold text-orange-800 mb-2">
-                  🏭 Planta Destino <span className="text-red-500">*</span>
+                  🏭 Planta Destino {formDataMezcla.finalidad !== 'Descarte' && <span className="text-red-500">*</span>}
                 </label>
+                {formDataMezcla.finalidad === 'Descarte' ? (
+                  <p className="text-xs text-gray-500 italic px-1 py-2">No aplica — el descarte no tiene planta destino.</p>
+                ) : (<>
                 <select
                   value={formDataMezcla.planta_id}
                   onChange={async (e) => {
@@ -1903,8 +2031,9 @@ export default function MezclasView({
                     Debes seleccionar una planta para crear la mezcla
                   </p>
                 )}
+                </>)}
                 {/* Preview / edición del código */}
-                {formDataMezcla.planta_id && codigoPreview && (
+                {codigoPreview && (
                   <div className="mt-2">
                     <p className="text-xs text-gray-500 mb-1">Código asignado:</p>
                     <div className="flex items-center gap-1">
@@ -2229,14 +2358,16 @@ export default function MezclasView({
 
         {/* Filtros */}
         {(() => {
-          const hayFiltros = histSearch || histEstado || histFechaDesde || histFechaHasta || histNumeroDumpada;
+          const hayFiltros = histSearch || histEstado || histFinalidad || histPlantaId || histFechaDesde || histFechaHasta || histNumeroDumpada;
           const limpiar = () => {
             setHistSearch('');
             setHistEstado('');
+            setHistFinalidad('');
+            setHistPlantaId('');
             setHistFechaDesde('');
             setHistFechaHasta('');
             setHistNumeroDumpada('');
-            cargarHistorial(1, '', histPerPage, '', '', '', '');
+            cargarHistorial(1, '', histPerPage, '', '', '', '', '', '');
           };
           const inputCls = "w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-300 focus:border-orange-400 transition-shadow placeholder-gray-400";
           const labelCls = "block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1";
@@ -2256,13 +2387,14 @@ export default function MezclasView({
                 </div>
 
                 {/* N° Dumpada */}
-                <div className="flex-1 min-w-[130px]">
+                <div className="flex-1 min-w-[150px]">
                   <label className={labelCls}>N° Dumpada</label>
                   <input
-                    type="number"
+                    type="text"
                     value={histNumeroDumpada}
                     onChange={e => setHistNumeroDumpada(e.target.value)}
-                    placeholder="Ej: 9730…"
+                    placeholder="Ej: 9730, 9731…"
+                    title="Separar con comas para buscar varias a la vez"
                     className={inputCls}
                   />
                 </div>
@@ -2275,6 +2407,27 @@ export default function MezclasView({
                     <option value="Confirmado">Confirmado</option>
                     <option value="En Despacho">En Despacho</option>
                     <option value="Despachado">Despachado</option>
+                  </select>
+                </div>
+
+                {/* Finalidad */}
+                <div className="flex-1 min-w-[130px]">
+                  <label className={labelCls}>Finalidad</label>
+                  <select value={histFinalidad} onChange={e => setHistFinalidad(e.target.value)} className={inputCls}>
+                    <option value="">Todas</option>
+                    <option value="Venta">Venta</option>
+                    <option value="Descarte">Descarte</option>
+                  </select>
+                </div>
+
+                {/* Planta */}
+                <div className="flex-1 min-w-[150px]">
+                  <label className={labelCls}>Planta destino</label>
+                  <select value={histPlantaId} onChange={e => setHistPlantaId(e.target.value)} className={inputCls}>
+                    <option value="">Todas</option>
+                    {plantasTodas.map((planta) => (
+                      <option key={planta.id} value={planta.id}>{planta.nombre}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -2313,7 +2466,19 @@ export default function MezclasView({
                   {histEstado && (
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-orange-100 text-orange-700 text-xs font-semibold rounded-full">
                       {histEstado}
-                      <button onClick={() => { setHistEstado(''); cargarHistorial(1, histSearch, histPerPage, '', histFechaDesde, histFechaHasta); }} className="hover:text-orange-900 ml-0.5">×</button>
+                      <button onClick={() => { setHistEstado(''); cargarHistorial(1, histSearch, histPerPage, '', histFechaDesde, histFechaHasta, histNumeroDumpada, histFinalidad, histPlantaId); }} className="hover:text-orange-900 ml-0.5">×</button>
+                    </span>
+                  )}
+                  {histFinalidad && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-orange-100 text-orange-700 text-xs font-semibold rounded-full">
+                      {histFinalidad}
+                      <button onClick={() => { setHistFinalidad(''); cargarHistorial(1, histSearch, histPerPage, histEstado, histFechaDesde, histFechaHasta, histNumeroDumpada, '', histPlantaId); }} className="hover:text-orange-900 ml-0.5">×</button>
+                    </span>
+                  )}
+                  {histPlantaId && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-orange-100 text-orange-700 text-xs font-semibold rounded-full">
+                      Planta: {plantasTodas.find(p => String(p.id) === String(histPlantaId))?.nombre || histPlantaId}
+                      <button onClick={() => { setHistPlantaId(''); cargarHistorial(1, histSearch, histPerPage, histEstado, histFechaDesde, histFechaHasta, histNumeroDumpada, histFinalidad, ''); }} className="hover:text-orange-900 ml-0.5">×</button>
                     </span>
                   )}
                   {histFechaDesde && (
@@ -2368,6 +2533,8 @@ export default function MezclasView({
                   <tr className="bg-gradient-to-r from-gray-800 to-gray-700 text-white text-xs uppercase tracking-wider">
                     <th className="py-2.5 px-3 text-left font-semibold">Código</th>
                     <th className="py-2.5 px-3 text-left font-semibold">Fecha</th>
+                    <th className="py-2.5 px-3 text-left font-semibold">Planta</th>
+                    <th className="py-2.5 px-3 text-center font-semibold">Finalidad</th>
                     <th className="py-2.5 px-3 text-right font-semibold">Total Ton</th>
                     <th className="py-2.5 px-3 text-right font-semibold">Ton. Disp.</th>
                     <th className="py-2.5 px-3 text-center font-semibold">Ley Laboratorio</th>
@@ -2407,6 +2574,16 @@ export default function MezclasView({
                           ) : (
                             formatearFecha(mezcla.fecha)
                           )}
+                        </td>
+                        <td className="py-2 px-3 text-xs text-gray-600">
+                          {mezcla.planta?.nombre || <span className="text-gray-300">—</span>}
+                        </td>
+                        <td className="py-2 px-3 text-center">
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold border ${
+                            mezcla.finalidad === 'Descarte' ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-blue-50 text-blue-700 border-blue-200'
+                          }`}>
+                            {mezcla.finalidad || 'Venta'}
+                          </span>
                         </td>
                         <td className="py-2 px-3 text-right font-semibold tabular-nums text-gray-800">
                           {parseFloat(mezcla.total_ton).toFixed(2)} <span className="text-gray-400 font-normal">t</span>

@@ -120,9 +120,14 @@ class MezclaService
                 throw new Exception('Debe proporcionar al menos un acopio, dumpadas individuales o remanentes');
             }
 
-            // 3. Generar código si no se proporciona (usa el prefijo de la planta)
-            $plantaId = $datos['planta_id'] ?? null;
-            $codigo = $datos['codigo'] ?? Mezcla::generarCodigo($plantaId);
+            // 3. Generar código si no se proporciona (usa el prefijo de la planta,
+            // salvo en Descarte, que no tiene planta y usa prefijo fijo "DES")
+            $finalidad = $datos['finalidad'] ?? Mezcla::FINALIDAD_VENTA;
+            $esDescarte = $finalidad === Mezcla::FINALIDAD_DESCARTE;
+            $plantaId = $esDescarte ? null : ($datos['planta_id'] ?? null);
+            $codigo = $datos['codigo'] ?? ($esDescarte
+                ? Mezcla::generarCodigo(null, 'DES')
+                : Mezcla::generarCodigo($plantaId));
 
             // 4. Crear la mezcla
             $leyBase = $datos['ley_base'] ?? 'auto';
@@ -132,6 +137,7 @@ class MezclaService
                 'fecha' => $datos['fecha'] ?? now(),
                 'id_faena' => $datos['id_faena'] ?? null,
                 'planta_id' => $plantaId,
+                'finalidad' => $finalidad,
                 'toneladas_disponibles' => 0, // Inicializar en 0, se calculará después
                 'toneladas_despachadas' => 0, // Inicializar en 0
                 'user_id' => $datos['user_id'] ?? null,

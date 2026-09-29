@@ -223,7 +223,7 @@ class ImportarMezclasController extends Controller
                     'ley_lab'               => $leyLab,
                     'estado'                => Mezcla::ESTADO_CONFIRMADO,
                     'es_remanente'          => false,
-                    'es_descarte'           => false,
+                    'finalidad'             => Mezcla::FINALIDAD_VENTA,
                     'user_id'               => $request->auth_user_id,
                 ]);
 

@@ -9,8 +9,9 @@ class MezclasService {
    * Obtener todas las mezclas con filtros opcionales
    * @param {Object} params - Parámetros de filtrado (fecha_desde, fecha_hasta, estado, codigo)
    */
-  async previewCodigo(plantaId) {
-    const response = await api.get('/dispatch/mezclas/preview-codigo', { params: { planta_id: plantaId } });
+  async previewCodigo(plantaId, finalidad) {
+    const params = finalidad === 'Descarte' ? { finalidad } : { planta_id: plantaId };
+    const response = await api.get('/dispatch/mezclas/preview-codigo', { params });
     return response.data.codigo;
   }
 
@@ -328,9 +329,18 @@ class MezclasService {
   // ==========================
 
   /**
-   * Obtener todas las plantas
+   * Obtener las plantas activas (para elegir Planta Destino al crear una mezcla)
    */
   async getPlantas() {
+    const response = await api.get('/dispatch/plantas', { params: { activas: true } });
+    return response.data;
+  }
+
+  /**
+   * Todas las plantas, activas e inactivas — para filtrar el historial por una
+   * planta que ya no está disponible para mezclas nuevas (ej. DESCARTE).
+   */
+  async getPlantasTodas() {
     const response = await api.get('/dispatch/plantas');
     return response.data;
   }

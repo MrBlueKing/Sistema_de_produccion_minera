@@ -27,7 +27,7 @@ class Mezcla extends Model
         'ley_lab',
         'estado',
         'es_remanente',
-        'es_descarte',
+        'finalidad',
         'mezcla_origen_id',
         'lote_origen_id',
         'numero_paladas',
@@ -54,7 +54,6 @@ class Mezcla extends Model
         'ley_prom_lote' => 'decimal:2',
         'ley_lab' => 'decimal:2',
         'es_remanente' => 'boolean',
-        'es_descarte' => 'boolean',
         // Casts de ajuste
         'ajuste_aplicado' => 'boolean',
         'total_ton_original' => 'decimal:2',
@@ -67,6 +66,13 @@ class Mezcla extends Model
     const ESTADO_CONFIRMADO = 'Confirmado';
     const ESTADO_EN_DESPACHO = 'En Despacho';
     const ESTADO_DESPACHADO = 'Despachado';
+
+    // Finalidades vigentes de una mezcla — lista centralizada acá para que
+    // agregar una nueva a futuro sea sumarla en un solo lugar (más la
+    // validación en MezclaController::store()), no rediseñar el campo.
+    const FINALIDAD_VENTA = 'Venta';
+    const FINALIDAD_DESCARTE = 'Descarte';
+    const FINALIDADES = [self::FINALIDAD_VENTA, self::FINALIDAD_DESCARTE];
 
     /**
      * Relación: una mezcla tiene muchos detalles (dumpadas/remanentes)
