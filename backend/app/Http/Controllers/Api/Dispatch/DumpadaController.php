@@ -344,17 +344,16 @@ class DumpadaController extends Controller
 
         // Usar la fecha proporcionada o la fecha actual, convertida al formato correcto
         $fecha = $this->convertirFecha($request->fecha) ?? now()->format('Y-m-d');
-        $fechaCorrelativo = Dumpada::fechaCorrelativo($this->convertirFecha($request->fecha_cyt), $fecha);
 
-        // Generar número de jornada (secuencial por frente+jornada+fecha de CyT)
+        // Generar número de jornada (secuencial por frente+jornada+fecha)
         $numeroJornada = Dumpada::generarNumeroJornada(
             $request->id_frente_trabajo,
             $request->jornada,
-            $fechaCorrelativo
+            $fecha
         );
 
         // Generar código de acopio (código completo de la dumpada)
-        $fechaFormateada = Carbon::parse($fechaCorrelativo)->format('d.m.Y');
+        $fechaFormateada = Carbon::parse($fecha)->format('d.m.Y');
         $acopios = trim("{$frente->codigo_completo} {$numeroDumpada} {$fechaFormateada} {$request->jornada}-{$numeroJornada}");
 
         // Determinar el rango automáticamente basado en la ley
@@ -392,13 +391,11 @@ class DumpadaController extends Controller
             'certificado' => $request->certificado,
             'numero_dumpada' => $numeroDumpada,
             'acopios' => $acopios,
-            // Fecha/hora principal de la dumpada = la del CyT (vuelta del dumper);
-            // la de extracción/tronadura se guarda aparte
-            'fecha' => $fechaCorrelativo,
+            'fecha' => $fecha,
+            // La hora de la dumpada es la de la vuelta del dumper (CyT)
             'hora' => $request->hora_cyt ?? $request->hora ?? now()->format('H:i:s'),
             'fecha_cyt' => $this->convertirFecha($request->fecha_cyt),
             'hora_cyt' => $request->hora_cyt,
-            'fecha_extraccion' => $fecha,
             'hora_extraccion' => $request->hora,
             'rango' => $rango,
             'estado' => $estado,
@@ -484,17 +481,16 @@ class DumpadaController extends Controller
                 $fecha = isset($dumpadaData['fecha'])
                     ? $this->convertirFecha($dumpadaData['fecha'])
                     : now()->format('Y-m-d');
-                $fechaCorrelativo = Dumpada::fechaCorrelativo($this->convertirFecha($dumpadaData['fecha_cyt']), $fecha);
 
-                // Generar número de jornada (secuencial por frente+jornada+fecha de CyT)
+                // Generar número de jornada (secuencial por frente+jornada+fecha)
                 $numeroJornada = Dumpada::generarNumeroJornada(
                     $dumpadaData['id_frente_trabajo'],
                     $dumpadaData['jornada'],
-                    $fechaCorrelativo
+                    $fecha
                 );
 
                 // Generar código de acopio (código completo de la dumpada)
-                $fechaFormateada = Carbon::parse($fechaCorrelativo)->format('d.m.Y');
+                $fechaFormateada = Carbon::parse($fecha)->format('d.m.Y');
                 $acopios = trim("{$frente->codigo_completo} {$numeroDumpada} {$fechaFormateada} {$dumpadaData['jornada']}-{$numeroJornada}");
 
                 // Determinar el rango automáticamente basado en la ley
@@ -532,13 +528,11 @@ class DumpadaController extends Controller
                     'certificado' => $dumpadaData['certificado'] ?? null,
                     'numero_dumpada' => $numeroDumpada,
                     'acopios' => $acopios,
-                    // Fecha/hora principal de la dumpada = la del CyT (vuelta del dumper);
-                    // la de extracción/tronadura se guarda aparte
-                    'fecha' => $fechaCorrelativo,
+                    'fecha' => $fecha,
+                    // La hora de la dumpada es la de la vuelta del dumper (CyT)
                     'hora' => $dumpadaData['hora_cyt'] ?? $dumpadaData['hora'] ?? now()->format('H:i:s'),
                     'fecha_cyt' => $this->convertirFecha($dumpadaData['fecha_cyt']),
                     'hora_cyt' => $dumpadaData['hora_cyt'],
-                    'fecha_extraccion' => $fecha,
                     'hora_extraccion' => $dumpadaData['hora'] ?? null,
                     'rango' => $rango,
                     'estado' => $estado,
@@ -670,12 +664,8 @@ class DumpadaController extends Controller
         // Obtener el frente de trabajo
         $frente = FrenteTrabajo::find($request->id_frente_trabajo);
 
-        // Regenerar numero_jornada si cambiaron datos relevantes (frente, jornada o
-        // fecha). La fecha que se edita es la principal = la del CyT; si la dumpada
-        // tiene CyT, fecha_cyt se mantiene igual a ella (ver $data abajo).
-        $fecha = $this->convertirFecha($request->fecha) ?? $dumpada->getRawOriginal('fecha');
-        $fechaCyt = $dumpada->getRawOriginal('fecha_cyt');
-        $fechaCorrelativo = $fecha;
+        // Regenerar numero_jornada si cambiaron datos relevantes (frente, jornada o fecha)
+        $fecha = $this->convertirFecha($request->fecha) ?? $dumpada->fecha;
         $numeroJornada = $dumpada->numero_jornada;
 
         $grupoAnterior = [
@@ -686,19 +676,19 @@ class DumpadaController extends Controller
 
         $seMovio = $request->id_frente_trabajo != $dumpada->id_frente_trabajo ||
             $request->jornada != $dumpada->jornada ||
-            $fechaCorrelativo != $grupoAnterior['fecha'];
+            $this->convertirFecha($request->fecha) != $dumpada->getRawOriginal('fecha');
 
         if ($seMovio) {
             // Regenerar el número de jornada para la nueva combinación
             $numeroJornada = Dumpada::generarNumeroJornada(
                 $request->id_frente_trabajo,
                 $request->jornada,
-                $fechaCorrelativo
+                $fecha
             );
         }
 
         // Regenerar código de acopio con los datos actualizados (mismo formato que al crear, con numero_dumpada incluido)
-        $fechaFormateada = Carbon::parse($fechaCorrelativo)->format('d.m.Y');
+        $fechaFormateada = Carbon::parse($fecha)->format('d.m.Y');
         $acopios = trim("{$frente->codigo_completo} {$dumpada->numero_dumpada} {$fechaFormateada} {$request->jornada}-{$numeroJornada}");
 
         // Determinar el rango automáticamente si cambió la ley
@@ -732,8 +722,7 @@ class DumpadaController extends Controller
             'numero_jornada' => $numeroJornada,
             'fecha' => $fecha,
             'hora' => $request->hora ?? $dumpada->hora,
-            // fecha/hora principal = la del CyT: si se corrigen, mantener el CyT igual
-            'fecha_cyt' => $fechaCyt ? $fecha : null,
+            // hora = hora del CyT: si se corrige la hora, mantener el CyT igual
             'hora_cyt' => ($request->filled('hora') && $dumpada->hora_cyt) ? $request->hora : $dumpada->hora_cyt,
             // filled(), no ?? — mismo motivo que $ley más arriba: un campo decimal
             // dejado en blanco manda '' (no null) y ?? no lo detecta, pisando el
@@ -843,7 +832,7 @@ class DumpadaController extends Controller
         // Grupo al que pertenecía, para renumerar sus hermanas después de borrar
         $idFrente = $dumpada->id_frente_trabajo;
         $jornada  = $dumpada->jornada;
-        $fecha    = Dumpada::fechaCorrelativo($dumpada->getRawOriginal('fecha_cyt'), $dumpada->getRawOriginal('fecha'));
+        $fecha    = $dumpada->getRawOriginal('fecha');
 
         DB::transaction(function () use ($dumpada, $idFrente, $jornada, $fecha) {
             $dumpada->delete();
@@ -868,7 +857,6 @@ class DumpadaController extends Controller
             'id_frente_trabajo' => 'required|exists:frentes_trabajo,id',
             'jornada' => 'required|in:AM,PM,Madrugada,Noche',
             'fecha' => 'nullable|date',
-            'fecha_cyt' => 'nullable|date',
         ]);
 
         if ($validator->fails()) {
@@ -884,11 +872,8 @@ class DumpadaController extends Controller
         // Generar número de dumpada automáticamente (consecutivo por faena)
         $numeroDumpada = Dumpada::generarNumeroDumpada($frente->id_faena);
 
-        // Fecha del correlativo: CyT, o Extracción/hoy si no viene
-        $fecha = Dumpada::fechaCorrelativo(
-            $this->convertirFecha($request->fecha_cyt),
-            $this->convertirFecha($request->fecha) ?? now()->format('Y-m-d')
-        );
+        // Usar la fecha proporcionada o la fecha actual, convertida al formato correcto
+        $fecha = $this->convertirFecha($request->fecha) ?? now()->format('Y-m-d');
 
         // Generar número de jornada (secuencial por frente+jornada+fecha)
         $numeroJornada = Dumpada::generarNumeroJornada(

@@ -25,12 +25,11 @@ class Dumpada extends Model
         'acopios', // Código COMPLETO del acopio (ej: "ZN-PM-DIA-A001-27-11-2025")
         'jornada',
         'numero_jornada', // Número secuencial por frente+jornada+fecha
-        'fecha', // Fecha PRINCIPAL = la del CyT (día en que el dumper saca el material). Antes del 29-09-2026 era la única fecha
-        'hora', // Hora principal = la del CyT
-        'fecha_cyt', // Fecha de Carguío y Transporte (CyT) — igual a `fecha` desde el 29-09-2026
+        'fecha', // Fecha PRINCIPAL = la de EXTRACCIÓN: el paréntesis de la hoja de Dispatch ("PM 29.09"). Con ella se arma el código y el correlativo (lo que va en la bolsa de la muestra)
+        'hora', // Hora de la vuelta del dumper (CyT), igual a hora_cyt
+        'fecha_cyt', // Fecha de Carguío y Transporte (CyT), la de arriba de la hoja — puede ser días después de la extracción
         'hora_cyt',
-        'fecha_extraccion', // Fecha real de extracción/tronadura — puede ser días antes del CyT
-        'hora_extraccion',
+        'hora_extraccion', // Hora estimada de la extracción (no afecta el código)
         'ton',
         'ley',
         'ley_cup',
@@ -263,43 +262,21 @@ class Dumpada extends Model
     }
 
     /**
-     * Fecha que agrupa el correlativo AM-N y va en el código de la dumpada:
-     * la de CyT (cuándo el dumper la llevó a cancha — el N es la vuelta del
-     * dumper), o la de Extracción si no tiene CyT (dumpadas anteriores al
-     * 29-09-2026, cuando había una sola fecha).
-     *
-     * @param string|null $fechaCyt (Y-m-d)
-     * @param string|null $fecha    (Y-m-d) fecha de Extracción
-     * @return string|null
-     */
-    public static function fechaCorrelativo($fechaCyt, $fecha)
-    {
-        return $fechaCyt ?: $fecha;
-    }
-
-    /** Filtra por la fecha del correlativo (ver fechaCorrelativo()). */
-    public function scopeDeFechaCorrelativo($query, $fecha)
-    {
-        return $query->whereRaw('COALESCE(fecha_cyt, fecha) = ?', [Carbon::parse($fecha)->toDateString()]);
-    }
-
-    /**
      * Genera el siguiente número de jornada para una combinación específica de:
-     * frente de trabajo + jornada + fecha del correlativo (CyT, o Extracción
-     * si no tiene CyT — ver fechaCorrelativo())
+     * frente de trabajo + jornada + fecha
      *
      * El número se reinicia a 1 cuando cambia cualquiera de estos 3 parámetros
      *
      * @param int $idFrenteTrabajo
      * @param string $jornada (AM, PM, Madrugada, Noche)
-     * @param string $fecha (formato Y-m-d) fecha del correlativo
+     * @param string $fecha (formato Y-m-d)
      * @return int
      */
     public static function generarNumeroJornada($idFrenteTrabajo, $jornada, $fecha)
     {
         $maxNumero = self::where('id_frente_trabajo', $idFrenteTrabajo)
             ->where('jornada', $jornada)
-            ->deFechaCorrelativo($fecha)
+            ->whereDate('fecha', $fecha)
             ->max('numero_jornada');
 
         return $maxNumero ? ($maxNumero + 1) : 1;
@@ -317,7 +294,7 @@ class Dumpada extends Model
      *
      * @param int    $idFrenteTrabajo
      * @param string $jornada
-     * @param string $fecha (Y-m-d o Carbon) fecha del correlativo, ver fechaCorrelativo()
+     * @param string $fecha (Y-m-d o Carbon)
      * @return void
      */
     public static function renumerarNumeroJornada($idFrenteTrabajo, $jornada, $fecha): void
@@ -328,7 +305,7 @@ class Dumpada extends Model
 
         $dumpadas = self::where('id_frente_trabajo', $idFrenteTrabajo)
             ->where('jornada', $jornada)
-            ->deFechaCorrelativo($fecha)
+            ->whereDate('fecha', $fecha)
             ->orderBy('numero_jornada')
             ->orderBy('id')
             ->get();

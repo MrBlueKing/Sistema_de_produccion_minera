@@ -35,7 +35,8 @@ export default function IngresoView({
   // cada fila agregada tome el momento en que se agrega, no un valor congelado.
   // Extracción y CyT arrancan las dos con el momento actual (autocompletado,
   // editable) — en la práctica Extracción es la que más se corrige hacia
-  // atrás (el dispatcher recién ahora se entera de qué jornada la tronó).
+  // atrás: es el paréntesis de la hoja de Dispatch ("PM 29.09"), que puede
+  // ser de un día anterior al que el dumper saca el material.
   const fechaHoraActual = () => {
     const ahora = new Date();
     const pad = (n) => String(n).padStart(2, '0');
@@ -52,12 +53,53 @@ export default function IngresoView({
     id_frente_trabajo: '', jornada: '', cantidad: 1, ley_visual: '',
   });
 
+  // Vista previa del código: próximo correlativo guardado en el sistema por
+  // frente + jornada + fecha de Extracción (así se arma el código, igual que
+  // en la bolsa de la muestra). Se consulta una vez por combinación y se vacía
+  // al registrar, para volver a pedirlo con los números ya usados.
+  const [correlativos, setCorrelativos] = useState({});
+  const claveCodigo = (f) => (f.id_frente_trabajo && f.jornada && f.fecha)
+    ? `${f.id_frente_trabajo}|${f.jornada}|${f.fecha}`
+    : null;
+  const clavesCodigo = [...new Set(formsIngresoMasivo.map(claveCodigo).filter(Boolean))].join(',');
+
+  useEffect(() => {
+    const faltantes = clavesCodigo.split(',').filter(clave => clave && !(clave in correlativos));
+    if (faltantes.length === 0) return;
+    let vigente = true;
+    Promise.all(faltantes.map(clave => {
+      const [id_frente_trabajo, jornada, fecha] = clave.split('|');
+      return dispatchService.previsualizarAcopio({ id_frente_trabajo, jornada, fecha })
+        .then(res => [clave, res?.data || null])
+        .catch(() => [clave, null]);
+    })).then(resultados => {
+      if (vigente) setCorrelativos(prev => ({ ...prev, ...Object.fromEntries(resultados) }));
+    });
+    return () => { vigente = false; };
+  }, [clavesCodigo, correlativos]);
+
+  // Código que va a quedar en una fila: el próximo del sistema + las filas de
+  // más arriba en este mismo formulario que caen en el mismo correlativo.
+  const codigoPrevio = (form, index) => {
+    const clave = claveCodigo(form);
+    const base = clave ? correlativos[clave] : null;
+    if (!base) return null;
+    const anteriores = formsIngresoMasivo.slice(0, index).filter(f => claveCodigo(f) === clave).length;
+    const [anio, mes, dia] = form.fecha.split('-');
+    return {
+      frente: base.codigo_frente,
+      fecha: `${dia}.${mes}.${anio}`,
+      correlativo: `${form.jornada}-${base.numero_jornada + anteriores}`,
+    };
+  };
+
   const [showAcopioModal, setShowAcopioModal] = useState(false);
   const [gruposDetectados, setGruposDetectados] = useState([]);
   const [dumpadasPendientes, setDumpadasPendientes] = useState([]);
   const [progressInfo, setProgressInfo] = useState({ show: false, steps: [] });
 
   const resetFormIngreso = () => {
+    setCorrelativos({});
     setFormsIngresoMasivo([{
       id: 1, id_frente_trabajo: '', jornada: '', ley_visual: '', tipo_material: 'mineral', id_maquina: '', nombre_maquina: '', id_operador: '', nombre_operador: '', ton: '', ...fechaHoraActual(),
     }]);
@@ -649,9 +691,9 @@ export default function IngresoView({
                     />
                   </div>
 
-                  {/* "Cuándo": Extracción (cuándo se tronó — casi siempre se corrige
-                      hacia atrás, el dispatcher recién ahora se entera de qué jornada
-                      salió esto) y CyT (cuándo el dumper llega a cancha con el
+                  {/* "Cuándo": Extracción (el paréntesis de la hoja de Dispatch, NO la
+                      tronadura — con esa fecha se arma el código, casi siempre se
+                      corrige hacia atrás) y CyT (cuándo el dumper llega a cancha con el
                       material — por defecto "ahora mismo") lado a lado, cada una con
                       su propio color y espacio para fecha+hora sin apretarse. */}
                   <div className="flex flex-col md:flex-row gap-3">
@@ -664,7 +706,7 @@ export default function IngresoView({
                         type="date"
                         value={form.fecha}
                         onChange={(e) => actualizarFilaIngreso(form.id, 'fecha', e.target.value)}
-                        title="Fecha en que se tronó — se autocompleta con hoy, editala si es de otra jornada/día"
+                        title="Fecha del paréntesis de la hoja, tal cual está escrita (ej: 'PM 29.09' → 29-09). No es la fecha de la tronadura. Con esta fecha se arma el código"
                         required
                         className="flex-1 min-w-[130px] px-2 py-2 border border-emerald-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-400 focus:border-transparent"
                       />
@@ -672,7 +714,7 @@ export default function IngresoView({
                         type="time"
                         value={form.hora}
                         onChange={(e) => actualizarFilaIngreso(form.id, 'hora', e.target.value)}
-                        title="Hora en que se tronó"
+                        title="Hora de la extracción (no cambia el código)"
                         required
                         className="w-24 flex-shrink-0 px-2 py-2 border border-emerald-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-emerald-400 focus:border-transparent"
                       />
@@ -701,6 +743,22 @@ export default function IngresoView({
                       />
                     </div>
                   </div>
+
+                  {codigoPrevio(form, index) && (
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg border border-orange-200 bg-orange-50/60 px-3 py-2.5">
+                      <div className="flex-shrink-0 w-28">
+                        <p className="text-xs font-bold text-orange-800">Código</p>
+                        <p className="text-[11px] text-orange-600">así va a quedar</p>
+                      </div>
+                      <span className="font-mono text-sm font-semibold text-gray-800">
+                        {codigoPrevio(form, index).frente} <span className="text-gray-500">{codigoPrevio(form, index).fecha}</span>
+                      </span>
+                      <span className="rounded-md bg-orange-500 px-2.5 py-1 font-mono text-sm font-bold text-white">
+                        {codigoPrevio(form, index).correlativo}
+                      </span>
+                      <span className="ml-auto text-[11px] text-orange-700">Revisa que sea el mismo de la bolsa de la muestra</span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Acciones fila */}

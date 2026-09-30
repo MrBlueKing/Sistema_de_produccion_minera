@@ -2076,8 +2076,8 @@ function DispatchContent() {
                             </td>
                             <td className="py-3 px-3 text-gray-800 text-xs">
                               <div className="flex flex-col">
-                                {/* Fecha del CyT (vuelta del dumper), igual que la hora; las antiguas sin CyT muestran su fecha */}
-                                <span className="font-semibold">{formatearFecha(dumpada.fecha_cyt || dumpada.fecha)}</span>
+                                {/* Fecha de Extracción (el paréntesis de la hoja, la del código); la hora de abajo es la de la vuelta del dumper (CyT) */}
+                                <span className="font-semibold">{formatearFecha(dumpada.fecha)}</span>
                                 {(dumpada.hora || dumpada.created_at) && (
                                   <span className="text-gray-500 text-[10px]">
                                     {(dumpada.hora || dumpada.created_at.split(' ')[1])?.substring(0, 5)} hrs
