@@ -281,6 +281,9 @@ Route::prefix('lotes')->group(function () {
     // Obtener lotes abiertos por planta y empresa (debe ir primero para no confundir con /{id})
     Route::get('/abiertos', [LoteController::class, 'lotesAbiertos']);
 
+    // Faenas que tienen lotes con camionadas (filtro de la pestaña Lotes de Laboratorio)
+    Route::get('/faenas', [LoteController::class, 'faenasConCamionadas']);
+
     // CRUD básico
     Route::get('/', [LoteController::class, 'index']);
     Route::post('/', [LoteController::class, 'store']);

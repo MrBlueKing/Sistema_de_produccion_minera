@@ -17,9 +17,14 @@ import CertificadosGenerados from '../components/CertificadosGenerados';
 import LotesLaboratorio from '../components/LotesLaboratorio';
 import ingenieriaService from '../../ingenieria/services/ingenieria';
 import api from '../../../core/services/api';
+import { useAuth } from '../../../core/context/AuthContext';
 
 export default function Laboratorio() {
   const toast = useToast();
+  const { hasPermission } = useAuth();
+  // La pestaña Lotes es solo para Jefe de Laboratorio y el rol "Laboratorio y
+  // Lotes" (permiso del SAC). El resto de Análisis de Muestras no la ve.
+  const puedeVerLotes = hasPermission('ver_lotes_laboratorio');
   const [faenas, setFaenas] = useState([]);
   const [dumpadas, setDumpadas] = useState([]);
   const [frentes, setFrentes] = useState([]);
@@ -1329,6 +1334,7 @@ export default function Laboratorio() {
                 <HiDocumentArrowDown className="w-4 h-4" />
                 Certificados
               </button>
+              {puedeVerLotes && (
               <button
                 onClick={() => handleCambiarVista('lotes')}
                 disabled={loading}
@@ -1341,6 +1347,7 @@ export default function Laboratorio() {
                 <HiCube className="w-4 h-4" />
                 Lotes
               </button>
+              )}
             </nav>
           </div>
         </div>
@@ -1388,7 +1395,7 @@ export default function Laboratorio() {
         {/* Listado */}
         {vistaActual === 'certificados' ? (
           <CertificadosGenerados idFaena={filters.id_faena} />
-        ) : vistaActual === 'lotes' ? (
+        ) : vistaActual === 'lotes' && puedeVerLotes ? (
           <LotesLaboratorio />
         ) : (
         <Card className={`border-l-4 ${vistaActual === 'pendientes' ? 'border-orange-400' : 'border-green-400'}`}>

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { HiCube, HiTruck, HiClipboardDocumentList, HiXMark, HiArrowRight } from 'react-icons/hi2';
+import { HiCube, HiTruck, HiClipboardDocumentList, HiXMark, HiArrowRight, HiEye, HiScale, HiBeaker, HiCalendarDays } from 'react-icons/hi2';
 import Card from '../../../shared/components/atoms/Card';
 import NumeroInput from '../../../shared/components/atoms/NumeroInput';
 import Pagination from '../../../shared/components/molecules/Pagination';
@@ -8,6 +8,9 @@ import useToast from '../../../hooks/useToast';
 import lotesMaestrosService from '../../../services/laboratorio';
 import extraerMensajeError from '../../../core/services/apiError';
 import { useAuth } from '../../../core/context/AuthContext';
+import faenaService from '../../../services/faenaService';
+
+const filtrosIniciales = () => ({ id_faena: '', planta_id: '', empresa_id: '', fecha_desde: '', fecha_hasta: '' });
 
 const formatearFecha = (fecha) => {
   if (!fecha) return '-';
@@ -166,6 +169,203 @@ function CampoLey({ label, value, onChange, onSave, saving, fecha, disabled }) {
   );
 }
 
+// Fechas 'YYYY-MM-DD' de la camionada: se formatean como texto para no correr el
+// día por zona horaria (new Date('2026-09-23') es medianoche UTC = 22-09 en Chile).
+const fechaTexto = (s) => (s ? String(s).slice(0, 10).split('-').reverse().join('-') : '');
+const horaTexto = (s) => (s ? String(s).slice(0, 5) : '');
+const pct = (v) => (v == null ? '' : `${Number(v).toFixed(2).replace('.', ',')}%`);
+const toneladas = (v) => Number(v).toFixed(2).replace('.', ',');
+
+// Detalle de un lote con sus camionadas, con los mismos datos de la planilla de
+// Laboratorio: peso real de recepción (o el de despacho si aún no llega) y
+// leyes promedio ponderadas por ese peso.
+function CamionadasLoteModal({ lote, onClose }) {
+  const toast = useToast();
+  const [detalle, setDetalle] = useState(null);
+
+  useEffect(() => {
+    let activo = true;
+    lotesMaestrosService.getLote(lote.id)
+      .then((data) => { if (activo) setDetalle(data); })
+      .catch(async (error) => {
+        if (!activo) return;
+        toast.error('Error al cargar el lote', await extraerMensajeError(error, 'No se pudo cargar el detalle'));
+        onClose();
+      });
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => { activo = false; window.removeEventListener('keydown', onKey); };
+  }, [lote.id]);
+
+  const info = detalle || lote;
+  const filas = [...(detalle?.camionadas || [])]
+    .sort((a, b) => (a.numero_camionada || 0) - (b.numero_camionada || 0))
+    .map((c) => {
+      const pesoReal = numOrNull(c.peso_real);
+      return { ...c, pesoMostrado: pesoReal ?? numOrNull(c.peso), esDespacho: pesoReal == null, recibida: !!c.fecha_recepcion };
+    });
+  const pesoTotal = filas.reduce((s, c) => s + (c.pesoMostrado || 0), 0);
+  const promedio = (campo) => {
+    const conLey = filas.filter((c) => numOrNull(c[campo]) != null && c.pesoMostrado);
+    const peso = conLey.reduce((s, c) => s + c.pesoMostrado, 0);
+    return peso ? conLey.reduce((s, c) => s + parseFloat(c[campo]) * c.pesoMostrado, 0) / peso : null;
+  };
+  const recibidas = filas.filter((c) => c.recibida).length;
+  const hayDespacho = filas.some((c) => c.esDespacho);
+  const estadoLote = info.estado || null;
+
+  const kpis = [
+    { icon: HiTruck, label: 'Camionadas', valor: filas.length, sub: `${recibidas} recibida${recibidas !== 1 ? 's' : ''}`, tono: 'text-blue-700 bg-blue-50 border-blue-100' },
+    { icon: HiScale, label: 'Peso total', valor: `${toneladas(pesoTotal)} t`, sub: hayDespacho ? 'incluye peso de despacho' : 'peso real de recepción', tono: 'text-gray-800 bg-gray-50 border-gray-200' },
+    { icon: HiBeaker, label: 'Ley mezcla', valor: pct(promedio('ley_mezcla')) || '—', sub: 'promedio ponderado', tono: 'text-orange-700 bg-orange-50 border-orange-100' },
+    { icon: HiEye, label: 'Ley visual', valor: pct(promedio('ley_visual')) || '—', sub: 'promedio ponderado', tono: 'text-teal-700 bg-teal-50 border-teal-100' },
+  ];
+
+  return (
+    <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-[2px] flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[90vh] flex flex-col overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Detalle del lote ${info.numero_lote}`}
+      >
+        {/* Encabezado */}
+        <div className="bg-gradient-to-r from-blue-700 to-blue-600 px-6 py-5 text-white">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-widest text-blue-100">Detalle del lote</p>
+              <div className="flex items-center gap-3 flex-wrap mt-1">
+                <h3 className="text-3xl font-extrabold font-mono tracking-tight">{info.numero_lote}</h3>
+                {estadoLote && (
+                  <span className={`px-2.5 py-0.5 rounded-full text-xs font-bold ${estadoLote === 'Completado' ? 'bg-emerald-400/20 text-emerald-100 ring-1 ring-emerald-300/40' : 'bg-amber-400/20 text-amber-100 ring-1 ring-amber-300/40'}`}>
+                    {estadoLote === 'Completado' ? 'Cerrado' : estadoLote}
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-sm text-blue-50">
+                <span><span className="text-blue-200">Planta</span> {info.planta?.nombre || info.planta_nombre || '-'}</span>
+                <span><span className="text-blue-200">Empresa</span> {info.empresa?.nombre || info.empresa_nombre || '-'}</span>
+                <span className="inline-flex items-center gap-1">
+                  <HiCalendarDays className="w-4 h-4 text-blue-200" />
+                  {fechaTexto(info.fecha_creacion) || '-'}
+                  {info.fecha_cierre && <> <HiArrowRight className="w-3 h-3 text-blue-200" /> {fechaTexto(info.fecha_cierre)}</>}
+                </span>
+              </div>
+            </div>
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-lg text-blue-100 hover:text-white hover:bg-white/10 transition-colors"
+              aria-label="Cerrar"
+            >
+              <HiXMark className="w-6 h-6" />
+            </button>
+          </div>
+        </div>
+
+        <div className="p-6 overflow-y-auto space-y-5">
+          {detalle === null ? (
+            <div className="text-center py-14">
+              <div className="animate-spin rounded-full h-10 w-10 border-4 border-blue-200 border-t-blue-600 mx-auto" />
+              <p className="text-gray-500 mt-3 text-sm">Cargando camionadas…</p>
+            </div>
+          ) : filas.length === 0 ? (
+            <div className="text-center py-14">
+              <HiTruck className="w-14 h-14 text-gray-300 mx-auto mb-3" />
+              <p className="text-gray-600 font-medium">Este lote no tiene camionadas.</p>
+            </div>
+          ) : (
+            <>
+              {/* Indicadores */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                {kpis.map((k) => (
+                  <div key={k.label} className={`rounded-xl border px-4 py-3 ${k.tono}`}>
+                    <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide opacity-80">
+                      <k.icon className="w-4 h-4" /> {k.label}
+                    </div>
+                    <p className="text-2xl font-bold tabular-nums mt-1">{k.valor}</p>
+                    <p className="text-[11px] text-gray-500 mt-0.5">{k.sub}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Camionadas */}
+              <div className="overflow-x-auto rounded-xl border border-gray-200">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 text-gray-500 text-[11px] uppercase tracking-wider border-b border-gray-200">
+                      <th className="py-3 px-3 text-center font-semibold">N°</th>
+                      <th className="py-3 px-3 text-left font-semibold">Ticket</th>
+                      <th className="py-3 px-3 text-left font-semibold">Patente</th>
+                      <th className="py-3 px-3 text-left font-semibold">Despacho</th>
+                      <th className="py-3 px-3 text-left font-semibold">Recepción</th>
+                      <th className="py-3 px-3 text-right font-semibold">Peso (t)</th>
+                      <th className="py-3 px-3 text-right font-semibold">Ley mezcla</th>
+                      <th className="py-3 px-3 text-right font-semibold">Ley visual</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filas.map((c, i) => (
+                      <tr key={c.id} className={`${i % 2 ? 'bg-gray-50/60' : 'bg-white'} hover:bg-blue-50/60 transition-colors`}>
+                        <td className="py-2.5 px-3 text-center">
+                          <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-blue-100 text-blue-700 text-xs font-bold">
+                            {c.numero_camionada}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 font-mono text-gray-700">{c.ticket || <span className="text-gray-300">—</span>}</td>
+                        <td className="py-2.5 px-3">
+                          <span className="inline-block px-2 py-0.5 rounded-md border-2 border-gray-300 bg-white font-mono font-bold text-gray-800 text-xs tracking-wider">
+                            {c.patente || '-'}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 tabular-nums text-gray-700">{fechaTexto(c.fecha_despacho) || '-'}</td>
+                        <td className="py-2.5 px-3 tabular-nums">
+                          {c.recibida ? (
+                            <span className="inline-flex items-center gap-1.5 text-gray-700">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                              {fechaTexto(c.fecha_recepcion)}
+                              {c.hora_recepcion && <span className="text-gray-400 text-xs">{horaTexto(c.hora_recepcion)}</span>}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" /> En tránsito
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3 text-right tabular-nums font-semibold text-gray-900">
+                          {c.pesoMostrado != null ? toneladas(c.pesoMostrado) : '-'}
+                          {c.esDespacho && c.pesoMostrado != null && <span className="text-amber-600 font-bold">*</span>}
+                        </td>
+                        <td className="py-2.5 px-3 text-right tabular-nums font-semibold text-orange-700">{pct(c.ley_mezcla) || <span className="text-gray-300">—</span>}</td>
+                        <td className="py-2.5 px-3 text-right tabular-nums font-semibold text-teal-700">{pct(c.ley_visual) || <span className="text-gray-300">—</span>}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-blue-50 border-t-2 border-blue-200 font-bold">
+                      <td colSpan={5} className="py-3 px-3 text-right text-xs uppercase tracking-wide text-blue-700">
+                        Total · {filas.length} camionada{filas.length !== 1 ? 's' : ''}
+                      </td>
+                      <td className="py-3 px-3 text-right tabular-nums text-gray-900">{toneladas(pesoTotal)}</td>
+                      <td className="py-3 px-3 text-right tabular-nums text-orange-700">{pct(promedio('ley_mezcla')) || '—'}</td>
+                      <td className="py-3 px-3 text-right tabular-nums text-teal-700">{pct(promedio('ley_visual')) || '—'}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+              {hayDespacho && (
+                <p className="text-xs text-gray-500">
+                  <span className="text-amber-600 font-bold">*</span> Camionada sin recepción: se muestra el peso de despacho.
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function LotesLaboratorio() {
   const toast = useToast();
   const { hasPermission } = useAuth();
@@ -179,6 +379,7 @@ export default function LotesLaboratorio() {
   const [plantas, setPlantas] = useState([]);
   const [empresas, setEmpresas] = useState([]);
   const [verModal, setVerModal] = useState({ show: false, lote: null });
+  const [camionadasLote, setCamionadasLote] = useState(null);
   const [form, setForm] = useState({
     ley_paquete_segunda: '',
     ley_paquete_segunda_prima: '',
@@ -196,17 +397,26 @@ export default function LotesLaboratorio() {
 
   // Filtros
   const [searchTerm, setSearchTerm] = useState('');
-  const [filters, setFilters] = useState({
-    planta_id: '',
-    empresa_id: '',
-    fecha_desde: '',
-    fecha_hasta: '',
-  });
+  const [filters, setFilters] = useState(filtrosIniciales);
+  const [faenas, setFaenas] = useState([]);
   const debouncedSearchTerm = useDebounce(searchTerm, 500);
 
   useEffect(() => {
     lotesMaestrosService.getPlantas().then(setPlantas).catch(() => setPlantas([]));
     lotesMaestrosService.getEmpresas().then(setEmpresas).catch(() => setEmpresas([]));
+    // Solo las faenas que tienen lotes con camionadas; el nombre viene del SAC (campo ubicacion)
+    Promise.all([
+      lotesMaestrosService.getFaenasConLotes(),
+      faenaService.getFaenas().catch(() => ({ data: [] })),
+    ])
+      .then(([ids, r]) => {
+        const sac = r?.data || [];
+        setFaenas(ids.map((id) => {
+          const f = sac.find((x) => Number(x.id) === Number(id));
+          return { id, nombre: f?.ubicacion || f?.nombre || `Faena ${id}` };
+        }));
+      })
+      .catch(() => setFaenas([]));
   }, []);
 
   const cargar = useCallback(async () => {
@@ -217,6 +427,7 @@ export default function LotesLaboratorio() {
         page: currentPage,
         per_page: perPage,
         search: debouncedSearchTerm || undefined,
+        id_faena: filters.id_faena || undefined,
         planta_id: filters.planta_id || undefined,
         empresa_id: filters.empresa_id || undefined,
         fecha_desde: filters.fecha_desde || undefined,
@@ -252,7 +463,7 @@ export default function LotesLaboratorio() {
 
   const handleClearFilters = () => {
     setSearchTerm('');
-    setFilters({ planta_id: '', empresa_id: '', fecha_desde: '', fecha_hasta: '' });
+    setFilters(filtrosIniciales());
     setCurrentPage(1);
   };
 
@@ -350,6 +561,28 @@ export default function LotesLaboratorio() {
             className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
           />
         </div>
+
+        {/* Pills faena */}
+        {faenas.length > 1 && (
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide w-16 shrink-0">Faena</span>
+            <button
+              onClick={() => handleFilterChange('id_faena', '')}
+              className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${!filters.id_faena ? 'bg-gray-700 text-white border-gray-700' : 'bg-white text-gray-600 border-gray-300 hover:border-gray-500'}`}
+            >
+              Todas
+            </button>
+            {faenas.map((f) => (
+              <button
+                key={f.id}
+                onClick={() => handleFilterChange('id_faena', filters.id_faena === String(f.id) ? '' : String(f.id))}
+                className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${filters.id_faena === String(f.id) ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-emerald-700 border-emerald-200 hover:border-emerald-500'}`}
+              >
+                {f.nombre}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Pills planta */}
         <div className="flex flex-wrap items-center gap-2">
@@ -465,6 +698,7 @@ export default function LotesLaboratorio() {
                     <th className="py-3 px-4 text-center font-semibold">Acción</th>
                   </>
                 )}
+                <th className="py-3 px-4 text-center font-semibold">Detalle</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -477,16 +711,26 @@ export default function LotesLaboratorio() {
                   : null;
                 const diasSinAvance = !tieneProgreso ? diasDesde(cierreValido || l.fecha_creacion) : null;
                 return (
-                <tr key={l.id} className="hover:bg-purple-50/50 transition-colors">
+                <tr
+                  key={l.id}
+                  onClick={() => setCamionadasLote(l)}
+                  title="Ver detalle del lote"
+                  className="hover:bg-blue-50/60 transition-colors cursor-pointer"
+                >
                   <td className="py-2.5 px-4">
                     <span className="font-mono font-bold text-gray-900">{l.numero_lote}</span>
                   </td>
                   <td className="py-2.5 px-4 text-gray-700 text-xs">{l.planta?.nombre || l.planta_nombre || '-'}</td>
                   <td className="py-2.5 px-4 text-gray-700 text-xs">{l.empresa?.nombre || l.empresa_nombre || '-'}</td>
                   <td className="py-2.5 px-4 text-center">
-                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-full">
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setCamionadasLote(l); }}
+                      title="Ver camionadas del lote"
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-100 hover:border-blue-300 px-2 py-0.5 rounded-full transition-colors"
+                    >
                       <HiTruck className="w-3 h-3" />{l.numero_camionadas || 0}
-                    </span>
+                    </button>
                   </td>
                   <td className="py-2.5 px-4 text-right font-bold tabular-nums text-gray-800">
                     {parseFloat(l.peso_total || 0).toFixed(2)} <span className="text-gray-400 font-normal text-xs">t</span>
@@ -522,7 +766,7 @@ export default function LotesLaboratorio() {
                       </td>
                       <td className="py-2.5 px-4 text-center">
                         <button
-                          onClick={() => abrirVerModal(l)}
+                          onClick={(e) => { e.stopPropagation(); abrirVerModal(l); }}
                           className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold bg-purple-600 hover:bg-purple-700 text-white transition-colors"
                         >
                           <HiClipboardDocumentList className="w-3.5 h-3.5" /> Gestionar Leyes
@@ -530,6 +774,15 @@ export default function LotesLaboratorio() {
                       </td>
                     </>
                   )}
+                  <td className="py-2.5 px-4 text-center">
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); setCamionadasLote(l); }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 hover:border-blue-400 transition-colors whitespace-nowrap"
+                    >
+                      <HiEye className="w-4 h-4" /> Ver detalle
+                    </button>
+                  </td>
                 </tr>
                 );
               })}
@@ -549,6 +802,10 @@ export default function LotesLaboratorio() {
       )}
 
       {/* Modal "Ver" — reconciliación de leyes del lote */}
+      {camionadasLote && (
+        <CamionadasLoteModal lote={camionadasLote} onClose={() => setCamionadasLote(null)} />
+      )}
+
       {verModal.show && lote && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-y-auto">

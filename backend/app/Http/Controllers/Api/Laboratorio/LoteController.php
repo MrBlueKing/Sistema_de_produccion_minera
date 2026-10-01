@@ -35,6 +35,17 @@ class LoteController extends Controller
     }
 
     /**
+     * Pestaña Lotes de Laboratorio: quien tiene este permiso del SAC (Jefe de
+     * Laboratorio y "Laboratorio y Lotes") ve los lotes de todas las faenas,
+     * porque Laboratorio analiza las muestras de todas.
+     */
+    private function veTodasLasFaenas(Request $request): bool
+    {
+        return $this->esUsuarioGlobal($request)
+            || in_array('ver_lotes_laboratorio', $request->input('auth_permisos') ?? []);
+    }
+
+    /**
      * Listar todos los lotes con paginación y búsqueda
      * GET /api/dispatch/lotes
      *
@@ -53,7 +64,7 @@ class LoteController extends Controller
         $query = Lote::with(['planta', 'empresa', 'camionadas.mezclas', 'camionadas.puntoTransbordo']);
 
         // ✅ MULTI-FAENA: Filtrar por faena del usuario si no es global
-        if (!$this->esUsuarioGlobal($request)) {
+        if (!$this->veTodasLasFaenas($request)) {
             $query->where('id_faena', $request->auth_faena);
         }
 
@@ -84,6 +95,12 @@ class LoteController extends Controller
             // Admite una o varias empresas separadas por coma (selector multi en el frontend)
             $empresaIds = array_filter(explode(',', $request->empresa_id));
             $query->whereIn('empresa_id', $empresaIds);
+        }
+
+        // Filtro por faena elegido en pantalla (pestaña Lotes de Laboratorio).
+        // Para usuarios de una sola faena se suma al filtro de arriba.
+        if ($request->filled('id_faena')) {
+            $query->where('id_faena', $request->id_faena);
         }
 
         if ($request->has('estado') && !empty($request->estado)) {
@@ -763,6 +780,25 @@ class LoteController extends Controller
         return response()->json([
             'lote'       => $loteData,
             'camionadas' => $camionadas,
+        ]);
+    }
+
+    /**
+     * Ids de las faenas que tienen al menos un lote con camionadas, para el
+     * filtro por faena de la pestaña Lotes de Laboratorio. El nombre lo pone
+     * el frontend con la lista de faenas del SAC.
+     * GET /api/dispatch/lotes/faenas
+     */
+    public function faenasConCamionadas(Request $request)
+    {
+        $query = Lote::whereHas('camionadas');
+
+        if (!$this->veTodasLasFaenas($request)) {
+            $query->where('id_faena', $request->auth_faena);
+        }
+
+        return response()->json([
+            'data' => $query->distinct()->orderBy('id_faena')->pluck('id_faena')->filter()->values(),
         ]);
     }
 

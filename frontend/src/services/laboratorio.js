@@ -59,6 +59,12 @@ class LaboratorioService {
     return response.data;
   }
 
+  // Ids de faenas que tienen lotes con camionadas
+  async getFaenasConLotes() {
+    const response = await api.get('/dispatch/lotes/faenas');
+    return response.data?.data || [];
+  }
+
   async getLote(id) {
     const response = await api.get(`/dispatch/lotes/${id}`);
     return response.data;
