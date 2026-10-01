@@ -44,6 +44,13 @@ const ESTADO_LAB_BADGE = {
   'Resuelto por Tercero': 'bg-teal-50 text-teal-700 border-teal-200',
 };
 
+// Apertura = cuando el lote recibió su número (con hora). Los lotes importados
+// con fecha anterior quedaron sin hora (00:00), en ese caso se muestra solo el día.
+const fechaApertura = (l) => {
+  const t = formatearFechaHora(l?.fecha_apertura);
+  return t ? t.replace(/ 00:00$/, '') : null;
+};
+
 const vacioSiNulo = (v) => (v === null || v === undefined ? '' : String(v));
 const numOrNull = (v) => (v === null || v === undefined || v === '' ? null : parseFloat(v));
 
@@ -130,7 +137,7 @@ function LineaDeTiempoFechas({ items }) {
             )}
           </div>
           <span className={`text-xs tabular-nums ${item.esLey ? 'font-semibold text-gray-800' : 'text-gray-400'}`}>
-            {formatearFecha(item.fecha)}
+            {item.texto || formatearFecha(item.fecha)}
           </span>
           <span className={`text-xs ${item.esLey ? 'text-gray-500' : 'text-gray-300'}`}>{item.label}</span>
         </div>
@@ -248,8 +255,9 @@ function CamionadasLoteModal({ lote, onClose }) {
                 <span><span className="text-blue-200">Empresa</span> {info.empresa?.nombre || info.empresa_nombre || '-'}</span>
                 <span className="inline-flex items-center gap-1">
                   <HiCalendarDays className="w-4 h-4 text-blue-200" />
-                  {fechaTexto(info.fecha_creacion) || '-'}
-                  {info.fecha_cierre && <> <HiArrowRight className="w-3 h-3 text-blue-200" /> {fechaTexto(info.fecha_cierre)}</>}
+                  <span className="text-blue-200">Apertura</span> {fechaApertura(info) || '-'}
+                  <HiArrowRight className="w-3 h-3 text-blue-200" />
+                  <span className="text-blue-200">Cierre</span> {info.fecha_cierre ? fechaTexto(info.fecha_cierre) : '—'}
                 </span>
               </div>
             </div>
@@ -706,11 +714,15 @@ export default function LotesLaboratorio() {
             <thead>
               <tr className="bg-gradient-to-r from-gray-800 to-gray-700 text-white text-xs uppercase tracking-wider">
                 <th className="py-3 px-4 text-left font-semibold">N° Lote</th>
+                <th className="py-3 px-4 text-left font-semibold">Estado</th>
                 <th className="py-3 px-4 text-left font-semibold">Planta</th>
                 <th className="py-3 px-4 text-left font-semibold">Empresa</th>
                 <th className="py-3 px-4 text-center font-semibold">Cam.</th>
                 <th className="py-3 px-4 text-right font-semibold">Peso Total</th>
                 <th className="py-3 px-4 text-center font-semibold">Ley Mezcla</th>
+                {!puedeGestionarLeyes && (
+                  <th className="py-3 px-4 text-left font-semibold">Apertura / Cierre</th>
+                )}
                 {puedeGestionarLeyes && (
                   <>
                     <th className="py-3 px-4 text-left font-semibold">Fecha</th>
@@ -735,12 +747,16 @@ export default function LotesLaboratorio() {
                   key={l.id}
                   onClick={() => setCamionadasLote(l)}
                   title="Ver detalle del lote"
-                  className="hover:bg-blue-50/60 transition-colors cursor-pointer"
+                  className={`transition-colors cursor-pointer ${l.estado === 'Abierto' ? 'bg-amber-50/70 hover:bg-amber-100/70' : 'hover:bg-blue-50/60'}`}
                 >
                   <td className="py-2.5 px-4">
                     <span className="font-mono font-bold text-gray-900">{l.numero_lote}</span>
-                    {l.estado === 'Abierto' && (
-                      <span className="ml-2 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200 align-middle">Abierto</span>
+                  </td>
+                  <td className="py-2.5 px-4">
+                    {l.estado === 'Abierto' ? (
+                      <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-amber-100 text-amber-800 border-amber-300">Abierto</span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold border bg-gray-100 text-gray-600 border-gray-200">Cerrado</span>
                     )}
                   </td>
                   <td className="py-2.5 px-4 text-gray-700 text-xs">{l.planta?.nombre || l.planta_nombre || '-'}</td>
@@ -763,15 +779,21 @@ export default function LotesLaboratorio() {
                       ? <span className="tabular-nums font-semibold text-orange-700">{Number(l.ley_lote_promedio).toFixed(3)}%</span>
                       : <span className="text-gray-300 text-xs">—</span>}
                   </td>
+                  {!puedeGestionarLeyes && (
+                    <td className="py-2.5 px-4 text-xs tabular-nums whitespace-nowrap">
+                      <span className="block text-gray-700"><span className="text-gray-400">Apertura</span> {fechaApertura(l) || '—'}</span>
+                      <span className="block text-gray-700"><span className="text-gray-400">Cierre</span> {cierreValido ? formatearFecha(cierreValido) : <span className="text-gray-400">—</span>}</span>
+                    </td>
+                  )}
                   {puedeGestionarLeyes && (
                     <>
                       <td className="py-2.5 px-4">
                         {!tieneProgreso && !cierreValido ? (
-                          <span className="text-xs text-gray-500 tabular-nums">{formatearFecha(l.fecha_creacion)}</span>
+                          <span className="text-xs text-gray-500 tabular-nums">{fechaApertura(l) || formatearFecha(l.fecha_creacion)}</span>
                         ) : (
                           <LineaDeTiempoFechas
                             items={[
-                              { label: 'Apertura', fecha: l.fecha_creacion, esLey: false },
+                              { label: 'Apertura', fecha: l.fecha_apertura || l.fecha_creacion, texto: fechaApertura(l), esLey: false },
                               ...(cierreValido ? [{ label: 'Cierre', fecha: cierreValido, esLey: false }] : []),
                               ...etapas.filter((e) => e.fecha).map((e) => ({ label: e.short, fecha: e.fecha, esLey: true })),
                             ]}
@@ -783,7 +805,7 @@ export default function LotesLaboratorio() {
                       </td>
                       <td className="py-2.5 px-4">
                         {l.estado === 'Abierto' ? (
-                          <span className="text-xs text-gray-400">Lote aún abierto</span>
+                          <span className="text-gray-400">—</span>
                         ) : (
                           <>
                             <span className={`inline-block ${tieneProgreso ? 'mb-1.5' : ''} px-2 py-0.5 rounded-full text-[11px] font-semibold border whitespace-nowrap ${ESTADO_LAB_BADGE[l.estado_laboratorio] || ESTADO_LAB_BADGE['Cerrado']}`}>

@@ -49,6 +49,7 @@ class Lote extends Model
 
     protected $casts = [
         'fecha_creacion' => 'date',
+        'fecha_apertura' => 'datetime',
         'fecha_estimada_llegada' => 'date',
         'fecha_cierre' => 'date',
         'ley_paquete_primera' => 'float',
@@ -73,6 +74,25 @@ class Lote extends Model
         'pago_monto' => 'float',
         'fecha_pago' => 'datetime',
     ];
+
+    /**
+     * Apertura del lote = momento en que recibe su número de lote (al crearlo ya
+     * numerado, al editarlo o al importarlo). Si se le quita el número vuelve a
+     * quedar sin apertura, y se registra de nuevo cuando lo reciba.
+     */
+    protected static function booted(): void
+    {
+        static::saving(function (Lote $lote) {
+            $tieneNumero = trim((string) $lote->numero_lote) !== '';
+            $teniaNumero = trim((string) $lote->getOriginal('numero_lote')) !== '';
+
+            if (!$tieneNumero) {
+                $lote->fecha_apertura = null;
+            } elseif (!$teniaNumero || !$lote->fecha_apertura) {
+                $lote->fecha_apertura = now();
+            }
+        });
+    }
 
     // Estados del lote (Dispatch)
     const ESTADO_ABIERTO = 'Abierto';
