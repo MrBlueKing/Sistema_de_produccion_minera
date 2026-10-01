@@ -107,6 +107,16 @@ class LoteController extends Controller
             $query->where('estado', $request->estado);
         }
 
+        // Pestaña Lotes de Laboratorio: un lote abierto solo cuenta si ya tiene número de lote
+        if ($request->boolean('abiertos_con_numero')) {
+            $query->where(function ($q) {
+                $q->where('estado', '!=', Lote::ESTADO_ABIERTO)
+                  ->orWhere(function ($q2) {
+                      $q2->whereNotNull('numero_lote')->where('numero_lote', '!=', '');
+                  });
+            });
+        }
+
         // Filtro por estado_laboratorio: acepta uno o varios separados por coma
         // (usado por el apartado comercial de Gerencial, para no traer lotes
         // que todavia ni siquiera tienen Ley Paquete Segunda cargada).

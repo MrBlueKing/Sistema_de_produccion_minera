@@ -10,7 +10,7 @@ import extraerMensajeError from '../../../core/services/apiError';
 import { useAuth } from '../../../core/context/AuthContext';
 import faenaService from '../../../services/faenaService';
 
-const filtrosIniciales = () => ({ id_faena: '', planta_id: '', empresa_id: '', fecha_desde: '', fecha_hasta: '' });
+const filtrosIniciales = () => ({ estado: '', id_faena: '', planta_id: '', empresa_id: '', fecha_desde: '', fecha_hasta: '' });
 
 const formatearFecha = (fecha) => {
   if (!fecha) return '-';
@@ -423,7 +423,9 @@ export default function LotesLaboratorio() {
     setLoading(true);
     try {
       const params = {
-        estado: 'Completado',
+        // Cerrados + abiertos que ya tienen número de lote (los abiertos sin número no se muestran)
+        estado: filters.estado || undefined,
+        abiertos_con_numero: 1,
         page: currentPage,
         per_page: perPage,
         search: debouncedSearchTerm || undefined,
@@ -560,6 +562,24 @@ export default function LotesLaboratorio() {
             placeholder="Número de lote, planta, empresa..."
             className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent"
           />
+        </div>
+
+        {/* Pills estado del lote */}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide w-16 shrink-0">Estado</span>
+          {[
+            { val: '', label: 'Todos', on: 'bg-gray-700 text-white border-gray-700', off: 'bg-white text-gray-600 border-gray-300 hover:border-gray-500' },
+            { val: 'Abierto', label: 'Abiertos', on: 'bg-amber-500 text-white border-amber-500', off: 'bg-white text-amber-700 border-amber-200 hover:border-amber-500' },
+            { val: 'Completado', label: 'Cerrados', on: 'bg-gray-700 text-white border-gray-700', off: 'bg-white text-gray-600 border-gray-300 hover:border-gray-500' },
+          ].map((o) => (
+            <button
+              key={o.label}
+              onClick={() => handleFilterChange('estado', o.val)}
+              className={`px-3 py-1 rounded-full text-xs font-semibold border transition-all ${filters.estado === o.val ? o.on : o.off}`}
+            >
+              {o.label}
+            </button>
+          ))}
         </div>
 
         {/* Pills faena */}
@@ -719,6 +739,9 @@ export default function LotesLaboratorio() {
                 >
                   <td className="py-2.5 px-4">
                     <span className="font-mono font-bold text-gray-900">{l.numero_lote}</span>
+                    {l.estado === 'Abierto' && (
+                      <span className="ml-2 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200 align-middle">Abierto</span>
+                    )}
                   </td>
                   <td className="py-2.5 px-4 text-gray-700 text-xs">{l.planta?.nombre || l.planta_nombre || '-'}</td>
                   <td className="py-2.5 px-4 text-gray-700 text-xs">{l.empresa?.nombre || l.empresa_nombre || '-'}</td>
@@ -759,18 +782,26 @@ export default function LotesLaboratorio() {
                         )}
                       </td>
                       <td className="py-2.5 px-4">
-                        <span className={`inline-block ${tieneProgreso ? 'mb-1.5' : ''} px-2 py-0.5 rounded-full text-[11px] font-semibold border whitespace-nowrap ${ESTADO_LAB_BADGE[l.estado_laboratorio] || ESTADO_LAB_BADGE['Cerrado']}`}>
-                          {l.estado_laboratorio || 'Cerrado'}
-                        </span>
-                        {tieneProgreso && <StepperLeyesLab etapas={etapas} />}
+                        {l.estado === 'Abierto' ? (
+                          <span className="text-xs text-gray-400">Lote aún abierto</span>
+                        ) : (
+                          <>
+                            <span className={`inline-block ${tieneProgreso ? 'mb-1.5' : ''} px-2 py-0.5 rounded-full text-[11px] font-semibold border whitespace-nowrap ${ESTADO_LAB_BADGE[l.estado_laboratorio] || ESTADO_LAB_BADGE['Cerrado']}`}>
+                              {l.estado_laboratorio || 'Cerrado'}
+                            </span>
+                            {tieneProgreso && <StepperLeyesLab etapas={etapas} />}
+                          </>
+                        )}
                       </td>
                       <td className="py-2.5 px-4 text-center">
+                        {l.estado !== 'Abierto' && (
                         <button
                           onClick={(e) => { e.stopPropagation(); abrirVerModal(l); }}
                           className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-semibold bg-purple-600 hover:bg-purple-700 text-white transition-colors"
                         >
                           <HiClipboardDocumentList className="w-3.5 h-3.5" /> Gestionar Leyes
                         </button>
+                        )}
                       </td>
                     </>
                   )}
