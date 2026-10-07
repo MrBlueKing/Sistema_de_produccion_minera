@@ -41,6 +41,11 @@ const gerencialService = {
     return response.data;
   },
 
+  getCiclosDumper: async (params = {}, signal) => {
+    const response = await api.get('/gerencial/ciclos-dumper', { params, signal });
+    return response.data;
+  },
+
   getLote: async (id) => {
     const response = await api.get(`/gerencial/lotes/${id}`);
     return response.data;

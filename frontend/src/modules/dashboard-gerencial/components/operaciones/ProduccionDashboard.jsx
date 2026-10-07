@@ -16,6 +16,7 @@ import {
 import { FaIndustry, FaMountain } from 'react-icons/fa';
 import ReconstruccionLote from './ReconstruccionLote';
 import PerforacionTronaduraDashboard from '../../../explosivos/components/PerforacionTronaduraDashboard';
+import CiclosDumper from './CiclosDumper';
 import InfoPopover from '../../../../shared/components/molecules/InfoPopover';
 import { CATEGORICAL, crearAsignadorDeFrentes } from '../../utils/chartColors';
 import useDebounce from '../../../../hooks/useDebounce';
@@ -425,6 +426,13 @@ export const ProduccionCompleta = () => {
   const [dumpLoading, setDumpLoading]       = useState(false);
   const [dumpMetrica, setDumpMetrica]       = useState('toneladas'); // 'toneladas' | 'cantidad'
   const [dumpJornada, setDumpJornada]       = useState('Todos'); // 'Todos' | 'AM' | 'PM' | 'Madrugada' | 'Noche' — filtro instantáneo, sin recargar
+  // Interruptor "Contar por": 'cyt' (día en que llegó a cancha, por defecto) |
+  // 'extraccion' (fecha de Extracción). Se recuerda por navegador. El ref lo lee
+  // cargarDumpDiarias, que también se llama desde los efectos de fecha/faena.
+  const [dumpContarPor, setDumpContarPor] = useState(() => {
+    try { return localStorage.getItem('avanceDiario.contarPor') === 'extraccion' ? 'extraccion' : 'cyt'; } catch { return 'cyt'; }
+  });
+  const contarPorRef = useRef(dumpContarPor);
   const [dumpAgrupacion, setDumpAgrupacion] = useState('frente'); // 'frente' (nombre completo, default) | 'grupo' (túnel/manto) | 'jornada' — qué apila/colorea la barra
   // Detalle completo al hacer clic en un segmento de "Avance Diario por Frente"
   // (no en el tooltip de hover — con muchos frentes esa lista no entra ni se
@@ -439,6 +447,13 @@ export const ProduccionCompleta = () => {
   const [resumenDumpadasLoading, setResumenDumpadasLoading] = useState(false);
   const [perforacion, setPerforacion] = useState(null);
   const [perforacionLoading, setPerforacionLoading] = useState(false);
+  const [ciclos, setCiclos] = useState(null);
+  const [ciclosLoading, setCiclosLoading] = useState(false);
+  // "Ciclos del Dumper" navega por mes (YYYY-MM), parte en el mes en curso.
+  const [mesCiclos, setMesCiclos] = useState(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
   // Detalle desplegable de "Por Empresa y Planta": qué filas (empresa|||planta)
   // están expandidas ahora mismo (pueden ser varias a la vez, cada una con su
   // propio fetch independiente) y los lotes que le corresponden a cada una
@@ -524,6 +539,7 @@ export const ProduccionCompleta = () => {
   const genLotesRef = useRef(0);
   const genResumenDumpadasRef = useRef(0);
   const genResumenTirosRef = useRef(0);
+  const genCiclosRef = useRef(0);
 
   // Un AbortController por sección: al arrancar una carga nueva, se cancela
   // la anterior en vez de dejarla terminar sola — así el servidor local (de
@@ -535,6 +551,7 @@ export const ProduccionCompleta = () => {
   const abortLotesRef = useRef(null);
   const abortResumenDumpadasRef = useRef(null);
   const abortResumenTirosRef = useRef(null);
+  const abortCiclosRef = useRef(null);
   // Un AbortController y un contador de generación por fila (Map keyed por
   // "empresa_id|||planta_id") — así varias filas pueden estar cargando/abiertas
   // a la vez sin cancelarse entre sí.
@@ -586,6 +603,7 @@ export const ProduccionCompleta = () => {
     try {
       const params = { fecha_desde: fi, fecha_hasta: ff };
       if (faenaId) params.id_faena = faenaId;
+      if (contarPorRef.current === 'cyt') params.contar_por = 'cyt';
       const res = await gerencialService.getDumpadasDiarias(params, controller.signal);
       if (miGen !== genDumpRef.current) return;
       if (res.success) setDumpDiarias(res.data ?? []);
@@ -593,6 +611,21 @@ export const ProduccionCompleta = () => {
     finally {
       if (miGen === genDumpRef.current) setDumpLoading(false);
     }
+  };
+
+  const cambiarContarPor = (valor) => {
+    if (valor === contarPorRef.current) return;
+    contarPorRef.current = valor;
+    setDumpContarPor(valor);
+    try { localStorage.setItem('avanceDiario.contarPor', valor); } catch { /* sin almacenamiento: no se recuerda */ }
+    // La jornada guardada es la de extracción: no sirve para separar por llegada a cancha.
+    if (valor === 'cyt') {
+      setDumpJornada('Todos');
+      if (dumpAgrupacion === 'jornada') setDumpAgrupacion('frente');
+    }
+    setDetalleClicDump(null);
+    setFilasDesplegadas({});
+    if (!ningunaSeleccionada) cargarDumpDiarias(faenaIdActiva, debouncedFechaInicio, debouncedFechaFin);
   };
 
   const cargarEficiencia = async (faenaId, fi, ff) => {
@@ -664,6 +697,26 @@ export const ProduccionCompleta = () => {
     } catch (e) { if (!esCancelacion(e) && miGen === genResumenTirosRef.current) console.error('Error perforación y tronadura:', e); }
     finally {
       if (miGen === genResumenTirosRef.current) setPerforacionLoading(false);
+    }
+  };
+
+  // "Ciclos del Dumper": el filtro de fechas aplica sobre la fecha de CyT
+  // (día en que salió el dumper), ver GerencialController::ciclosDumper.
+  const cargarCiclos = async (faenaId, fi, ff) => {
+    abortCiclosRef.current?.abort();
+    const controller = new AbortController();
+    abortCiclosRef.current = controller;
+    const miGen = ++genCiclosRef.current;
+    setCiclosLoading(true);
+    try {
+      const params = { fecha_desde: fi, fecha_hasta: ff };
+      if (faenaId) params.id_faena = faenaId;
+      const res = await gerencialService.getCiclosDumper(params, controller.signal);
+      if (miGen !== genCiclosRef.current) return;
+      if (res.success) setCiclos(res.data ?? null);
+    } catch (e) { if (!esCancelacion(e) && miGen === genCiclosRef.current) console.error('Error ciclos del dumper:', e); }
+    finally {
+      if (miGen === genCiclosRef.current) setCiclosLoading(false);
     }
   };
 
@@ -829,6 +882,19 @@ export const ProduccionCompleta = () => {
     cargarPerforacion(idFaenaParam, debouncedFechaInicio, debouncedFechaFin);
   }, [vista, faenaIdActiva, selectedFaenas, faenasConDatos, debouncedFechaInicio, debouncedFechaFin, ningunaSeleccionada]);
 
+  // "Ciclos del Dumper" — misma carga perezosa que las dos pestañas de arriba,
+  // pero por mes completo (el selector de mes está dentro de la pestaña).
+  useEffect(() => {
+    if (vista !== 'ciclos') return;
+    if (ningunaSeleccionada) return;
+    const idFaenaParam = faenaIdActiva
+      || (selectedFaenas.length > 1
+        ? faenasConDatos.filter(f => selectedFaenas.includes(f.name)).map(f => f.id).join(',')
+        : null);
+    const ultimoDia = new Date(+mesCiclos.slice(0, 4), +mesCiclos.slice(5, 7), 0).getDate();
+    cargarCiclos(idFaenaParam, `${mesCiclos}-01`, `${mesCiclos}-${String(ultimoDia).padStart(2, '0')}`);
+  }, [vista, faenaIdActiva, selectedFaenas, faenasConDatos, mesCiclos, ningunaSeleccionada]);
+
   return (
     <div className="mt-6 space-y-6">
       {/* Sub-navegación */}
@@ -837,6 +903,7 @@ export const ProduccionCompleta = () => {
           { id: 'resumen', label: 'Resumen de Producción' },
           { id: 'tiros', label: 'Perforación y Tronadura' },
           { id: 'dumpadas', label: 'Resumen de Dumpadas' },
+          { id: 'ciclos', label: 'Ciclos del Dumper' },
           { id: 'lotes', label: 'Resumen de Lotes' },
           { id: 'trazabilidad', label: 'Trazabilidad de Lote' },
         ].map(v => (
@@ -879,6 +946,30 @@ export const ProduccionCompleta = () => {
               data={perforacion}
               loading={perforacionLoading}
               nombreFaena={(id) => faenasConDatos.find(f => f.id === id)?.name ?? `Faena ${id}`}
+            />
+          )}
+        </>
+      )}
+
+      {vista === 'ciclos' && (
+        <>
+          {faenasConDatos.length > 0 && (
+            <SelectorFaenasGrid
+              faenas={faenasConDatos}
+              mode="multi"
+              selectedFaenas={selectedFaenas}
+              onToggle={handleFaenaToggle}
+              loading={loading}
+            />
+          )}
+
+          {!ningunaSeleccionada && (
+            <CiclosDumper
+              data={ciclos}
+              loading={ciclosLoading}
+              nombreFaena={(id) => faenasConDatos.find(f => f.id === id)?.name ?? `Faena ${id}`}
+              mes={mesCiclos}
+              onCambiarMes={setMesCiclos}
             />
           )}
         </>
@@ -1816,7 +1907,8 @@ export const ProduccionCompleta = () => {
                 // El filtro de jornada individual no tiene efecto apilando por jornada (ahí
                 // ya se ven las 4 separadas) — se deshabilita en vez de desaparecer, para que
                 // el layout de controles no salte al cambiar de modo.
-                const filtroJornadaDeshabilitado = dumpAgrupacion === 'jornada';
+                const porCyt = dumpContarPor === 'cyt';
+                const filtroJornadaDeshabilitado = dumpAgrupacion === 'jornada' || porCyt;
                 const claseBoton = (activo, deshabilitado) => `px-2.5 py-1 rounded-full font-semibold transition-colors ${
                   deshabilitado
                     ? 'bg-gray-50 text-gray-300 cursor-not-allowed'
@@ -1836,6 +1928,12 @@ export const ProduccionCompleta = () => {
                         </div>
                       </div>
                       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
+                        <div className="flex items-center gap-1">
+                          <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 mr-0.5">Contar por</span>
+                          <button onClick={() => cambiarContarPor('cyt')} className={claseBoton(porCyt, false)}>Llegada a cancha (CyT)</button>
+                          <button onClick={() => cambiarContarPor('extraccion')} className={claseBoton(!porCyt, false)}>Extracción</button>
+                        </div>
+
                         <div className="flex items-center gap-1">
                           <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 mr-0.5">Métrica</span>
                           <button onClick={() => setDumpMetrica('toneladas')} className={claseBoton(dumpMetrica === 'toneladas', false)}>Toneladas</button>
@@ -1857,11 +1955,12 @@ export const ProduccionCompleta = () => {
                           <button onClick={() => setDumpAgrupacion('grupo')} className={claseBoton(dumpAgrupacion === 'grupo', false)}>Túnel/Manto</button>
                           <button onClick={() => setDumpAgrupacion('frente')} className={claseBoton(dumpAgrupacion === 'frente', false)}>Frente</button>
                           {jornadasDisponibles.length > 1 && (
-                            <button onClick={() => setDumpAgrupacion('jornada')} className={claseBoton(dumpAgrupacion === 'jornada', false)}>Jornada</button>
+                            <button disabled={porCyt} title={porCyt ? 'La jornada guardada es la de extracción: no aplica contando por llegada a cancha' : undefined}
+                              onClick={() => setDumpAgrupacion('jornada')} className={claseBoton(dumpAgrupacion === 'jornada', porCyt)}>Jornada</button>
                           )}
                         </div>
                         {jornadasDisponibles.length > 1 && (
-                          <div className="flex items-center gap-1" title={filtroJornadaDeshabilitado ? 'No aplica agrupando por jornada — ya se ven las 4 por separado' : undefined}>
+                          <div className="flex items-center gap-1" title={porCyt ? 'La jornada guardada es la de extracción: no aplica contando por llegada a cancha' : filtroJornadaDeshabilitado ? 'No aplica agrupando por jornada — ya se ven las 4 por separado' : undefined}>
                             <span className="text-[9px] font-bold uppercase tracking-wider text-gray-400 mr-0.5">Jornada</span>
                             <button disabled={filtroJornadaDeshabilitado} onClick={() => setDumpJornada('Todos')} className={claseBoton(dumpJornada === 'Todos', filtroJornadaDeshabilitado)}>
                               Todas
@@ -1874,6 +1973,14 @@ export const ProduccionCompleta = () => {
                           </div>
                         )}
                       </div>
+                      <p className="text-[11px] text-gray-500">
+                        {porCyt
+                          ? 'Cada dumpada cuenta el día en que llegó a cancha según la hoja de Dispatch (día operativo, corte 06:00).'
+                          : 'Cada dumpada cuenta el día de su fecha de Extracción.'}
+                        {porCyt && debouncedFechaInicio < '2026-09-29' && (
+                          <span className="text-amber-700"> Antes del 29-09 no se registraba la llegada a cancha: esos días se cuentan por Extracción.</span>
+                        )}
+                      </p>
                     </div>
                     {dumpLoading ? (
                       <div className="p-8 text-center"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-emerald-500 mx-auto" /></div>
@@ -2126,6 +2233,7 @@ export const ProduccionCompleta = () => {
                               try {
                                 const res = await gerencialService.getDumpadasDetalle({
                                   fecha: detalleClicDump.fechaISO, frente: det.frente, jornada: det.jornada, id_faena: det.id_faena,
+                                  ...(dumpContarPor === 'cyt' ? { contar_por: 'cyt' } : {}),
                                 });
                                 setFilasDesplegadas((prev) => prev[claveFila] ? { ...prev, [claveFila]: { dumpadas: res.data ?? [] } } : prev);
                               } catch {
@@ -2159,7 +2267,8 @@ export const ProduccionCompleta = () => {
                                           <thead>
                                             <tr className="text-left text-gray-400 uppercase text-[9px]">
                                               <th className="px-2 py-1 font-semibold">N° Dumpada</th>
-                                              <th className="px-2 py-1 font-semibold">Hora</th>
+                                              <th className="px-2 py-1 font-semibold">{dumpContarPor === 'cyt' ? 'Hora CyT' : 'Hora'}</th>
+                                              {dumpContarPor === 'cyt' && <th className="px-2 py-1 font-semibold">Extracción</th>}
                                               <th className="px-2 py-1 font-semibold text-right">Ton</th>
                                               <th className="px-2 py-1 font-semibold text-right">Cu Insoluble</th>
                                               <th className="px-2 py-1 font-semibold">Certificado</th>
@@ -2169,7 +2278,12 @@ export const ProduccionCompleta = () => {
                                             {desplegada.dumpadas.map((dmp) => (
                                               <tr key={dmp.id} className={dmp.cu_insoluble == null ? 'bg-amber-50' : ''}>
                                                 <td className="px-2 py-1 font-mono text-gray-700">{dmp.numero_dumpada}</td>
-                                                <td className="px-2 py-1 font-mono text-gray-500">{dmp.hora ?? '—'}</td>
+                                                <td className="px-2 py-1 font-mono text-gray-500">{(dumpContarPor === 'cyt' ? dmp.hora_cyt : dmp.hora) ?? '—'}</td>
+                                                {dumpContarPor === 'cyt' && (
+                                                  <td className={`px-2 py-1 font-mono ${dmp.fecha && dmp.fecha !== detalleClicDump.fechaISO ? 'font-semibold text-amber-700' : 'text-gray-500'}`}>
+                                                    {dmp.fecha ? `${dmp.fecha.slice(8, 10)}-${dmp.fecha.slice(5, 7)}` : '—'}
+                                                  </td>
+                                                )}
                                                 <td className="px-2 py-1 text-right font-mono">{formatNumber(dmp.ton)}</td>
                                                 <td className="px-2 py-1 text-right font-mono">
                                                   {dmp.cu_insoluble != null

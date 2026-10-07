@@ -40,11 +40,14 @@ class GerencialController extends Controller
             // dumpadasDiarias()/produccionPorTurno(), para que "ley promedio" signifique
             // lo mismo en todo el dashboard gerencial. Usa cu_insoluble (no ley/Cu Total)
             // a pedido explícito del usuario — es la ley que le interesa a gerencia acá.
+            // Ponderada solo por las toneladas que YA tienen resultado: antes dividía por
+            // SUM(ton) de todas, y las que esperan Laboratorio bajaban la ley como si
+            // fueran 0 (01-06/10: daba 1,18% en vez de 1,62%).
             $statsDumpadas = (clone $queryDumpadas)
                 ->select(
                     DB::raw('COUNT(*) as total'),
                     DB::raw('SUM(ton) as tonelaje_total'),
-                    DB::raw('CASE WHEN SUM(ton) > 0 THEN SUM(ton * cu_insoluble) / SUM(ton) ELSE NULL END as ley_promedio'),
+                    DB::raw('CASE WHEN SUM(CASE WHEN cu_insoluble IS NOT NULL THEN ton END) > 0 THEN SUM(ton * cu_insoluble) / SUM(CASE WHEN cu_insoluble IS NOT NULL THEN ton END) ELSE NULL END as ley_promedio'),
                     DB::raw('COUNT(CASE WHEN estado = "Completado" THEN 1 END) as completadas'),
                     DB::raw('COUNT(CASE WHEN estado = "Ingresado" THEN 1 END) as pendientes')
                 )
@@ -825,18 +828,25 @@ class GerencialController extends Controller
 
     /**
      * Dumpadas por día y frente — para gráfico de avance diario
-     * GET /api/gerencial/dumpadas-diarias
+     * GET /api/gerencial/dumpadas-diarias[?contar_por=cyt]
+     *
+     * contar_por (interruptor del gráfico):
+     *  - 'extraccion' (por defecto): el día es `fecha` (Extracción), como siempre.
+     *  - 'cyt': el día en que llegó a cancha (`fecha_cyt`, día operativo de la hoja
+     *    de Dispatch). CyT existe desde el 29-09-2026: las dumpadas sin CyT caen a
+     *    su fecha de Extracción (el frontend avisa cuando el rango incluye esos días).
      */
     public function dumpadasDiarias(Request $request)
     {
         $fechaDesde = $request->get('fecha_desde', Carbon::now()->startOfMonth()->format('Y-m-d'));
         $fechaHasta = $request->get('fecha_hasta', Carbon::now()->format('Y-m-d'));
         $idFaena    = $request->get('id_faena');
+        $dia        = $this->expresionDiaDumpada($request);
 
         $query = DB::table('dumpadas as d')
             ->join('frentes_trabajo as f', 'f.id', '=', 'd.id_frente_trabajo')
             ->select(
-                'd.fecha',
+                DB::raw("{$dia} as fecha"),
                 'd.id_faena',
                 DB::raw('COALESCE(f.codigo_completo, CONCAT(f.manto, "-", COALESCE(f.calle, ""), COALESCE(f.hebra, ""))) as frente'),
                 // Grupo = túnel (o manto cuando el frente no tiene túnel cargado, ej.
@@ -859,13 +869,13 @@ class GerencialController extends Controller
                 DB::raw('COALESCE(SUM(CASE WHEN d.cu_insoluble IS NOT NULL THEN d.ton END), 0) as toneladas_con_ley')
             )
             ->whereNotNull('d.fecha')
-            ->whereBetween('d.fecha', [$fechaDesde, $fechaHasta]);
+            ->whereRaw("{$dia} BETWEEN ? AND ?", [$fechaDesde, $fechaHasta]);
 
         if ($idFaena) $query->where('d.id_faena', $idFaena);
 
         $rows = $query
-            ->groupBy('d.fecha', 'd.id_faena', 'frente', 'grupo', 'jornada')
-            ->orderBy('d.fecha')
+            ->groupBy(DB::raw($dia), 'd.id_faena', 'frente', 'grupo', 'jornada')
+            ->orderBy(DB::raw($dia))
             ->orderBy('frente')
             ->get();
 
@@ -886,10 +896,16 @@ class GerencialController extends Controller
         ]);
     }
 
+    /** Día con que se cuenta una dumpada en Avance Diario (ver dumpadasDiarias()). */
+    private function expresionDiaDumpada(Request $request): string
+    {
+        return $request->get('contar_por') === 'cyt' ? 'COALESCE(d.fecha_cyt, d.fecha)' : 'd.fecha';
+    }
+
     /**
      * Dumpadas individuales de un frente + jornada en un día — se piden recién al
      * desplegar una fila del "Detalle por frente" del gráfico Avance Diario.
-     * GET /api/gerencial/dumpadas-detalle?fecha=&frente=&jornada=&id_faena=
+     * GET /api/gerencial/dumpadas-detalle?fecha=&frente=&jornada=&id_faena=[&contar_por=cyt]
      */
     public function dumpadasDetalle(Request $request)
     {
@@ -904,14 +920,15 @@ class GerencialController extends Controller
         // fila desplegada traiga exactamente las dumpadas que suma esa fila.
         $query = DB::table('dumpadas as d')
             ->join('frentes_trabajo as f', 'f.id', '=', 'd.id_frente_trabajo')
-            ->where('d.fecha', $request->fecha)
+            ->whereRaw($this->expresionDiaDumpada($request) . ' = ?', [$request->fecha])
             ->whereRaw('COALESCE(f.codigo_completo, CONCAT(f.manto, "-", COALESCE(f.calle, ""), COALESCE(f.hebra, ""))) = ?', [$request->frente])
             ->whereRaw('COALESCE(d.jornada, "Sin jornada") = ?', [$request->jornada]);
 
         if ($request->filled('id_faena')) $query->where('d.id_faena', $request->id_faena);
 
         $rows = $query
-            ->select('d.id', 'd.numero_dumpada', 'd.hora', 'd.ton', 'd.cu_insoluble', 'd.certificado', 'd.estado')
+            ->select('d.id', 'd.numero_dumpada', 'd.fecha', 'd.hora', 'd.fecha_cyt', 'd.hora_cyt', 'd.ton', 'd.cu_insoluble', 'd.certificado', 'd.estado')
+            ->orderBy('d.fecha')
             ->orderBy('d.hora')
             ->orderBy('d.numero_dumpada')
             ->get();
@@ -922,6 +939,9 @@ class GerencialController extends Controller
                 'id'             => $r->id,
                 'numero_dumpada' => $r->numero_dumpada,
                 'hora'           => $r->hora ? substr($r->hora, 0, 5) : null,
+                'fecha'          => $r->fecha,
+                'fecha_cyt'      => $r->fecha_cyt,
+                'hora_cyt'       => $r->hora_cyt ? substr($r->hora_cyt, 0, 5) : null,
                 'ton'            => (float) $r->ton,
                 'cu_insoluble'   => $r->cu_insoluble !== null ? round((float) $r->cu_insoluble, 3) : null,
                 'certificado'    => $r->certificado,
@@ -1034,6 +1054,121 @@ class GerencialController extends Controller
         return response()->json([
             'success' => true,
             'data'    => $service->dashboard($fechaDesde, $fechaHasta, $idsFaena),
+        ]);
+    }
+
+    /**
+     * Vueltas de cada dumper (pestaña "Ciclos del Dumper"): una fila por dumpada
+     * con la hora de la vuelta (hora_cyt) y el dumper, en el rango de fechas de CyT.
+     *
+     * El cálculo de ciclos (pares de vueltas seguidas del mismo dumper, corte de
+     * detención, min/vuelta) se hace en el frontend a propósito: el corte se mueve
+     * con un control y recalcular en el navegador es inmediato. Por eso aquí solo
+     * van las vueltas, ordenadas.
+     *
+     * De dónde sale la hora de cada vuelta (`origen`):
+     *  - 'cyt': desde el 29-09-2026, fecha_cyt + hora_cyt (la hoja de Dispatch).
+     *  - 'reconstruida': entre el 07-09 y el 28-09 no existía CyT, pero `hora`
+     *    ya era la hora de la vuelta (la de la fila de la hoja) y el día real
+     *    es el de created_at — Dispatch registraba el mismo día. Si la hora
+     *    queda después del registro, la vuelta fue el día anterior (se ingresó
+     *    pasada la medianoche). Validado contra los datos con CyT: los ciclos
+     *    reconstruidos dan 18 min en Cabildo y 30 en Catemu (reales: 19 y 32).
+     *  - Antes del 07-09 no había `hora`: no hay vuelta que calcular. (Se probó
+     *    usar la hora de created_at en Catemu y daba ciclos de 20 min en vez de
+     *    30 — no es confiable, no se usa.)
+     *
+     * La fecha que se devuelve es el día operativo, igual que fecha_cyt: lo de
+     * antes de las 06:00 pertenece a la noche del día anterior (convención de
+     * Cabildo). Se agrupa por ese día y no por `fecha` (extracción) ni por
+     * jornada — en Catemu la jornada es la de la extracción.
+     */
+    public function ciclosDumper(Request $request)
+    {
+        $fechaDesde = $request->get('fecha_desde', Carbon::now()->subDays(6)->format('Y-m-d'));
+        $fechaHasta = $request->get('fecha_hasta', Carbon::now()->format('Y-m-d'));
+
+        $idsFaena = null;
+        if ($request->filled('id_faena')) {
+            $idsFaena = array_map('intval', array_map('trim', explode(',', (string) $request->id_faena)));
+        }
+
+        // Candidatas: las con CyT en el rango, y las sin CyT registradas en el
+        // rango (+1 día para la noche/madrugada que se ingresa al día siguiente).
+        // El filtro exacto por día operativo se hace abajo, ya calculada la vuelta.
+        $hastaRegistro = Carbon::parse($fechaHasta)->addDays(2)->format('Y-m-d');
+        $query = DB::table('dumpadas as d')
+            ->join('frentes_trabajo as f', 'f.id', '=', 'd.id_frente_trabajo')
+            ->where(fn($q) => $q
+                ->whereBetween('d.fecha_cyt', [$fechaDesde, $fechaHasta])
+                ->orWhere(fn($q2) => $q2
+                    ->whereNull('d.fecha_cyt')
+                    ->where('d.created_at', '>=', $fechaDesde)
+                    ->where('d.created_at', '<', $hastaRegistro)));
+        if ($idsFaena) $query->whereIn('d.id_faena', $idsFaena);
+
+        $rows = $query
+            ->select(
+                'd.id', 'd.numero_dumpada', 'd.id_faena', 'd.fecha_cyt', 'd.hora_cyt', 'd.hora', 'd.created_at',
+                'd.nombre_maquina', 'd.nombre_operador', 'd.ton', 'd.jornada', 'd.acopios',
+                DB::raw('COALESCE(f.codigo_completo, CONCAT(f.manto, "-", COALESCE(f.calle, ""), COALESCE(f.hebra, ""))) as frente')
+            )
+            ->get();
+
+        $vueltas = [];
+        $sinDatos = 0;
+        foreach ($rows as $r) {
+            $tieneDumper = trim((string) $r->nombre_maquina) !== '';
+
+            if ($r->fecha_cyt && $r->hora_cyt) {
+                $fecha = $r->fecha_cyt;
+                $hora = substr($r->hora_cyt, 0, 5);
+                $origen = 'cyt';
+            } elseif ($r->hora && $r->created_at) {
+                $registro = Carbon::parse($r->created_at);
+                $vuelta = Carbon::parse($registro->format('Y-m-d') . ' ' . substr($r->hora, 0, 5));
+                if ($vuelta->gt($registro->copy()->addMinutes(5))) $vuelta->subDay();
+                $hora = $vuelta->format('H:i');
+                $fecha = ((int) $vuelta->format('H') < 6 ? $vuelta->copy()->subDay() : $vuelta)->format('Y-m-d');
+                $origen = 'reconstruida';
+            } else {
+                // Sin hora de vuelta: solo cuenta como "fuera del cálculo" si cae en el rango.
+                $dia = $r->fecha_cyt ?? substr((string) $r->created_at, 0, 10);
+                if ($dia >= $fechaDesde && $dia <= $fechaHasta) $sinDatos++;
+                continue;
+            }
+
+            if ($fecha < $fechaDesde || $fecha > $fechaHasta) continue;
+            if (!$tieneDumper) { $sinDatos++; continue; }
+
+            $vueltas[] = [
+                'id'             => $r->id,
+                'numero_dumpada' => $r->numero_dumpada,
+                'id_faena'       => (int) $r->id_faena,
+                'fecha'          => $fecha,
+                'hora'           => $hora,
+                'origen'         => $origen,
+                // Para detectar horas mal tipeadas en el frontend (utils/revisarHoraCyt).
+                'registro'       => (string) $r->created_at,
+                'dumper'         => trim($r->nombre_maquina),
+                'operador'       => $r->nombre_operador,
+                'frente'         => $r->frente,
+                'ton'            => (float) $r->ton,
+                'jornada'        => $r->jornada,
+                'codigo'         => $r->acopios,
+            ];
+        }
+
+        usort($vueltas, fn($a, $b) => [$a['id_faena'], $a['dumper'], $a['fecha'], $a['hora']]
+            <=> [$b['id_faena'], $b['dumper'], $b['fecha'], $b['hora']]);
+
+        return response()->json([
+            'success' => true,
+            'data'    => [
+                'periodo'   => ['desde' => $fechaDesde, 'hasta' => $fechaHasta],
+                'sin_datos' => $sinDatos,
+                'vueltas'   => $vueltas,
+            ],
         ]);
     }
 
