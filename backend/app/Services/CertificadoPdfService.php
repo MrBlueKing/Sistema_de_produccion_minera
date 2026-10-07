@@ -301,8 +301,12 @@ class CertificadoPdfService
     private function prepararMuestrasMuestraLibre($muestras, $numeroCertificado)
     {
         return $muestras->map(function ($m) use ($numeroCertificado) {
+            $codigo = $m->nombre ? "{$m->codigo}-{$m->nombre}" : $m->codigo;
+            // El frente es opcional en la muestra específica: si lo tiene, va después del nombre
+            $frente = $m->frenteTrabajo?->codigo_completo;
+
             return [
-                'codigo'         => $m->nombre ? "{$m->codigo}-{$m->nombre}" : $m->codigo,
+                'codigo'         => $frente ? "{$codigo} {$frente}" : $codigo,
                 'fecha'          => $m->fecha ? Carbon::parse($m->fecha)->format('d.m.Y') : '',
                 'cu_total'       => $m->ley !== null ? number_format($m->ley, 2, ',', '.') : '-',
                 'cu_soluble'     => $m->cu_soluble !== null ? number_format($m->cu_soluble, 2, ',', '.') : '-',
