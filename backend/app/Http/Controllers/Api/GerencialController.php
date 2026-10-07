@@ -426,27 +426,24 @@ class GerencialController extends Controller
                 ->when($idFaena, fn($q) => $q->where('id_faena', $idFaena))
                 ->sum('ton');
 
-            // Tonelaje vendido (Recepcionado): peso_real ya cargado — tiene ticket real
-            // de planta, sin importar si alguien cerró el lote formalmente o sigue
-            // Abierto (mismo criterio que "Vendido" en reporteProduccion() y que el KPI
-            // "Tonelaje Recepcionado"). Se filtra por fecha_recepcion (cuándo se vendió
-            // en el período), no por la fecha de creación del lote.
+            // Tonelaje vendido (Recepcionado) y despachado: MISMA regla que las tarjetas
+            // y "Por Empresa y Planta" (reporteProduccion(), 07-10-2026) para que la
+            // pantalla diga lo mismo en todas partes: lotes CREADOS en el período y,
+            // de ellos, solo camionadas DESPACHADAS hasta el final del período. El peso
+            // real cuenta aunque la recepción sea posterior.
             $tonelajeVendido = DB::table('camionadas')
                 ->join('lotes', 'camionadas.lote_id', '=', 'lotes.id')
                 ->whereNotNull('camionadas.peso_real')
-                ->whereBetween('camionadas.fecha_recepcion', [$fechaInicio, $fechaFin])
+                ->whereBetween('lotes.fecha_creacion', [$fechaInicio, $fechaFin])
+                ->where('camionadas.fecha_despacho', '<=', $fechaFin)
                 ->when($idFaena, fn($q) => $q->where('lotes.id_faena', $idFaena))
                 ->sum('camionadas.peso_real');
 
-            // Tonelaje despachado: Real + Teórico de toda camionada que SALIÓ en el
-            // período (fecha_despacho, no fecha_recepcion — una camionada teórica
-            // todavía sin recepcionar no tiene fecha_recepcion). Mismo criterio
-            // COALESCE que "Despachado" en reporteProduccion(), pero aquí agrupado
-            // por la fecha en que salió de la mina en vez de la fecha de creación
-            // del lote, para que el ratio por tiro compare períodos equivalentes.
+            // Despachado = Real + Teórico (mismo COALESCE que reporteProduccion()).
             $tonelajeDespachado = DB::table('camionadas')
                 ->join('lotes', 'camionadas.lote_id', '=', 'lotes.id')
-                ->whereBetween('camionadas.fecha_despacho', [$fechaInicio, $fechaFin])
+                ->whereBetween('lotes.fecha_creacion', [$fechaInicio, $fechaFin])
+                ->where('camionadas.fecha_despacho', '<=', $fechaFin)
                 ->when($idFaena, fn($q) => $q->where('lotes.id_faena', $idFaena))
                 ->selectRaw('COALESCE(SUM(COALESCE(camionadas.peso_real, camionadas.peso)), 0) as total')
                 ->value('total');
