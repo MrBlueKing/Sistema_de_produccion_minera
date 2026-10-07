@@ -3,6 +3,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList,
 } from 'recharts';
 import InfoPopover from '../../../shared/components/molecules/InfoPopover';
+import useJornadas from '../../../hooks/useJornadas';
 
 // Dashboard de Perforación y Tronadura — mismo componente en:
 //  - Dashboard Gerencial > Operaciones > Perforación y Tronadura (varias faenas)
@@ -12,7 +13,8 @@ import InfoPopover from '../../../shared/components/molecules/InfoPopover';
 // suman según lo que llegue.
 
 // Paleta validada (daltonismo) — la misma que ya usaba el Dashboard de Ingeniería.
-const TURNOS = [
+// Respaldo: los turnos reales (y sus colores) vienen de Configuración General.
+const TURNOS_BASE = [
   { id: 'AM', color: '#2a78d6' },
   { id: 'PM', color: '#eb6834' },
   { id: 'Noche', color: '#1baf7a' },
@@ -106,7 +108,7 @@ function TickDia({ x, y, payload, mostrarMes }) {
 }
 
 // Detalle del día al pasar el cursor: tiros por turno + total, metros y lo extraído.
-function TooltipDia({ active, payload }) {
+function TooltipDia({ active, payload, turnos }) {
   if (!active || !payload?.length) return null;
   const row = payload[0].payload;
   const dt = new Date(`${row.fecha}T12:00:00`);
@@ -115,7 +117,7 @@ function TooltipDia({ active, payload }) {
       <p className="font-semibold text-gray-700 mb-2">{DOW[dt.getDay()]} {ddmm(row.fecha)}</p>
       {row.total > 0 ? (
         <>
-          {TURNOS.map((t) => (
+          {turnos.map((t) => (
             <div key={t.id} className="flex justify-between gap-3 mb-0.5">
               <span className="flex items-center gap-1.5 text-gray-600">
                 <span className="w-2.5 h-2.5 rounded-sm" style={{ background: t.color }} />{t.id}
@@ -141,6 +143,15 @@ function TooltipDia({ active, payload }) {
 }
 
 export default function PerforacionTronaduraDashboard({ data, loading = false, nombreFaena = (id) => `Faena ${id}` }) {
+  // Turnos de P&T desde Configuración General (también los apagados, que pueden
+  // tener reportes), más cualquier turno que venga en los datos y no esté en la tabla.
+  const cfg = useJornadas('perforacion');
+  const TURNOS = useMemo(() => {
+    const ids = [...cfg.nombresFiltro];
+    (data?.turnos || []).forEach((r) => { if (r.turno && !ids.includes(r.turno)) ids.push(r.turno); });
+    return ids.map((id) => ({ id, color: cfg.color(id) || TURNOS_BASE.find((t) => t.id === id)?.color || '#94a3b8' }));
+  }, [cfg, data]);
+
   const d = useMemo(() => {
     if (!data) return null;
     const dias = listaDias(data.periodo.desde, data.periodo.hasta);
@@ -160,7 +171,7 @@ export default function PerforacionTronaduraDashboard({ data, loading = false, n
     const cerrados = data.estados.filter((r) => r.estado === 'cerrado').reduce((s, r) => s + r.total, 0);
 
     // Tiros por día y turno
-    const porDia = Object.fromEntries(dias.map((f) => [f, { fecha: f, AM: 0, PM: 0, Noche: 0, Madrugada: 0, total: 0, metros: 0, ton: 0 }]));
+    const porDia = Object.fromEntries(dias.map((f) => [f, { fecha: f, ...Object.fromEntries(TURNOS.map((t) => [t.id, 0])), total: 0, metros: 0, ton: 0 }]));
     data.turnos.forEach((r) => {
       const x = porDia[r.fecha];
       if (!x) return;
@@ -231,7 +242,7 @@ export default function PerforacionTronaduraDashboard({ data, loading = false, n
       dias, multiFaena, tiros, metros, ton, diasConReporte, anfo, reportes, cerrados,
       serie: dias.map((f) => porDia[f]), turnos, topFrentes, maxCelda, explosivos, estados, perforistas,
     };
-  }, [data]);
+  }, [data, TURNOS]);
 
   if (loading) {
     return (
@@ -303,7 +314,7 @@ export default function PerforacionTronaduraDashboard({ data, loading = false, n
                 tick={{ fontSize: 11, fill: '#6B7280' }} tickLine={false} axisLine={false} allowDecimals={false}
                 domain={[0, (max) => { const paso = max > 200 ? 50 : 10; return Math.ceil((max * 1.15) / paso) * paso; }]}
               />
-              <Tooltip content={<TooltipDia />} cursor={{ fill: 'rgba(99,102,241,0.08)' }} />
+              <Tooltip content={<TooltipDia turnos={TURNOS} />} cursor={{ fill: 'rgba(99,102,241,0.08)' }} />
               {TURNOS.map((t, i) => (
                 <Bar key={t.id} dataKey={t.id} stackId="t" fill={t.color} stroke="#fff" strokeWidth={1}
                   radius={i === TURNOS.length - 1 ? [3, 3, 0, 0] : 0} isAnimationActive={false}>

@@ -11,6 +11,7 @@ import useToast from '../../../hooks/useToast';
 import laboratorioService from '../services/laboratorio';
 import ingenieriaService from '../../ingenieria/services/ingenieria';
 import api from '../../../core/services/api';
+import useJornadas from '../../../hooks/useJornadas';
 
 // Estados de muestreo (simplificados)
 const ESTADOS_MUESTREO = {
@@ -52,7 +53,8 @@ export default function Muestreo() {
   // Debounce para la busqueda
   const debouncedSearchTerm = useDebounce(searchTerm, 500);
 
-  const jornadas = ['AM', 'PM', 'Madrugada', 'Noche'];
+  // Filtro: todas las jornadas de dumpadas (también las apagadas), desde Configuración General.
+  const { nombresFiltro: jornadas } = useJornadas('dumpadas');
 
   useEffect(() => {
     loadData();

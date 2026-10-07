@@ -22,6 +22,7 @@ import HistorialCambios from '../../../shared/components/organisms/HistorialCamb
 import explosivosService from '../services/explosivos';
 import ingenieriaService from '../../ingenieria/services/ingenieria';
 import useToast from '../../../hooks/useToast';
+import useJornadas from '../../../hooks/useJornadas';
 
 const BARRAS_OPCIONES = [0.8, 1.2, 1.6, 1.8, 2.4, 3.2];
 const MATERIALES = [
@@ -31,6 +32,7 @@ const MATERIALES = [
 ];
 
 export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, polvorines = [], tipos, faenaActual, onVolver, onRefresh }) {
+  const turnosPyt = useJornadas('perforacion');
   const toast = useToast();
 
   // Polvorín seleccionado (para admin con selector)
@@ -44,6 +46,13 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
   });
   const [reporteId, setReporteId] = useState(null);
   const [estado, setEstado] = useState('borrador');
+
+  // Reporte nuevo: si AM se apagó para P&T, parte en el primer turno activo.
+  useEffect(() => {
+    if (modoCrear && !reporteId && turnosPyt.nombres.length && !turnosPyt.nombres.includes(cabecera.turno)) {
+      setCabecera((prev) => ({ ...prev, turno: turnosPyt.nombres[0] }));
+    }
+  }, [modoCrear, reporteId, turnosPyt.nombres, cabecera.turno]);
   const [codigo, setCodigo] = useState('');
 
   // Modo corrección: reporte Confirmado/Cerrado que se está editando con los
@@ -779,10 +788,11 @@ export default function ReportePerforacionForm({ reporte, modoCrear, polvorin, p
               disabled={!esBorrador}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 disabled:bg-gray-100"
             >
-              <option value="AM">AM</option>
-              <option value="PM">PM</option>
-              <option value="Noche">Noche</option>
-              <option value="Madrugada">Madrugada</option>
+              {/* Turnos activos para P&T en Configuración General; si el reporte
+                  tiene uno que después se apagó, se mantiene para no perderlo. */}
+              {[...turnosPyt.nombres, ...(cabecera.turno && !turnosPyt.nombres.includes(cabecera.turno) ? [cabecera.turno] : [])].map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
             </select>
           </div>
           <div>

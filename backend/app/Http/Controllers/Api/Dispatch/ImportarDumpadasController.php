@@ -20,13 +20,7 @@ class ImportarDumpadasController extends Controller
 
     private function normalizarJornada(string $jornada): string
     {
-        $map = [
-            'AM'        => 'AM',
-            'PM'        => 'PM',
-            'MADRUGADA' => 'Madrugada',
-            'NOCHE'     => 'Noche',
-        ];
-        return $map[strtoupper(trim($jornada))] ?? 'AM';
+        return \App\Models\Jornada::normalizar($jornada);
     }
 
     /**

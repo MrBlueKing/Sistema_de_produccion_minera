@@ -13,6 +13,7 @@ import useDebounce from '../../../hooks/useDebounce';
 import useToast from '../../../hooks/useToast';
 import laboratorioService from '../services/laboratorio';
 import ingenieriaService from '../../ingenieria/services/ingenieria';
+import useJornadas from '../../../hooks/useJornadas';
 
 // Colores suaves para faenas (pastel)
 const COLORES_FAENA_SUAVES = [
@@ -57,7 +58,8 @@ export default function HistorialAnalisis() {
 
   const debouncedSearchTerm = useDebounce(searchTerm, 500);
 
-  const jornadas = ['AM', 'PM', 'Madrugada', 'Noche'];
+  // Filtro: todas las jornadas de dumpadas (también las apagadas), desde Configuración General.
+  const { nombresFiltro: jornadas } = useJornadas('dumpadas');
   const rangos = ['Alta', 'Media', 'Baja', 'Esteril'];
 
   useEffect(() => {

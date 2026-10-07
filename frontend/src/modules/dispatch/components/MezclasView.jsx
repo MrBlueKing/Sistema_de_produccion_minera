@@ -26,7 +26,7 @@ export default function MezclasView({
   setMezclas,
   loadData,
   frentes = [],
-  jornadas = ['AM', 'PM', 'Madrugada', 'Noche']
+  jornadas = ['AM', 'PM', 'Noche', 'Madrugada']
 }) {
   // Obtener configuraciones desde BD
   const { factorAjusteLey, factorLeyLote, factorRemanenteVisual, leyCappingMaximo, usarSistemaAcopios, toneladas_por_palada } = useConfig();

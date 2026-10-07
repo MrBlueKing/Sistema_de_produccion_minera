@@ -160,7 +160,7 @@ class ReportePerforacionController extends Controller
             // Rango acotado: un año mal tipeado (ej. '26' -> 0026-09-15) pasaba
             // la regla 'date' y el reporte quedaba fuera de todo período.
             'fecha' => 'required|date|after_or_equal:2025-01-01|before_or_equal:tomorrow',
-            'turno' => 'required|in:AM,PM,Noche,Madrugada',
+            'turno' => ['required', \App\Models\Jornada::regla('perforacion')],
             'id_polvorin' => 'required|exists:polvorines,id',
             'observaciones' => 'nullable|string',
         ], self::MENSAJES_FECHA);
@@ -248,7 +248,7 @@ class ReportePerforacionController extends Controller
 
         $validator = Validator::make($request->all(), [
             'fecha' => 'sometimes|date|after_or_equal:2025-01-01|before_or_equal:tomorrow',
-            'turno' => 'sometimes|in:AM,PM,Noche,Madrugada',
+            'turno' => ['sometimes', \App\Models\Jornada::regla('perforacion', $reporte->turno)],
             'observaciones' => 'nullable|string',
         ], self::MENSAJES_FECHA);
 

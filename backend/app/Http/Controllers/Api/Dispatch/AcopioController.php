@@ -138,7 +138,7 @@ class AcopioController extends Controller
             $validator = Validator::make($request->all(), [
                 'dumpadas' => 'required|array',
                 'dumpadas.*.id_frente_trabajo' => 'required|exists:frentes_trabajo,id',
-                'dumpadas.*.jornada' => 'required|in:AM,PM,Madrugada,Noche',
+                'dumpadas.*.jornada' => ['required', \App\Models\Jornada::reglaExistente()],
                 'dumpadas.*.fecha' => 'required|date',
             ]);
 
@@ -179,7 +179,7 @@ class AcopioController extends Controller
         try {
             $validator = Validator::make($request->all(), [
                 'id_frente_trabajo' => 'required|exists:frentes_trabajo,id',
-                'jornada' => 'required|in:AM,PM,Madrugada,Noche',
+                'jornada' => ['required', \App\Models\Jornada::reglaExistente()],
                 'fecha' => 'required|date',
             ]);
 

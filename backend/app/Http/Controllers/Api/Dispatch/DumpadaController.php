@@ -306,7 +306,7 @@ class DumpadaController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'id_frente_trabajo'  => ['required', Rule::exists('frentes_trabajo', 'id')->where('estado', 'activo')],
-            'jornada'            => 'required|in:AM,PM,Madrugada,Noche',
+            'jornada'            => ['required', \App\Models\Jornada::regla('dumpadas')],
             'fecha'              => 'nullable|date',
             'hora'               => 'nullable|date_format:H:i',
             'fecha_cyt'          => 'required|date',
@@ -427,7 +427,7 @@ class DumpadaController extends Controller
         $validator = Validator::make($request->all(), [
             'dumpadas'                       => 'required|array|min:1|max:100',
             'dumpadas.*.id_frente_trabajo'   => ['required', Rule::exists('frentes_trabajo', 'id')->where('estado', 'activo')],
-            'dumpadas.*.jornada'             => 'required|in:AM,PM,Madrugada,Noche',
+            'dumpadas.*.jornada'             => ['required', \App\Models\Jornada::regla('dumpadas')],
             'dumpadas.*.fecha'               => 'nullable|date',
             'dumpadas.*.hora'                => 'nullable|date_format:H:i',
             'dumpadas.*.fecha_cyt'           => 'required|date',
@@ -624,7 +624,7 @@ class DumpadaController extends Controller
 
         $validator = Validator::make($request->all(), [
             'id_frente_trabajo'  => 'required|exists:frentes_trabajo,id',
-            'jornada'            => 'required|in:AM,PM,Madrugada,Noche',
+            'jornada'            => ['required', \App\Models\Jornada::regla('dumpadas', $dumpada->jornada)],
             'fecha'              => 'nullable|date',
             'hora'               => 'nullable|date_format:H:i',
             'ton'                => 'nullable|numeric|min:0',
@@ -855,7 +855,7 @@ class DumpadaController extends Controller
     {
         $validator = Validator::make($request->all(), [
             'id_frente_trabajo' => 'required|exists:frentes_trabajo,id',
-            'jornada' => 'required|in:AM,PM,Madrugada,Noche',
+            'jornada' => ['required', \App\Models\Jornada::regla('dumpadas')],
             'fecha' => 'nullable|date',
         ]);
 

@@ -22,7 +22,16 @@ class OrdenMuestras
      * Orden cronológico de las jornadas (turnos) para el ordenamiento de muestras:
      * AM → PM → Noche → Madrugada.
      */
-    private const ORDEN_JORNADA = ['AM' => 0, 'PM' => 1, 'Noche' => 2, 'Madrugada' => 3];
+    /** Orden de las jornadas: el de Configuración General (AM, PM, Noche, Madrugada, ...). */
+    private static ?array $ordenJornada = null;
+
+    private static function ordenJornada(string $jornada): string
+    {
+        if (self::$ordenJornada === null) {
+            self::$ordenJornada = \App\Models\Jornada::ordenadas()->pluck('orden', 'nombre')->all();
+        }
+        return str_pad((string) (self::$ordenJornada[$jornada] ?? 999), 3, '0', STR_PAD_LEFT);
+    }
 
     /**
      * Separador de campos en la clave. Se usa un byte de control (0x01), menor que
@@ -55,7 +64,7 @@ class OrdenMuestras
             ? Carbon::parse($fecha)->format('Y-m-d')
             : '9999-99-99';
 
-        $jornadaKey = (string) (self::ORDEN_JORNADA[$jornada] ?? 9);
+        $jornadaKey = self::ordenJornada((string) $jornada);
 
         $numJornada = str_pad((string) (int) ($numeroJornada ?? 0), 8, '0', STR_PAD_LEFT);
 

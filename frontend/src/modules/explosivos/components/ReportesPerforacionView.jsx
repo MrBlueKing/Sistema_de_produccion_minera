@@ -17,6 +17,7 @@ import explosivosService from '../services/explosivos';
 import ingenieriaService from '../../ingenieria/services/ingenieria';
 import useToast from '../../../hooks/useToast';
 import ReportePerforacionForm from './ReportePerforacionForm';
+import useJornadas from '../../../hooks/useJornadas';
 
 // "2026-08-27T04:00:00.000000Z" o "2026-08-27" -> "27-08-2026"
 function fmtFecha(v) {
@@ -93,6 +94,7 @@ const PRESETS = [
 ];
 
 export default function ReportesPerforacionView({ polvorin, polvorines = [], tipos, faenaActual, onRefresh }) {
+  const turnosPyt = useJornadas('perforacion');
   const toast = useToast();
   const faenaId = faenaActual?.id || null;
 
@@ -397,10 +399,7 @@ export default function ReportesPerforacionView({ polvorin, polvorines = [], tip
             className="px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500"
           >
             <option value="">Todos los turnos</option>
-            <option value="AM">AM</option>
-            <option value="PM">PM</option>
-            <option value="Noche">Noche</option>
-            <option value="Madrugada">Madrugada</option>
+            {turnosPyt.nombresFiltro.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
           <SearchableSelect
             options={frentesTrabajo.map((f) => ({ value: f.id, label: f.codigo_completo }))}

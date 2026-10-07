@@ -57,6 +57,12 @@ Route::middleware(['validate.token'])->group(function () {
     Route::get('/configuraciones/{clave}', [ConfiguracionController::class, 'show']);
     Route::put('/configuraciones/{clave}', [ConfiguracionController::class, 'update']);
 
+    // Jornadas/turnos (módulo Configuración General). Leer: cualquiera; editar: admin_configuracion.
+    Route::get('/jornadas', [\App\Http\Controllers\Api\JornadaController::class, 'index']);
+    Route::post('/jornadas', [\App\Http\Controllers\Api\JornadaController::class, 'store']);
+    Route::put('/jornadas/orden', [\App\Http\Controllers\Api\JornadaController::class, 'ordenar']);
+    Route::put('/jornadas/{id}', [\App\Http\Controllers\Api\JornadaController::class, 'update']);
+
     // Integración con Sistema de Petróleo
     Route::prefix('petroleo')->group(function () {
         Route::get('/maquinas', [PetroleController::class, 'maquinas']);

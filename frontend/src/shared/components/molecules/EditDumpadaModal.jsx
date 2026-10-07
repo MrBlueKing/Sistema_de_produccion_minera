@@ -127,7 +127,7 @@ export default function EditDumpadaModal({ show, dumpada, frentes, jornadas, maq
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
               >
                 <option value="">Seleccione...</option>
-                {jornadas.map((jornada) => (
+                {[...jornadas, ...(dumpada?.jornada && !jornadas.includes(dumpada.jornada) ? [dumpada.jornada] : [])].map((jornada) => (
                   <option key={jornada} value={jornada}>
                     {jornada}
                   </option>

@@ -38,6 +38,7 @@ import mezclasService from '../services/mezclas';
 import laboratorioService from '../../../services/laboratorio';
 import ingenieriaService from '../../ingenieria/services/ingenieria';
 import faenaService from '../../../services/faenaService';
+import useJornadas from '../../../hooks/useJornadas';
 
 // ✅ CONFIGURACIÓN: IDs de faenas que se mostrarán en el selector de Dispatch
 // Para mostrar todas las faenas, dejar como null
@@ -133,7 +134,9 @@ function DispatchContent() {
   // Debounce para la búsqueda
   const debouncedSearchTerm = useDebounce(searchTerm, 500);
 
-  const jornadas = ['AM', 'PM', 'Madrugada', 'Noche'];
+  // Desde Configuración General: `jornadas` = las que se pueden elegir al ingresar/editar;
+  // `jornadasFiltro` = también las apagadas, para filtrar registros antiguos.
+  const { nombres: jornadas, nombresFiltro: jornadasFiltro } = useJornadas('dumpadas');
 
   // Lista de máquinas/dumpers para el selector
   const [maquinas, setMaquinas] = useState([]);
@@ -1631,7 +1634,7 @@ function DispatchContent() {
         {vistaActual === 'envio_muestras' && (
           <EnvioMuestrasView
             frentes={frentes}
-            jornadas={jornadas}
+            jornadas={jornadasFiltro}
             rangos={rangos}
             esUsuarioGlobal={esUsuarioGlobal}
             selectedFaenas={selectedFaenas}
@@ -1899,7 +1902,7 @@ function DispatchContent() {
                   name: 'jornada',
                   label: 'Jornada',
                   type: 'select',
-                  options: jornadas.map(j => ({ value: j, label: j }))
+                  options: jornadasFiltro.map(j => ({ value: j, label: j }))
                 },
                 ...(esUsuarioGlobal ? [{
                   name: 'id_faena',
@@ -2205,7 +2208,7 @@ function DispatchContent() {
             setMezclas={setMezclas}
             loadData={loadData}
             frentes={frentes}
-            jornadas={jornadas}
+            jornadas={jornadasFiltro}
           />
         )}
 

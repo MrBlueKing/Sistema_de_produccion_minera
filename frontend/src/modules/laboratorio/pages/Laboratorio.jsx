@@ -18,6 +18,7 @@ import LotesLaboratorio from '../components/LotesLaboratorio';
 import ingenieriaService from '../../ingenieria/services/ingenieria';
 import api from '../../../core/services/api';
 import { useAuth } from '../../../core/context/AuthContext';
+import useJornadas from '../../../hooks/useJornadas';
 
 export default function Laboratorio() {
   const toast = useToast();
@@ -95,7 +96,8 @@ export default function Laboratorio() {
   // Debounce para la búsqueda
   const debouncedSearchTerm = useDebounce(searchTerm, 500);
 
-  const jornadas = ['AM', 'PM', 'Madrugada', 'Noche'];
+  // Filtro: todas las jornadas de dumpadas (también las apagadas), desde Configuración General.
+  const { nombresFiltro: jornadas } = useJornadas('dumpadas');
 
   useEffect(() => {
     loadMaestros();

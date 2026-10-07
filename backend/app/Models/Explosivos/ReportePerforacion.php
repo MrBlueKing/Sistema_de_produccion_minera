@@ -132,7 +132,10 @@ class ReportePerforacion extends Model
     public static function armarCodigo($fecha, $turno, $polvorinNombre, $correlativo)
     {
         $fechaFmt = Carbon::parse($fecha)->format('Y-m-d');
-        return "{$fechaFmt}-{$turno}-{$polvorinNombre}-{$correlativo}";
+        // Abreviatura de la jornada ("Turno corto" → "TC"). AM/PM/Noche/Madrugada
+        // tienen abreviatura igual al nombre: sus códigos no cambian.
+        $turnoCodigo = \App\Models\Jornada::abreviatura($turno);
+        return "{$fechaFmt}-{$turnoCodigo}-{$polvorinNombre}-{$correlativo}";
     }
 
     // MÉTODOS DE NEGOCIO
