@@ -7,6 +7,7 @@ const FrentesTrabajoHistorial = lazy(() => import('../modules/ingenieria/pages/F
 const TiposFrente           = lazy(() => import('../modules/ingenieria/pages/TiposFrente'));
 const ReportesPerforacion   = lazy(() => import('../modules/ingenieria/pages/ReportesPerforacion'));
 const Dumpadas              = lazy(() => import('../modules/dispatch/pages/Dispatch'));
+const ReporteCyt            = lazy(() => import('../modules/dispatch/pages/ReporteCyt'));
 const Laboratorio           = lazy(() => import('../modules/laboratorio/pages/Laboratorio'));
 const Muestreo              = lazy(() => import('../modules/laboratorio/pages/Muestreo'));
 const HistorialAnalisis     = lazy(() => import('../modules/laboratorio/pages/HistorialAnalisis'));
@@ -58,6 +59,13 @@ export const routesConfig = [
     path: '/dispatch/dumpadas',
     component: Dumpadas,
     label: 'Dumpadas',
+    module: 'dispatch',
+  },
+  {
+    path: '/dispatch/cyt',
+    component: ReporteCyt,
+    requiredRole: ['supervisor_cyt', 'supervisor_cyt_multifaena'],
+    label: 'Report CyT',
     module: 'dispatch',
   },
 

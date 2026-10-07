@@ -29,7 +29,7 @@ class OperadorController extends Controller
      */
     public function index(Request $request)
     {
-        $query = OperadorAutorizado::activos();
+        $query = OperadorAutorizado::activos()->tipo(OperadorAutorizado::TIPO_DUMPER);
         $this->aplicarFiltroFaena($query, $request);
 
         $operadores = $query->orderBy('nombre')->get()->map(fn ($o) => [
@@ -51,11 +51,11 @@ class OperadorController extends Controller
     {
         $idFaena = $this->getFaenaParaFiltrar($request) ?? $request->auth_faena;
 
-        $personal = $this->personalPetroleo($idFaena);
+        $personal = OperadorAutorizado::personalDePetroleo($idFaena);
         // Si con filtro de faena no vino nadie (persona sin faena asignada en
         // Petróleo), mostrar todo el personal antes que una lista vacía.
         if ($personal !== null && empty($personal) && $idFaena) {
-            $personal = $this->personalPetroleo(null);
+            $personal = OperadorAutorizado::personalDePetroleo(null);
         }
 
         if ($personal === null) {
@@ -68,7 +68,7 @@ class OperadorController extends Controller
         }
 
         $autorizadosIds = $idFaena
-            ? OperadorAutorizado::activos()->where('id_faena', $idFaena)->pluck('id_personal_externo')->all()
+            ? OperadorAutorizado::activos()->tipo(OperadorAutorizado::TIPO_DUMPER)->where('id_faena', $idFaena)->pluck('id_personal_externo')->all()
             : [];
 
         $data = collect($personal)
@@ -112,6 +112,7 @@ class OperadorController extends Controller
 
         $existente = OperadorAutorizado::where('id_personal_externo', $request->id_personal_externo)
             ->where('id_faena', $idFaena)
+            ->tipo(OperadorAutorizado::TIPO_DUMPER)
             ->first();
 
         if ($existente && $existente->activo) {
@@ -142,7 +143,7 @@ class OperadorController extends Controller
      */
     public function destroy(Request $request, $id)
     {
-        $query = OperadorAutorizado::where('id', $id);
+        $query = OperadorAutorizado::where('id', $id)->tipo(OperadorAutorizado::TIPO_DUMPER);
         $this->aplicarFiltroFaena($query, $request);
         $operador = $query->first();
 
@@ -153,29 +154,5 @@ class OperadorController extends Controller
         $operador->update(['activo' => false]);
 
         return response()->json(['mensaje' => 'Operador quitado de la lista']);
-    }
-
-    /**
-     * null = Petróleo no respondió; [] = respondió sin nadie.
-     */
-    private function personalPetroleo($idFaena): ?array
-    {
-        try {
-            $response = Http::timeout(8)
-                ->withHeaders(['X-API-Key' => config('services.petroleo_api_key')])
-                ->get(config('services.petroleo_api') . '/personal-interno-disponible', array_filter([
-                    'id_faena' => $idFaena,
-                ]));
-
-            if (!$response->successful()) {
-                Log::warning('[OPERADORES] Petróleo no respondió bien', ['status' => $response->status()]);
-                return null;
-            }
-
-            return $response->json('data') ?? [];
-        } catch (\Exception $e) {
-            Log::warning('[OPERADORES] Error al consultar Petróleo', ['message' => $e->getMessage()]);
-            return null;
-        }
     }
 }

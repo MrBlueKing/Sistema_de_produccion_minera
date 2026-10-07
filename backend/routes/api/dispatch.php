@@ -398,3 +398,16 @@ Route::prefix('tonelaje-maquinas')->group(function () {
     // Eliminar configuración (vuelve a usar default)
     Route::delete('/{id}', [TonelajeMaquinaController::class, 'destroy']);
 });
+// Report de Ciclo Carguío y Transporte (rol supervisor_cyt) — hoja del Supervisor CyT en la pala
+Route::prefix('cyt')->group(function () {
+    Route::get('/reportes', [\App\Http\Controllers\Api\Dispatch\ReporteCytController::class, 'index']);
+    Route::get('/reportes/buscar', [\App\Http\Controllers\Api\Dispatch\ReporteCytController::class, 'buscar']);
+    Route::get('/reportes/{id}', [\App\Http\Controllers\Api\Dispatch\ReporteCytController::class, 'show']);
+    Route::post('/reportes', [\App\Http\Controllers\Api\Dispatch\ReporteCytController::class, 'guardar']);
+    Route::delete('/reportes/{id}', [\App\Http\Controllers\Api\Dispatch\ReporteCytController::class, 'destroy']);
+    Route::get('/maquinas', [\App\Http\Controllers\Api\Dispatch\ReporteCytController::class, 'maquinas']);
+    Route::get('/operadores', [\App\Http\Controllers\Api\Dispatch\ReporteCytController::class, 'operadores']);
+    Route::get('/operadores/disponibles', [\App\Http\Controllers\Api\Dispatch\ReporteCytController::class, 'operadoresDisponibles']);
+    Route::post('/operadores', [\App\Http\Controllers\Api\Dispatch\ReporteCytController::class, 'autorizarOperador']);
+    Route::delete('/operadores/{id}', [\App\Http\Controllers\Api\Dispatch\ReporteCytController::class, 'quitarOperador']);
+});

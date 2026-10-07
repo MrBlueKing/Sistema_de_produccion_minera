@@ -15,6 +15,12 @@ const ALTO_PANEL_ESTIMADO = 320; // coincide con el max-h-80 que tenía el panel
  * @param {boolean} required - Campo requerido
  * @param {boolean} disabled - Campo deshabilitado
  * @param {string} emptyMessage - Mensaje cuando no hay opciones
+ * @param {string} id - id del botón (para un <label htmlFor> externo o para enfocarlo)
+ * @param {string} size - 'default' | 'md' | 'sm'
+ *
+ * Teclado: en el buscador, ↑/↓ recorren las opciones, Enter elige la marcada (la
+ * primera por defecto) y Esc cierra. Enter no se propaga, así un formulario que
+ * usa Enter para "agregar" no se dispara al elegir una opción.
  */
 export default function SearchableSelect({
   label,
@@ -27,10 +33,12 @@ export default function SearchableSelect({
   emptyMessage = 'No hay opciones disponibles',
   size = 'default',
   multiple = false,
+  id,
 }) {
   const selectedValues = multiple ? (Array.isArray(value) ? value : []) : [];
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [activo, setActivo] = useState(0);
   const [coords, setCoords] = useState({ top: 0, left: 0, width: 0, maxHeight: ALTO_PANEL_ESTIMADO });
   const [isMobile, setIsMobile] = useState(
     () => typeof window !== 'undefined' && window.innerWidth < BREAKPOINT_MOBILE
@@ -103,10 +111,29 @@ export default function SearchableSelect({
     }
   }, [isOpen]);
 
-  // Filtrar opciones por búsqueda
+  // Filtrar opciones por búsqueda, sin importar mayúsculas ni espacios
+  // ("974 m46" encuentra "NIVEL974M46N" y también "NIVEL 974M46N").
+  const normalizar = (t) => String(t).toLowerCase().replace(/\s+/g, '');
   const filteredOptions = options.filter(option =>
-    option.label.toLowerCase().includes(searchTerm.toLowerCase())
+    normalizar(option.label).includes(normalizar(searchTerm))
   );
+
+  useEffect(() => { setActivo(0); }, [searchTerm, isOpen]);
+  useEffect(() => {
+    if (!isOpen) return;
+    dropdownRef.current?.querySelector(`[data-opcion="${activo}"]`)?.scrollIntoView({ block: 'nearest' });
+  }, [activo, isOpen]);
+
+  const teclas = (e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActivo((a) => Math.min(a + 1, filteredOptions.length - 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActivo((a) => Math.max(a - 1, 0)); }
+    else if (e.key === 'Enter') {
+      e.preventDefault();
+      e.stopPropagation();
+      const opcion = filteredOptions[activo];
+      if (opcion) handleSelect(opcion.value);
+    } else if (e.key === 'Escape') { e.preventDefault(); handleClose(); triggerRef.current?.focus(); }
+  };
 
   // Obtener opción seleccionada
   const selectedOption = multiple ? null : options.find(opt => opt.value === value);
@@ -134,6 +161,8 @@ export default function SearchableSelect({
     onChange(optionValue);
     setIsOpen(false);
     setSearchTerm('');
+    // Devolver el foco al campo para seguir con Tab sin tomar el mouse.
+    setTimeout(() => triggerRef.current?.focus(), 0);
   };
 
   const handleClear = (e) => {
@@ -190,15 +219,17 @@ export default function SearchableSelect({
         {searchTerm ? 'No se encontraron resultados' : emptyMessage}
       </div>
     ) : (
-      filteredOptions.map((option) => {
+      filteredOptions.map((option, i) => {
         const marcada = multiple ? selectedValues.includes(option.value) : option.value === value;
         return (
           <button
             key={option.value}
             type="button"
+            data-opcion={i}
             onClick={() => handleSelect(option.value)}
-            className={`w-full px-4 py-3 text-left hover:bg-blue-50 transition-colors flex items-center gap-2 ${
-              marcada ? 'bg-blue-100 text-blue-700 font-semibold' : 'text-gray-900'
+            onMouseEnter={() => setActivo(i)}
+            className={`w-full px-4 py-3 text-left transition-colors flex items-center gap-2 ${
+              marcada ? 'bg-blue-100 text-blue-700 font-semibold' : i === activo ? 'bg-blue-50 text-gray-900' : 'text-gray-900'
             }`}
           >
             {multiple && (
@@ -229,11 +260,12 @@ export default function SearchableSelect({
       {/* Trigger Button */}
       <button
         ref={triggerRef}
+        id={id}
         type="button"
         onClick={toggleOpen}
         disabled={disabled}
         className={`w-full text-left bg-white border rounded-lg flex items-center justify-between transition-all ${
-          size === 'sm' ? 'px-2 py-1 text-xs' : 'px-3 py-2.5 text-sm'
+          size === 'sm' ? 'px-2 py-1 text-xs' : size === 'md' ? 'px-2 py-1.5 text-sm' : 'px-3 py-2.5 text-sm'
         } ${
           disabled
             ? 'bg-gray-100 cursor-not-allowed text-gray-500'
@@ -277,6 +309,7 @@ export default function SearchableSelect({
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
+                onKeyDown={teclas}
                 placeholder="Buscar..."
                 className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
@@ -314,6 +347,7 @@ export default function SearchableSelect({
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
+                onKeyDown={teclas}
                 placeholder="Buscar..."
                 className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
