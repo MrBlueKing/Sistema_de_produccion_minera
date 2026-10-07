@@ -117,10 +117,12 @@ class GerencialController extends Controller
             $lotesCerrados = $cerradosQuery->count();
 
             // Tonelaje total de lotes (sumando peso de camionadas asociadas a lotes
-            // creados en el período — mismo criterio fecha_creacion que arriba)
+            // creados en el período — mismo criterio fecha_creacion que arriba), solo
+            // camionadas despachadas hasta el final del período (ver reporteProduccion()).
             $tonelajeLotes = DB::table('camionadas')
                 ->join('lotes', 'camionadas.lote_id', '=', 'lotes.id')
                 ->whereBetween('lotes.fecha_creacion', [$fechaInicio, $fechaFin])
+                ->where('camionadas.fecha_despacho', '<=', $fechaFin)
                 ->when($idFaena, function ($q) use ($idFaena) {
                     return $q->where('lotes.id_faena', $idFaena);
                 })
@@ -157,10 +159,14 @@ class GerencialController extends Controller
             // el KPI de junio del sistema, pero el Excel lo reporta completo en mayo).
             // peso_real es el peso real confirmado al recepcionar cada camionada;
             // solo se cuentan las camionadas YA recepcionadas (whereNotNull).
+            // 07-10-2026: además, solo camionadas DESPACHADAS hasta el final del período
+            // (ver reporteProduccion()). Su peso real cuenta aunque se recepcione después:
+            // el lote y el despacho son del período (decisión del usuario, opción "a").
             $queryRecepcion = DB::table('camionadas')
                 ->join('lotes', 'camionadas.lote_id', '=', 'lotes.id')
                 ->whereNotNull('camionadas.peso_real')
-                ->whereBetween('lotes.fecha_creacion', [$fechaInicio, $fechaFin]);
+                ->whereBetween('lotes.fecha_creacion', [$fechaInicio, $fechaFin])
+                ->where('camionadas.fecha_despacho', '<=', $fechaFin);
             if ($idFaena) {
                 $queryRecepcion->where('lotes.id_faena', $idFaena);
             }
@@ -286,7 +292,18 @@ class GerencialController extends Controller
             $filas = DB::table('lotes')
                 ->leftJoin('empresas', 'lotes.empresa_id', '=', 'empresas.id')
                 ->leftJoin('plantas',  'lotes.planta_id',  '=', 'plantas.id')
-                ->leftJoin('camionadas', 'camionadas.lote_id', '=', 'lotes.id')
+                // Regla (07-10-2026, pedido de gerencia): entran los lotes CREADOS en el
+                // período (manda la fecha del lote, igual que el reporte mensual en Excel)
+                // y de esos lotes solo las camionadas DESPACHADAS hasta el final del
+                // período. Así, filtrando "hasta ayer" no aparecen las camionadas que
+                // salieron hoy de un lote creado antes. El peso real de una camionada
+                // despachada en el período cuenta aunque se recepcione después.
+                // La condición va en el JOIN (no en el WHERE) para no perder lotes sin
+                // camionadas todavía.
+                ->leftJoin('camionadas', function ($j) use ($fechaFin) {
+                    $j->on('camionadas.lote_id', '=', 'lotes.id')
+                      ->where('camionadas.fecha_despacho', '<=', $fechaFin);
+                })
                 ->whereBetween('lotes.fecha_creacion', [$fechaInicio, $fechaFin])
                 ->when($idFaena, fn($q) => $q->where('lotes.id_faena', $idFaena))
                 ->select(
@@ -557,7 +574,13 @@ class GerencialController extends Controller
         // id_faena acepta múltiples ids separados por coma (selector de faenas del
         // Dashboard Gerencial) además del caso simple de un solo id.
         $conDetalle = $request->boolean('con_detalle');
-        $query = Lote::with($conDetalle ? ['planta', 'empresa', 'camionadas'] : ['planta', 'empresa'])
+        // Detalle de "Por Empresa y Planta": cada lote solo con sus camionadas despachadas
+        // hasta el final del período, igual que la fila de la tabla (reporteProduccion()).
+        // Los totales del lote (peso recibido, pendiente, leyes) salen de esta relación cargada.
+        $camionadas = $conDetalle && $request->filled('fecha_hasta')
+            ? ['camionadas' => fn($q) => $q->where('fecha_despacho', '<=', $request->fecha_hasta)]
+            : ['camionadas'];
+        $query = Lote::with($conDetalle ? array_merge(['planta', 'empresa'], $camionadas) : ['planta', 'empresa'])
             ->orderBy('fecha_creacion', 'desc');
 
         if ($request->filled('id_faena')) {
