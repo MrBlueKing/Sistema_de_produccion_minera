@@ -17,6 +17,7 @@ import { FaIndustry, FaMountain } from 'react-icons/fa';
 import ReconstruccionLote from './ReconstruccionLote';
 import PerforacionTronaduraDashboard from '../../../explosivos/components/PerforacionTronaduraDashboard';
 import CiclosDumper from './CiclosDumper';
+import PlanVsReal from './PlanVsReal';
 import InfoPopover from '../../../../shared/components/molecules/InfoPopover';
 import { CATEGORICAL, crearAsignadorDeFrentes } from '../../utils/chartColors';
 import useDebounce from '../../../../hooks/useDebounce';
@@ -904,6 +905,7 @@ export const ProduccionCompleta = () => {
           { id: 'tiros', label: 'Perforación y Tronadura' },
           { id: 'dumpadas', label: 'Resumen de Dumpadas' },
           { id: 'ciclos', label: 'Ciclos del Dumper' },
+          { id: 'planvsreal', label: 'Plan vs Real' },
           { id: 'lotes', label: 'Resumen de Lotes' },
           { id: 'trazabilidad', label: 'Trazabilidad de Lote' },
         ].map(v => (
@@ -945,6 +947,27 @@ export const ProduccionCompleta = () => {
             <PerforacionTronaduraDashboard
               data={perforacion}
               loading={perforacionLoading}
+              nombreFaena={(id) => faenasConDatos.find(f => f.id === id)?.name ?? `Faena ${id}`}
+            />
+          )}
+        </>
+      )}
+
+      {vista === 'planvsreal' && (
+        <>
+          {faenasConDatos.length > 0 && (
+            <SelectorFaenasGrid
+              faenas={faenasConDatos}
+              mode="multi"
+              selectedFaenas={selectedFaenas}
+              onToggle={handleFaenaToggle}
+              loading={loading}
+            />
+          )}
+
+          {!ningunaSeleccionada && (
+            <PlanVsReal
+              faenaIds={faenasConDatos.filter(f => selectedFaenas.includes(f.name)).map(f => f.id)}
               nombreFaena={(id) => faenasConDatos.find(f => f.id === id)?.name ?? `Faena ${id}`}
             />
           )}

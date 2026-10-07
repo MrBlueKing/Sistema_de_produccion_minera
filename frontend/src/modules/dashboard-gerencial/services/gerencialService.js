@@ -46,6 +46,19 @@ const gerencialService = {
     return response.data;
   },
 
+  // Plan vs Real: plan PUBLICADO del mes + dumpadas y tronaduras reales sin procesar
+  // (el cálculo de cumplimiento se hace en PlanVsReal.jsx). id_faena = "1,2".
+  getPlanVsReal: async (params = {}, signal) => {
+    const response = await api.get('/gerencial/plan-vs-real', { params, signal });
+    return response.data;
+  },
+
+  // Dumpadas de un frente en un día (detalle de una fila de Plan vs Real)
+  getPlanVsRealDumpadas: async (params = {}) => {
+    const response = await api.get('/gerencial/plan-vs-real/dumpadas', { params });
+    return response.data;
+  },
+
   getLote: async (id) => {
     const response = await api.get(`/gerencial/lotes/${id}`);
     return response.data;

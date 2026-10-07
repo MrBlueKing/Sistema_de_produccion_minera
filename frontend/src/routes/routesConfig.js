@@ -15,6 +15,7 @@ const Explosivos            = lazy(() => import('../modules/explosivos/pages/Exp
 const DashboardCertificados = lazy(() => import('../modules/dashboard-gerencial/pages/DashboardCertificados'));
 const DashboardOperaciones  = lazy(() => import('../modules/dashboard-gerencial/pages/DashboardOperaciones'));
 const DashboardComercial    = lazy(() => import('../modules/dashboard-gerencial/pages/DashboardComercial'));
+const DashboardPlanificacion = lazy(() => import('../modules/dashboard-gerencial/pages/DashboardPlanificacion'));
 const ConfiguracionGeneral  = lazy(() => import('../modules/configuracion/pages/ConfiguracionGeneral'));
 
 export const routesConfig = [
@@ -126,6 +127,14 @@ export const routesConfig = [
     label: 'Tarifas y Liquidaciones',
     module: 'gerencial',
   },
+  {
+    path: '/dashboard-gerencial/planificacion',
+    component: DashboardPlanificacion,
+    requiredRole: 'PlanificadorProduccion',
+    label: 'Planificación',
+    module: 'gerencial',
+  },
+
   // ========================================
   // MÓDULO: CONFIGURACIÓN GENERAL (ajustes compartidos entre módulos)
   // ========================================

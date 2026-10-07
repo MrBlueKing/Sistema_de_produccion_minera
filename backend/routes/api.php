@@ -34,6 +34,8 @@ Route::middleware(['validate.token'])->group(function () {
         Route::get('/resumen-dumpadas', [GerencialController::class, 'resumenDumpadas']);
         Route::get('/perforacion-tronadura', [GerencialController::class, 'perforacionTronadura']);
         Route::get('/ciclos-dumper', [GerencialController::class, 'ciclosDumper']);
+        Route::get('/plan-vs-real', [\App\Http\Controllers\Api\Planificacion\PlanVsRealController::class, 'index']);
+        Route::get('/plan-vs-real/dumpadas', [\App\Http\Controllers\Api\Planificacion\PlanVsRealController::class, 'dumpadas']);
         Route::get('/plantas', [GerencialController::class, 'plantas']);
         Route::get('/empresas', [GerencialController::class, 'empresas']);
         Route::get('/certificados-resumen', [GerencialController::class, 'certificadosResumen']);
@@ -63,6 +65,16 @@ Route::middleware(['validate.token'])->group(function () {
     Route::post('/jornadas', [\App\Http\Controllers\Api\JornadaController::class, 'store']);
     Route::put('/jornadas/orden', [\App\Http\Controllers\Api\JornadaController::class, 'ordenar']);
     Route::put('/jornadas/{id}', [\App\Http\Controllers\Api\JornadaController::class, 'update']);
+
+    // Programa de producción mensual (tile Planificación). Leer: cualquiera; cambiar: PlanificadorProduccion.
+    Route::prefix('planificacion')->group(function () {
+        Route::get('/planes', [\App\Http\Controllers\Api\Planificacion\PlanProduccionController::class, 'show']);
+        Route::post('/planes', [\App\Http\Controllers\Api\Planificacion\PlanProduccionController::class, 'store']);
+        Route::put('/planes/{id}', [\App\Http\Controllers\Api\Planificacion\PlanProduccionController::class, 'update']);
+        Route::post('/planes/{id}/publicar', [\App\Http\Controllers\Api\Planificacion\PlanProduccionController::class, 'publicar']);
+        Route::post('/planes/{id}/reabrir', [\App\Http\Controllers\Api\Planificacion\PlanProduccionController::class, 'reabrir']);
+        Route::delete('/planes/{id}', [\App\Http\Controllers\Api\Planificacion\PlanProduccionController::class, 'destroy']);
+    });
 
     // Integración con Sistema de Petróleo
     Route::prefix('petroleo')->group(function () {
