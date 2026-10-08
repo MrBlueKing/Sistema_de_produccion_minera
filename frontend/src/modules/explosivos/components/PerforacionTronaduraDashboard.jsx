@@ -140,7 +140,9 @@ function TooltipDia({ active, payload, turnos }) {
                     <span className="font-medium text-gray-700">{f.frente}</span>
                     <span className="font-mono font-semibold">{fmt(f.tiros)} tiros</span>
                   </div>
-                  <p className="text-[10px] text-gray-400 text-right">{f.turnos.join(' · ')}</p>
+                  <p className="text-[10px] text-gray-400 text-right">
+                    {f.turnos.map((t) => `${t} ${fmt(f.porTurno[t])}`).join(' · ')}
+                  </p>
                 </div>
               ))}
             </div>
@@ -201,9 +203,12 @@ export default function PerforacionTronaduraDashboard({ data, loading = false, n
     data.frente_dia.forEach((r) => {
       if (!porDia[r.fecha]) return;
       const dia = (frentesDia[r.fecha] ||= {});
-      const f = (dia[r.id_frente_trabajo] ||= { id: r.id_frente_trabajo, frente: r.frente, tiros: 0, turnos: new Set() });
+      const f = (dia[r.id_frente_trabajo] ||= { id: r.id_frente_trabajo, frente: r.frente, tiros: 0, turnos: new Set(), porTurno: {} });
       f.tiros += r.tiros;
-      if (r.turno) f.turnos.add(r.turno);
+      if (r.turno) {
+        f.turnos.add(r.turno);
+        f.porTurno[r.turno] = (f.porTurno[r.turno] || 0) + r.tiros;
+      }
     });
     Object.entries(frentesDia).forEach(([fecha, dia]) => {
       porDia[fecha].frentes = Object.values(dia)
