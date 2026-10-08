@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { HiChevronDown, HiMagnifyingGlass, HiXMark } from 'react-icons/hi2';
 
 const BREAKPOINT_MOBILE = 640; // Tailwind 'sm'
@@ -293,13 +294,19 @@ export default function SearchableSelect({
         </div>
       </button>
 
-      {isOpen && isMobile && (
+      {/* La hoja (mobile) y el dropdown (desktop) se dibujan en <body> con un portal:
+          si el select vive dentro de algo con z-index propio (ej. la columna fija de
+          la grilla de Planificación, z-10), el panel quedaba atrapado debajo de la
+          cabecera fija aunque tuviera z-50. z-[1000]: sobre modales (z-50), bajo los
+          toasts (z-[9999]). dropdownRef sigue apuntando al panel, así que el clic
+          fuera y el scroll interno funcionan igual. */}
+      {isOpen && isMobile && createPortal(
         /* Hoja de pantalla completa (mobile): sin coordenadas fijas que calcular,
            así que no hay nada que el teclado pueda desalinear. El buscador queda
            fijo arriba y la lista scrollea debajo, igual que un picker nativo. */
         <div
           ref={dropdownRef}
-          className="fixed inset-0 z-50 bg-white flex flex-col"
+          className="fixed inset-0 z-[1000] bg-white flex flex-col"
         >
           <div className="flex items-center gap-2 p-3 border-b border-gray-200 bg-gray-50 flex-shrink-0">
             <div className="relative flex-1">
@@ -326,10 +333,11 @@ export default function SearchableSelect({
           <div className="flex-1 overflow-y-auto">
             {listaOpciones}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
 
-      {isOpen && !isMobile && (
+      {isOpen && !isMobile && createPortal(
         /* Dropdown desktop — position:fixed calculado desde el trigger (ver
            toggleOpen) para no quedar recortado por contenedores con scroll (ej.
            tablas con overflow-x-auto), y con flip hacia arriba + alto acotado
@@ -337,7 +345,7 @@ export default function SearchableSelect({
         <div
           ref={dropdownRef}
           style={coords}
-          className="fixed z-50 bg-white border border-gray-300 rounded-lg shadow-lg overflow-hidden flex flex-col"
+          className="fixed z-[1000] bg-white border border-gray-300 rounded-lg shadow-lg overflow-hidden flex flex-col"
         >
           <div className="p-3 border-b border-gray-200 bg-gray-50 flex-shrink-0">
             <div className="relative">
@@ -357,7 +365,8 @@ export default function SearchableSelect({
           <div className="flex-1 overflow-y-auto">
             {listaOpciones}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
