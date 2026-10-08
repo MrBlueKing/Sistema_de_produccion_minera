@@ -33,11 +33,12 @@ class PerforacionTronaduraService
             ->groupBy('r.id_faena', 'r.fecha', 'r.turno')
             ->get();
 
-        // Tiros por frente y día (mapa de calor).
+        // Tiros por frente, día y turno (mapa de calor y detalle del día en
+        // "Tiros por día y turno"; el mapa suma los turnos de cada día).
         $frenteDia = $conLineas()
             ->join('frentes_trabajo as ft', 'ft.id', '=', 'l.id_frente_trabajo')
-            ->selectRaw('r.id_faena, l.id_frente_trabajo, ft.codigo_completo as frente, r.fecha, SUM(l.numero_tiros) as tiros')
-            ->groupBy('r.id_faena', 'l.id_frente_trabajo', 'ft.codigo_completo', 'r.fecha')
+            ->selectRaw('r.id_faena, l.id_frente_trabajo, ft.codigo_completo as frente, r.fecha, r.turno, SUM(l.numero_tiros) as tiros')
+            ->groupBy('r.id_faena', 'l.id_frente_trabajo', 'ft.codigo_completo', 'r.fecha', 'r.turno')
             ->get();
 
         // Lo extraído (dumpadas) por día y por frente, con la ley Cu Insoluble
@@ -112,7 +113,7 @@ class PerforacionTronaduraService
             ])->values(),
             'frente_dia' => $frenteDia->map(fn ($r) => [
                 'id_faena' => (int) $r->id_faena, 'id_frente_trabajo' => (int) $r->id_frente_trabajo,
-                'frente' => $r->frente, 'fecha' => $r->fecha, 'tiros' => (int) $r->tiros,
+                'frente' => $r->frente, 'fecha' => $r->fecha, 'turno' => $r->turno, 'tiros' => (int) $r->tiros,
             ])->values(),
             'ton_dia' => $tonDia->map(fn ($r) => [
                 'id_faena' => (int) $r->id_faena, 'fecha' => $r->fecha, 'ton' => $num($r->ton),

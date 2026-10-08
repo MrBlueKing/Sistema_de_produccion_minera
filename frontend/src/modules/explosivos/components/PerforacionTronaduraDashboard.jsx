@@ -131,6 +131,20 @@ function TooltipDia({ active, payload, turnos }) {
           <div className="flex justify-between text-gray-500 mt-0.5">
             <span>Metros perforados</span><span className="font-mono">{fmt(row.metros)} m</span>
           </div>
+          {row.frentes?.length > 0 && (
+            <div className="border-t mt-1.5 pt-1.5">
+              <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1">Frentes perforados</p>
+              {row.frentes.map((f) => (
+                <div key={f.id} className="mb-1 last:mb-0">
+                  <div className="flex justify-between gap-3">
+                    <span className="font-medium text-gray-700">{f.frente}</span>
+                    <span className="font-mono font-semibold">{fmt(f.tiros)} tiros</span>
+                  </div>
+                  <p className="text-[10px] text-gray-400 text-right">{f.turnos.join(' · ')}</p>
+                </div>
+              ))}
+            </div>
+          )}
         </>
       ) : (
         <p className="text-gray-500">Sin reportes</p>
@@ -180,6 +194,22 @@ export default function PerforacionTronaduraDashboard({ data, loading = false, n
       x.metros += r.metros;
     });
     data.ton_dia.forEach((r) => { if (porDia[r.fecha]) porDia[r.fecha].ton += r.ton; });
+
+    // Frentes perforados cada día (detalle del tooltip), con los turnos en que se perforó.
+    const ordenTurno = (t) => { const i = TURNOS.findIndex((x) => x.id === t); return i < 0 ? 99 : i; };
+    const frentesDia = {};
+    data.frente_dia.forEach((r) => {
+      if (!porDia[r.fecha]) return;
+      const dia = (frentesDia[r.fecha] ||= {});
+      const f = (dia[r.id_frente_trabajo] ||= { id: r.id_frente_trabajo, frente: r.frente, tiros: 0, turnos: new Set() });
+      f.tiros += r.tiros;
+      if (r.turno) f.turnos.add(r.turno);
+    });
+    Object.entries(frentesDia).forEach(([fecha, dia]) => {
+      porDia[fecha].frentes = Object.values(dia)
+        .map((f) => ({ ...f, turnos: [...f.turnos].sort((a, b) => ordenTurno(a) - ordenTurno(b)) }))
+        .sort((a, b) => b.tiros - a.tiros);
+    });
 
     // Participación por turno
     const turnos = TURNOS.map((t) => {
