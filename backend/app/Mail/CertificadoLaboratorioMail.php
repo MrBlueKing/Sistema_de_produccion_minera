@@ -35,7 +35,14 @@ class CertificadoLaboratorioMail extends Mailable
             ? "Certificado de Laboratorio N° {$numeros[0]}"
             : 'Certificados de Laboratorio N° ' . implode(', ', $numeros);
 
-        return new Envelope(subject: $subject);
+        // Copia oculta a la casilla remitente (notificaciones@m3h.cl): deja registro
+        // de cada correo enviado con su PDF adjunto, para revisarlo ante un reclamo.
+        $copia = config('mail.from.address');
+
+        return new Envelope(
+            subject: $subject,
+            bcc: $copia ? [$copia] : [],
+        );
     }
 
     public function content(): Content
